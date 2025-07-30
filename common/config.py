@@ -1,16 +1,27 @@
-# config.py
-"""
-환경 변수 및 설정값 로딩을 위한 Pydantic 설정 클래스
-"""
-from pydantic import BaseSettings
+# common/config.py
+
+from pydantic import BaseSettings, Field
+from functools import lru_cache
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "U+콕 홈쇼핑 추천 서비스"
-    DEBUG: bool = True
-    DATABASE_URL: str = "mysql://user:password@localhost/db"
-    JWT_SECRET: str = "your_secret_key"
+    # 🔐 JWT 인증 설정
+    jwt_secret: str = Field(..., env="JWT_SECRET")
+    jwt_algorithm: str = Field("HS256", env="JWT_ALGORITHM")
+    access_token_expire_minutes: int = Field(30, env="ACCESS_TOKEN_EXPIRE_MINUTES")
+
+    # 🌐 DB 연결
+    mariadb_url: str = Field(..., env="MARIADB_URL")       # 서비스용 DB
+    postgres_url: str = Field(..., env="POSTGRES_URL")     # 로그, 추천용 DB
+
+    # ⚙️ 앱 설정
+    app_name: str = Field("U+콕 레시피 추천 서비스", env="APP_NAME")
+    debug: bool = Field(False, env="DEBUG")
 
     class Config:
         env_file = ".env"
+        env_file_encoding = "utf-8"
 
-settings = Settings()
+
+@lru_cache()
+def get_settings() -> Settings:
+    return Settings()
