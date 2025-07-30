@@ -24,7 +24,7 @@ backend/
 │   │   ├── routers/user_router.py
 │   │   ├── models/user_model.py
 │   │   ├── schemas/user_schema.py
-│   │   ├── services/user_service.py
+│   │   ├── crud/user_crud.py
 │   │   └── database.py
 │
 │   ├── kok/                            # U+콕 상품 조회/검색
@@ -32,7 +32,7 @@ backend/
 │   │   ├── routers/kok_router.py
 │   │   ├── models/product_model.py
 │   │   ├── schemas/product_schema.py
-│   │   ├── services/kok_service.py
+│   │   ├── crud/kok_crud.py
 │   │   └── database.py
 │
 │   ├── home_shopping/                 # 홈쇼핑 방송, 편성표
@@ -40,7 +40,7 @@ backend/
 │   │   ├── routers/home_router.py
 │   │   ├── models/show_model.py
 │   │   ├── schemas/show_schema.py
-│   │   ├── services/show_service.py
+│   │   ├── crud/show_crud.py
 │   │   └── database.py
 │
 │   ├── recipe/                        # 레시피 추천
@@ -48,7 +48,7 @@ backend/
 │   │   ├── routers/recipe_router.py
 │   │   ├── models/recipe_model.py
 │   │   ├── schemas/recipe_schema.py
-│   │   ├── services/recipe_service.py
+│   │   ├── crud/recipe_crud.py
 │   │   └── database.py
 │
 │   ├── recommend/                     # 추천 알고리즘 (word2vec, BERT, faiss)
@@ -57,7 +57,7 @@ backend/
 │   │   ├── rankers/bert_ranker.py
 │   │   ├── rankers/word2vec_ranker.py
 │   │   ├── vector_store/faiss_loader.py
-│   │   ├── services/recommend_service.py
+│   │   ├── crud/recommend_crud.py
 │   │   └── database.py
 │
 │   └── log/                           # 사용자 행동 로그 수집
@@ -65,13 +65,15 @@ backend/
 │       ├── routers/log_router.py
 │       ├── models/log_model.py
 │       ├── schemas/log_schema.py
-│       └── services/log_service.py
+│       └── crud/log_crud.py
 │
 ├── common/                            # 공통 유틸, 인증, 예외처리
 │   ├── auth/jwt_handler.py
 │   ├── config.py
+│   ├── dependencies.py
 │   ├── errors.py
-│   └── logger.py
+│   ├── logger.py
+│   └── utils.py
 │
 ├── docker/                            # Docker 로컬 실행 환경
 │   ├── docker-compose.yml
