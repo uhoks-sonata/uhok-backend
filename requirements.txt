@@ -22,6 +22,6 @@ websockets==11.0.3
 
 # 인증 및 보안 관련
 passlib[bcrypt]==1.7.4
-pydantic[email]
+pydantic[email]  # pydantic 버전과 동일
 python-jose==3.3.0
 python-multipart==0.0.9
