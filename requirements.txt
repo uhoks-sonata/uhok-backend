@@ -24,3 +24,4 @@ websockets==15.0.1             # WebSocket 구현 (FastAPI 실시간 통신 기�
 passlib[bcrypt]==1.7.4         # 비밀번호 해싱 라이브러리 (bcrypt 포함, 로그인 기능 구현 시 사용)
 python-jose==3.5.0             # JWT 토큰 생성 및 검증 (서버 인증/인가에 사용)
 python-multipart==0.0.20       # 파일 업로드/멀티파트 폼 파싱 지원 (FastAPI에서 Form, UploadFile 지원)
+pymysql==1.1.1                 # SQLAlchemy와 MariaDB/MySQL 연동용 드라이버
