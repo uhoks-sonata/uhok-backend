@@ -7,6 +7,8 @@ from services.user.database import Base, engine  # ORM Base, DB 엔진 임포트
 
 app = FastAPI(title="User Service")  # FastAPI 앱 인스턴스 생성, 서비스명 지정
 
-Base.metadata.create_all(bind=engine)  # DB에 ORM 모델에 해당하는 테이블 자동 생성
+## DB에 ORM 모델에 해당하는 테이블 자동 생성
+## 이미 DB에 생성되어 있음.
+# Base.metadata.create_all(bind=engine)
 
 app.include_router(user_router.router)  # user 관련 API 라우터 등록
