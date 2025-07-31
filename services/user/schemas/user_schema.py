@@ -58,6 +58,6 @@ class UserOut(BaseModel):
 class UserSettingOut(BaseModel):
     """
     사용자 설정 응답 스키마
-    - receive_alerts: 홈쇼핑 방송 알림 수신 여부
+    - receive_notification: 홈쇼핑 방송 알림 수신 여부
     """
-    receive_alerts: bool    # 알림 수신 여부 (True/False)
+    receive_notification: bool    # 알림 수신 여부 (True/False)
