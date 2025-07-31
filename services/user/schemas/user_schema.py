@@ -51,7 +51,9 @@ class UserOut(BaseModel):
     created_at: str         # 가입 시각 (문자열 반환)
 
     class Config:
-        orm_mode = True    # ORM 객체 -> 스키마 자동 변환 지원
+        # orm_mode = True    # ORM 객체 -> 스키마 자동 변환 지원
+        # Pydantic V2부터 from_attributes 사용
+        from_attributes = True
 
 class UserSettingOut(BaseModel):
     """
