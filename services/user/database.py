@@ -9,7 +9,7 @@ from common.config import get_settings  # 환경변수/설정 정보 불러오�
 
 settings = get_settings()  # .env 등에서 설정 불러오기 (DB URL 등)
 
-engine = create_engine(settings.mariadb_url, pool_pre_ping=True)  # MariaDB 엔진(연결) 생성, 커넥션 재사용 및 연결 끊김 자동 감지
+engine = create_engine(settings.mariadb_auth_url, pool_pre_ping=True)  # MariaDB 엔진(연결) 생성, 커넥션 재사용 및 연결 끊김 자동 감지
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)  # DB 세션 팩토리, 트랜잭션 단위 제어 (commit 직접)
 Base = declarative_base()  # ORM 모델의 부모 클래스 (모든 ORM 모델이 이걸 상속)
 
