@@ -3,6 +3,7 @@ User 관련 Pydantic 스키마 정의 모듈
 """
 
 from pydantic import BaseModel, EmailStr, Field
+from datetime import datetime
 
 class UserCreate(BaseModel):
     """
@@ -48,7 +49,7 @@ class UserOut(BaseModel):
     user_id: int            # 사용자 고유 ID (DB PK)
     email: EmailStr         # 이메일 주소
     username: str           # 닉네임
-    created_at: str         # 가입 시각 (문자열 반환)
+    created_at: datetime         # 가입 시각
 
     class Config:
         # orm_mode = True       # ORM 객체 -> 스키마 자동 변환 지원

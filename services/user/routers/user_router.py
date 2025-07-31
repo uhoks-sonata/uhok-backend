@@ -2,7 +2,7 @@
 User API 엔드포인트 (회원가입, 로그인)
 """
 
-from fastapi import APIRouter, Depends, status, Query
+from fastapi import APIRouter, Depends, status, Query, Request
 from pydantic import EmailStr
 from sqlalchemy.orm import Session
 from common.errors import BadRequestException, ConflictException, NotAuthenticatedException
@@ -27,6 +27,21 @@ def signup(user: UserCreate, db: Session = Depends(get_db)):
         raise ConflictException("이미 가입된 이메일입니다.")
     new_user = create_user(db, str(user.email), user.password, user.username)
     return new_user
+
+# @router.post("/signup", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+# async def signup(user: UserCreate, db: Session = Depends(get_db), request: Request = None):
+#     try:
+#         if user.password != user.password_confirm:
+#             raise BadRequestException("비밀번호와 비밀번호 확인이 일치하지 않습니다.")
+#         if get_user_by_email(db, str(user.email)):
+#             raise ConflictException("이미 가입된 이메일입니다.")
+#         new_user = create_user(db, str(user.email), user.password, user.username)
+#         return new_user
+#     except Exception as e:
+#         print("----예외 발생!----")
+#         print(e)
+#         traceback.print_exc()
+#         raise e
 
 @router.get("/signup/email/check", response_model=EmailDuplicateCheckResponse)
 def check_email_duplicate(
