@@ -1,18 +1,21 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, func
+"""
+User ORM 모델 정의
+"""
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
 from services.user.database import Base
+from datetime import datetime
 
 class User(Base):
     __tablename__ = "users"
 
-    user_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    email = Column(String(255), unique=True, nullable=False, index=True)
+    user_id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(255), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     username = Column(String(100))
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     settings = relationship("UserSetting", back_populates="user", uselist=False)
-
 
 class UserSetting(Base):
     __tablename__ = "user_settings"
