@@ -2,10 +2,11 @@
 User API 엔드포인트 (회원가입, 로그인)
 """
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, Query
+from pydantic import EmailStr
 from sqlalchemy.orm import Session
 from common.errors import BadRequestException, ConflictException, NotAuthenticatedException
-from services.user.schemas.user_schema import UserCreate, UserLogin, UserOut
+from services.user.schemas.user_schema import UserCreate, UserLogin, UserOut, EmailDuplicateCheckResponse
 from services.user.crud.user_crud import get_user_by_email, create_user, verify_password
 from services.user.database import get_db
 from common.auth.jwt_handler import create_access_token
@@ -26,6 +27,24 @@ def signup(user: UserCreate, db: Session = Depends(get_db)):
         raise ConflictException("이미 가입된 이메일입니다.")
     new_user = create_user(db, str(user.email), user.password, user.username)
     return new_user
+
+@router.get("/signup/email/check", response_model=EmailDuplicateCheckResponse)
+def check_email_duplicate(
+    email: EmailStr = Query(..., description="중복 확인할 이메일"),
+    db: Session = Depends(get_db)
+):
+    """
+    회원가입 - 이메일 중복 여부 확인 API
+    - 이미 가입된 이메일이면 is_duplicate=True, 아니면 False 반환
+    - 안내 메시지도 함께 반환
+    """
+    is_dup = get_user_by_email(db, str(email)) is not None
+    if is_dup:
+        msg = "이미 존재하는 아이디입니다."
+    else:
+        msg = "사용 가능한 아이디입니다."
+    return EmailDuplicateCheckResponse(email=email, is_duplicate=is_dup, message=msg)
+
 
 @router.post("/login")
 def login(user: UserLogin, db: Session = Depends(get_db)):
