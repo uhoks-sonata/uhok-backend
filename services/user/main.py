@@ -6,8 +6,17 @@ from fastapi.responses import JSONResponse
 from services.user.routers import user_router
 from services.user.database import Base, engine
 import traceback
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="User Service")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # 프론트엔드 도메인
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(user_router.router)
 Base.metadata.create_all(bind=engine)
 
