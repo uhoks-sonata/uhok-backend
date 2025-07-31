@@ -22,7 +22,7 @@ def signup(user: UserCreate, db: Session = Depends(get_db)):
         - 신규 User row 및 UserSetting row 생성
     """
     if user.password != user.password_confirm:
-        raise BadRequestException("비밀번호와 비밀번호 확인이 일치하지 않습니다.")
+        raise BadRequestException("비밀번호가 일치하지 않습니다.")
     if get_user_by_email(db, str(user.email)):
         raise ConflictException("이미 가입된 이메일입니다.")
     new_user = create_user(db, str(user.email), user.password, user.username)
