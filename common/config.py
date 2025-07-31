@@ -7,14 +7,16 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     jwt_secret: str = Field(..., env="JWT_SECRET")
-    jwt_algorithm: str = Field("HS256", env="JWT_ALGORITHM")
+    jwt_algorithm: str = Field(..., env="JWT_ALGORITHM")
     access_token_expire_minutes: int = Field(..., env="ACCESS_TOKEN_EXPIRE_MINUTES")
 
-    mariadb_url: str = Field(..., env="MARIADB_URL")
-    postgres_url: str = Field(..., env="POSTGRES_URL")
+    mariadb_auth_url: str = Field(..., env="MARIADB_AUTH_URL")
+    # mariadb_service_url: str = Field(..., env="MARIADB_SERVICE_URL")
+    # postgres_log_url: str = Field(..., env="POSTGRES_LOG_URL")
+    # postgres_recommend_url: str = Field(..., env="POSTGRES_RECOMMEND_URL")
 
-    app_name: str = Field("U+콕 레시피 추천 서비스", env="APP_NAME")
-    debug: bool = Field(False, env="DEBUG")
+    app_name: str = Field(..., env="APP_NAME")
+    debug: bool = Field(..., env="DEBUG")
 
     class Config:
         env_file = os.path.join(os.path.dirname(__file__), "..", ".env")
