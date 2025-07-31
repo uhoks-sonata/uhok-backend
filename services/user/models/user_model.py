@@ -18,10 +18,13 @@ class User(Base):
     settings = relationship("UserSetting", back_populates="user", uselist=False)
 
 class UserSetting(Base):
+    """
+        사용자 설정 테이블 ORM 모델
+    """
     __tablename__ = "USER_SETTINGS"
 
     setting_id = Column("SETTING_ID", Integer, primary_key=True, autoincrement=True)
     user_id = Column("USER_ID", Integer, ForeignKey("users.user_id"), nullable=False, unique=True)
-    receive_notification = Column("REVEICE_NOTIFICATION", default=True)
+    receive_notification = Column("RECEIVE_NOTIFICATION", default=True)
 
     user = relationship("User", back_populates="settings")
