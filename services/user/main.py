@@ -12,11 +12,12 @@ app = FastAPI(title="User Service")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # 프론트엔드 도메인
+    allow_origins=["http://localhost:3001"],  # 프론트엔드 도메인
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 app.include_router(user_router.router)
 Base.metadata.create_all(bind=engine)
 
