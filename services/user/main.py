@@ -19,7 +19,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(user_router.router)
+app.include_router(user_router.router, prefix="/api/user", tags=["user"])
 
 # # 비동기 엔진에서 테이블 자동생성 (로컬/테스트 용도, 운영에서는 Alembic 권장)
 # async def init_models():
