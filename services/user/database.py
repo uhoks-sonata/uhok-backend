@@ -11,7 +11,7 @@ settings = get_settings()
 
 # 비동기용 MariaDB 엔진 생성 (asyncmy 사용)
 engine = create_async_engine(
-    settings.mariadb_url,  # .env: mysql+asyncmy://user:pw@host:port/db
+    settings.mariadb_auth_url,
     pool_pre_ping=True,
     echo=False  # 필요에 따라 True (SQL 로그)
 )
