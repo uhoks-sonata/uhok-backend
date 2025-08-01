@@ -15,7 +15,7 @@ class UserCreate(BaseModel):
     """
     email: EmailStr                # 사용자 이메일 (형식 검증)
     password: str = Field(min_length=4)          # 비밀번호 (최소 4자)
-    password_confirm: str = Field(min_length=4)  # 비밀번호 확인 (최소 4자)
+    # password_confirm: str = Field(min_length=4)  # 비밀번호 확인 (최소 4자)
     username: str                  # 닉네임
 
 class EmailDuplicateCheckResponse(BaseModel):

@@ -17,12 +17,11 @@ router = APIRouter(prefix="/api/user", tags=["user"])
 def signup(user: UserCreate, db: Session = Depends(get_db)):
     """
         회원가입 API
-        - 이메일 중복 체크
-        - 비밀번호, 비밀번호 확인 일치 검사
+        - 이메일 중복 체크만
         - 신규 User row 및 UserSetting row 생성
     """
-    if user.password != user.password_confirm:
-        raise BadRequestException("비밀번호가 일치하지 않습니다.")
+    # if user.password != user.password_confirm:
+    #     raise BadRequestException("비밀번호가 일치하지 않습니다.")
     if get_user_by_email(db, str(user.email)):
         raise ConflictException("이미 가입된 이메일입니다.")
     new_user = create_user(db, str(user.email), user.password, user.username)
@@ -31,8 +30,6 @@ def signup(user: UserCreate, db: Session = Depends(get_db)):
 # @router.post("/signup", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 # async def signup(user: UserCreate, db: Session = Depends(get_db), request: Request = None):
 #     try:
-#         if user.password != user.password_confirm:
-#             raise BadRequestException("비밀번호와 비밀번호 확인이 일치하지 않습니다.")
 #         if get_user_by_email(db, str(user.email)):
 #             raise ConflictException("이미 가입된 이메일입니다.")
 #         new_user = create_user(db, str(user.email), user.password, user.username)
