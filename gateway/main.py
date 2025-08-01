@@ -43,5 +43,6 @@ app.include_router(user_router, prefix="/api/user")
 # async def custom_exception_handler(...):
 #     ...
 
-if __name__ == "__main__":
-    uvicorn.run("gateway.main:app", host="0.0.0.0", port=8000, reload=True)
+
+# if __name__ == "__main__":
+#     uvicorn.run("gateway.main:app", host="0.0.0.0", port=8000, reload=True)
