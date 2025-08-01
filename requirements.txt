@@ -4,6 +4,8 @@ anyio==4.9.0                   # FastAPI/Starlette 기반 비동기 I/O 처리�
 click==8.2.1                   # CLI(Command Line Interface) 구현용 라이브러리
 fastapi==0.116.1               # Python 비동기 웹 프레임워크 (API 서버 핵심)
 greenlet==3.2.3                # SQLAlchemy 등에서 비동기 context 전환에 사용되는 코루틴 지원
+asyncmy==0.2.10   # MariaDB/MySQL용 비동기 SQLAlchemy 드라이버 (SQLAlchemy 1.4+ 지원)
+asyncpg==0.30.0   # PostgreSQL용 비동기 SQLAlchemy 드라이버 (SQLAlchemy 1.4+ 지원)
 h11==0.16.0                    # HTTP/1.1 프로토콜 구현 (uvicorn 내부 의존성)
 httptools==0.6.4               # HTTP 파서 (uvicorn 성능 개선용 C 확장)
 idna==3.10                     # 국제 도메인 이름 처리용 (FastAPI 요청 헤더/URL 처리에 필요)

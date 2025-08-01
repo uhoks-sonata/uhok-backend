@@ -1,12 +1,13 @@
 """
-user 서비스 단독 실행용
+user 서비스 단독 실행용 (비동기 엔진 기반)
 """
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from services.user.routers import user_router
-from services.user.database import Base, engine
 import traceback
 from fastapi.middleware.cors import CORSMiddleware
+from services.user.database import Base, engine
+import asyncio
 
 app = FastAPI(title="User Service")
 
@@ -19,7 +20,15 @@ app.add_middleware(
 )
 
 app.include_router(user_router.router)
-Base.metadata.create_all(bind=engine)
+
+# # 비동기 엔진에서 테이블 자동생성 (로컬/테스트 용도, 운영에서는 Alembic 권장)
+# async def init_models():
+#     async with engine.begin() as conn:
+#         await conn.run_sync(Base.metadata.create_all)
+#
+# @app.on_event("startup")
+# async def on_startup():
+#     await init_models()
 
 print("#### TEST MAIN.PY TOP ####")
 
