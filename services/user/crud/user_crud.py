@@ -4,9 +4,11 @@ User 관련 DB 접근 함수 (비동기 CRUD)
 from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+
 from services.user.models.user_model import User, UserSetting
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 
 async def get_user_by_email(db: AsyncSession, email: str):
     """
@@ -15,12 +17,14 @@ async def get_user_by_email(db: AsyncSession, email: str):
     result = await db.execute(select(User).where(User.email == email)) # type: ignore
     return result.scalar_one_or_none()
 
+
 async def get_user_by_id(db: AsyncSession, user_id: int):
     """
     주어진 사용자 ID(user_id)에 해당하는 사용자(User) 객체를 반환 (없으면 None)
     """
     result = await db.execute(select(User).where(User.user_id == user_id)) # type: ignore
     return result.scalar_one_or_none()
+
 
 async def create_user(db: AsyncSession, email: str, password: str, username: str):
     """
@@ -38,6 +42,7 @@ async def create_user(db: AsyncSession, email: str, password: str, username: str
     await db.commit()
     await db.refresh(user)
     return user
+
 
 def verify_password(plain_pw, hashed_pw):
     """

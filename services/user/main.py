@@ -3,9 +3,11 @@ user 서비스 단독 실행용 (비동기 엔진 기반)
 """
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from services.user.routers import user_router
-import traceback
 from fastapi.middleware.cors import CORSMiddleware
+import traceback
+
+from services.user.routers import user_router
+
 from services.user.database import Base, engine
 import asyncio
 

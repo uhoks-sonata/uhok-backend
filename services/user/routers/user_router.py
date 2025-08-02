@@ -6,14 +6,25 @@ from fastapi import APIRouter, Depends, status, Query, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
-from services.user.schemas.user_schema import UserCreate, UserLogin, UserOut, EmailDuplicateCheckResponse
-from services.user.crud.user_crud import get_user_by_email, create_user, verify_password
+
+from services.user.schemas.user_schema import (
+    UserCreate,
+    UserOut,
+    EmailDuplicateCheckResponse
+)
+from services.user.crud.user_crud import (
+    get_user_by_email,
+    create_user,
+    verify_password
+)
 from services.user.database import get_db
+
 from common.errors import BadRequestException, ConflictException, NotAuthenticatedException
 from common.auth.jwt_handler import create_access_token
 from common.dependencies import get_current_user
 
 router = APIRouter()
+
 
 @router.post("/signup", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def signup(
