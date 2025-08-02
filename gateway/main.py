@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from common.config import get_settings
 from common.logger import logger
 from services.user.routers.user_router import router as user_router
+from services.recipe.routers.recipe_router import router as recipe_router
 # TODO: 다른 서비스(router) import 추가 (kok, home_shopping, recipe, recommend 등)
 
 settings = get_settings()
@@ -32,6 +33,9 @@ app.add_middleware(
 
 # 라우터 등록 (각 서비스별 router를 include)
 app.include_router(user_router, prefix="/api/user")
+app.include_router(recipe_router.router, prefix="/api/recipes")
+
+
 
 # TODO: 다른 서비스 라우터도 아래와 같이 추가
 # from services.kok.routers.kok_router import router as kok_router

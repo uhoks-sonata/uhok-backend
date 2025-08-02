@@ -3,7 +3,7 @@
 - 변수는 소문자, DB 컬럼명은 대문자로 명시적 매핑
 """
 
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, Float
 from sqlalchemy.orm import relationship, declarative_base
 
 Base = declarative_base()
@@ -24,6 +24,7 @@ class Recipe(Base):
     cooking_introduction = Column("COOKING_INTRODUCTION", String(4000), nullable=True)
     number_of_serving = Column("NUMBER_OF_SERVING", String(200), nullable=True)
     thumbnail_url = Column("THUMBNAIL_URL", String(200), nullable=True)
+    recipe_url = Column("RECIPE_URL", String(300), nullable=True)  # 만개의레시피 URL
 
     # 재료(FCT_MTRL)와 1:N 관계 설정
     materials = relationship(
@@ -53,3 +54,27 @@ class Material(Base):
         back_populates="materials",
         lazy="joined"
     )
+
+class RecipeComment(Base):
+    """
+    RECIPE_COMMENT 테이블의 ORM 모델
+    변수는 소문자, 컬럼은 대문자 (FK만 연결, Recipe와 직접 relationship 불필요)
+    """
+    __tablename__ = "RECIPE_COMMENT"
+
+    comment_id = Column("COMMENT_ID", Integer, primary_key=True, autoincrement=True)
+    recipe_id = Column("RECIPE_ID", Integer, ForeignKey("FCT_RECIPE.RECIPE_ID"), nullable=False)
+    user_id = Column("USER_ID", Integer, nullable=False)
+    comment = Column("COMMENT", String(1000), nullable=False)
+
+class RecipeRating(Base):
+    """
+    RECIPE_RATING 테이블의 ORM 모델
+    변수는 소문자, 컬럼은 대문자 (FK만 연결)
+    """
+    __tablename__ = "RECIPE_RATING"
+
+    rating_id = Column("RATING_ID", Integer, primary_key=True, autoincrement=True)
+    recipe_id = Column("RECIPE_ID", Integer, ForeignKey("FCT_RECIPE.RECIPE_ID"), nullable=False)
+    user_id = Column("USER_ID", Integer, nullable=False)
+    rating = Column("RATING", Float, nullable=False)
