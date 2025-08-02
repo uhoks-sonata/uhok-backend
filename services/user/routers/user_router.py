@@ -2,7 +2,7 @@
 User API 엔드포인트 (회원가입, 로그인) - 비동기 패턴
 """
 
-from fastapi import APIRouter, Depends, status, Query, Request
+from fastapi import APIRouter, Depends, status, Query
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,9 +17,9 @@ from services.user.crud.user_crud import (
     create_user,
     verify_password
 )
-from services.user.database import get_db
 
-from common.errors import BadRequestException, ConflictException, NotAuthenticatedException
+from common.database.mariadb_auth import get_maria_auth_db
+from common.errors import ConflictException, NotAuthenticatedException
 from common.auth.jwt_handler import create_access_token
 from common.dependencies import get_current_user
 
@@ -29,7 +29,7 @@ router = APIRouter()
 @router.post("/signup", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def signup(
     user: UserCreate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_maria_auth_db)
 ):
     """
     회원가입 API (비동기)
@@ -46,7 +46,7 @@ async def signup(
 @router.get("/signup/email/check", response_model=EmailDuplicateCheckResponse)
 async def check_email_duplicate(
     email: EmailStr = Query(..., description="중복 확인할 이메일"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_maria_auth_db)
 ):
     """
     회원가입 - 이메일 중복 여부 확인 API (비동기)
@@ -59,7 +59,7 @@ async def check_email_duplicate(
 @router.post("/login")
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_maria_auth_db)
 ):
     """
     로그인 API (Swagger Authorize 연동)

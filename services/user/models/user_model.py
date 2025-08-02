@@ -1,9 +1,10 @@
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
-from services.user.database import Base
+
+from common.database.base_mariadb import MariaBase
 from datetime import datetime
 
-class User(Base):
+class User(MariaBase):
     __tablename__ = "USERS"
     user_id = Column("USER_ID", Integer, primary_key=True, autoincrement=True)
     email = Column("EMAIL", String(255), unique=True, nullable=False)
@@ -12,7 +13,7 @@ class User(Base):
     created_at = Column("CREATED_AT", DateTime, default=datetime.utcnow)
     settings = relationship("UserSetting", back_populates="user", uselist=False)
 
-class UserSetting(Base):
+class UserSetting(MariaBase):
     __tablename__ = "USER_SETTINGS"
     setting_id = Column("SETTING_ID", Integer, primary_key=True, autoincrement=True)
     user_id = Column(

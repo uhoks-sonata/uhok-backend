@@ -8,9 +8,6 @@ import traceback
 
 from services.user.routers import user_router
 
-from services.user.database import Base, engine
-import asyncio
-
 app = FastAPI(title="User Service")
 
 app.add_middleware(

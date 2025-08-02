@@ -4,11 +4,11 @@
 """
 
 from sqlalchemy import Column, Integer, String, ForeignKey, Float
-from sqlalchemy.orm import relationship, declarative_base
+from sqlalchemy.orm import relationship
 
-Base = declarative_base()
+from common.database.base_mariadb import MariaBase
 
-class Recipe(Base):
+class Recipe(MariaBase):
     """
     FCT_RECIPE 테이블의 ORM 모델
     변수명은 소문자, DB 컬럼은 대문자 매핑
@@ -34,7 +34,7 @@ class Recipe(Base):
         lazy="joined"
     )
 
-class Material(Base):
+class Material(MariaBase):
     """
     FCT_MTRL 테이블의 ORM 모델
     변수명은 소문자, DB 컬럼은 대문자로 매핑
@@ -55,7 +55,7 @@ class Material(Base):
         lazy="joined"
     )
 
-class RecipeComment(Base):
+class RecipeComment(MariaBase):
     """
     RECIPE_COMMENT 테이블의 ORM 모델
     변수는 소문자, 컬럼은 대문자 (FK만 연결, Recipe와 직접 relationship 불필요)
@@ -67,7 +67,7 @@ class RecipeComment(Base):
     user_id = Column("USER_ID", Integer, nullable=False)
     comment = Column("COMMENT", String(1000), nullable=False)
 
-class RecipeRating(Base):
+class RecipeRating(MariaBase):
     """
     RECIPE_RATING 테이블의 ORM 모델
     변수는 소문자, 컬럼은 대문자 (FK만 연결)

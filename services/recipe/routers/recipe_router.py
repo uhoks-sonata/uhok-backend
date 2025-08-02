@@ -22,7 +22,7 @@ from services.recipe.crud.recipe_crud import (
     get_recipe_rating,
     set_recipe_rating
 )
-from services.recipe.database import get_db
+from common.database.mariadb_service import get_maria_service_db
 
 router = APIRouter()
 
@@ -30,7 +30,7 @@ router = APIRouter()
 @router.get("/{recipe_id}", response_model=RecipeDetailResponse)
 async def get_recipe(
         recipe_id: int,
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
         레시피 상세 정보 + 재료 리스트 조회
@@ -44,7 +44,7 @@ async def get_recipe(
 @router.get("/{recipe_id}/url", response_model=RecipeUrlResponse)
 async def get_recipe_url_api(
         recipe_id: int,
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
         만개의 레시피 URL 조회(DB 저장값 반환)
@@ -60,7 +60,7 @@ async def list_comments(
         recipe_id: int,
         page: int = 1,
         size: int = 10,
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
         레시피별 후기(코멘트) 목록(페이지네이션)
@@ -73,7 +73,7 @@ async def list_comments(
 async def create_comment(
         recipe_id: int,
         req: RecipeCommentCreate,
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
         레시피 후기(코멘트) 등록
@@ -86,7 +86,7 @@ async def create_comment(
 @router.get("/{recipe_id}/rating", response_model=RecipeRatingResponse)
 async def get_rating(
         recipe_id: int,
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
         레시피 별점 평균 조회
@@ -99,11 +99,10 @@ async def get_rating(
 async def post_rating(
         recipe_id: int,
         req: RecipeRatingCreate,
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
         레시피 별점 등록
     """
     rating = await set_recipe_rating(db, recipe_id, user_id=1, rating=req.rating)
     return {"recipe_id": recipe_id, "rating": rating}
-
