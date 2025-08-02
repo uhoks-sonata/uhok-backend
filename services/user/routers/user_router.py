@@ -16,7 +16,10 @@ from common.dependencies import get_current_user
 router = APIRouter()
 
 @router.post("/signup", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-async def signup(user: UserCreate, db: AsyncSession = Depends(get_db)):
+async def signup(
+    user: UserCreate,
+    db: AsyncSession = Depends(get_db)
+):
     """
     회원가입 API (비동기)
     - 이메일 중복 체크
@@ -64,11 +67,12 @@ async def login(
 
 
 @router.get("/info", response_model=UserOut, status_code=status.HTTP_200_OK)
-async def get_user_info(current_user: UserOut = Depends(get_current_user)):
+async def get_user_info(
+    current_user: UserOut = Depends(get_current_user)
+):
     """
     로그인한 사용자의 기본 정보를 반환합니다.
     - JWT 토큰 인증 필요 (헤더: Authorization: Bearer <token>)
     - 응답: user_id, username, email
     """
     return current_user
-
