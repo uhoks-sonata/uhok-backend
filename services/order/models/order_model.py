@@ -1,17 +1,45 @@
 """
-ORDERS 테이블의 SQLAlchemy ORM 모델 정의 (DB 컬럼명은 대문자, 변수는 소문자)
+주문 통합(ORDERS), 콕 주문(KOK_ORDERS), 홈쇼핑 주문(HOMESHOPPING_ORDERS) ORM 모델 정의
 """
 from sqlalchemy import Column, Integer, DateTime, ForeignKey
-from common.database.base_mariadb import MariaBase
+from sqlalchemy.orm import declarative_base, relationship
 
-class Order(MariaBase):
+Base = declarative_base()
+
+class Order(Base):
     """
-    ORDERS 테이블 ORM 모델 (주문 내역)
+    ORDERS 테이블 (주문 공통 정보)
     """
     __tablename__ = "ORDERS"
 
-    order_id = Column("ORDER_ID", Integer, primary_key=True, autoincrement=True, comment="주문 고유 인덱스")
-    user_id = Column("USER_ID", Integer, ForeignKey("USERS.USER_ID"), nullable=False, comment="주문한 사용자 인덱스")
-    price_id = Column("PRICE_ID", Integer, ForeignKey("PRICE.PRICE_ID"), nullable=False, comment="가격/상품 정보 인덱스")
-    order_time = Column("ORDER_TIME", DateTime, nullable=False, comment="주문(구매) 시각")
-    cancel_time = Column("CANCEL_TIME", DateTime, nullable=True, comment="주문 취소 시각")
+    order_id = Column("ORDER_ID", Integer, primary_key=True, autoincrement=True)
+    user_id = Column("USER_ID", Integer, ForeignKey("USERS.USER_ID"), nullable=False)
+    order_time = Column("ORDER_TIME", DateTime, nullable=False)
+    cancel_time = Column("CANCEL_TIME", DateTime, nullable=True)
+
+    kok_order = relationship("KokOrder", uselist=False, back_populates="order")
+    homeshopping_order = relationship("HomeShoppingOrder", uselist=False, back_populates="order")
+
+class KokOrder(Base):
+    """
+    KOK_ORDERS 테이블 (콕 주문 상세)
+    """
+    __tablename__ = "KOK_ORDERS"
+
+    kok_order_id = Column("KOK_ORDER_ID", Integer, primary_key=True, autoincrement=True)
+    price_id = Column("PRICE_ID", Integer, ForeignKey("PRICE.PRICE_ID"), nullable=False)
+    order_id = Column("ORDER_ID", Integer, ForeignKey("ORDERS.ORDER_ID"), nullable=False, unique=True)
+
+    order = relationship("Order", back_populates="kok_order")
+
+class HomeShoppingOrder(Base):
+    """
+    HOMESHOPPING_ORDERS 테이블 (HomeShopping 주문 상세)
+    """
+    __tablename__ = "HOMESHOPPING_ORDERS"
+
+    homeshopping_order_id = Column("HOMESHOPPING_ORDER_ID", Integer, primary_key=True, autoincrement=True)
+    live_id = Column("LIVE_ID", Integer, ForeignKey("LIVE.LIVE_ID"), nullable=False)
+    order_id = Column("ORDER_ID", Integer, ForeignKey("ORDERS.ORDER_ID"), nullable=False, unique=True)
+
+    order = relationship("Order", back_populates="homeshopping_order")
