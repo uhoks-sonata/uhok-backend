@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     mariadb_auth_url: str = Field(..., env="MARIADB_AUTH_URL")
     mariadb_service_url: str = Field(..., env="MARIADB_SERVICE_URL")
 
+    postgres_recommend_url: str = Field(..., env="POSTGRES_RECOMMEND_URL")
     # postgres_log_url: str = Field(..., env="POSTGRES_LOG_URL")
-    # postgres_recommend_url: str = Field(..., env="POSTGRES_RECOMMEND_URL")
 
     app_name: str = Field(..., env="APP_NAME")
     debug: bool = Field(..., env="DEBUG")
