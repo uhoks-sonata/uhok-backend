@@ -13,6 +13,7 @@ from common.config import get_settings
 from common.logger import logger
 from services.user.routers.user_router import router as user_router
 from services.recipe.routers.recipe_router import router as recipe_router
+from services.order.routers.order_router import order as order_router
 # TODO: 다른 서비스(router) import 추가 (kok, home_shopping, recipe, recommend 등)
 
 settings = get_settings()
@@ -34,6 +35,7 @@ app.add_middleware(
 # 라우터 등록 (각 서비스별 router를 include)
 app.include_router(user_router, prefix="/api/user")
 app.include_router(recipe_router.router, prefix="/api/recipes")
+app.include_router(order_router.router, prefix="/api/orders")
 
 
 
