@@ -23,7 +23,7 @@ from common.errors import ConflictException, NotAuthenticatedException
 from common.auth.jwt_handler import create_access_token
 from common.dependencies import get_current_user
 
-router = APIRouter()
+router = APIRouter(prefix="/api/user", tags=["user"])
 
 
 @router.post("/signup", response_model=UserOut, status_code=status.HTTP_201_CREATED)

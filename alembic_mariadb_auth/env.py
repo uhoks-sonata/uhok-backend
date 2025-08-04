@@ -26,9 +26,8 @@ mariadb_auth_url = os.getenv("MARIADB_AUTH_URL")
 if mariadb_auth_url:
     config.set_main_option('sqlalchemy.url', mariadb_auth_url)
 
-from services.user.database import Base
-from services.user.models import user_model
-target_metadata = Base.metadata
+from common.database.base_mariadb import MariaBase
+target_metadata = MariaBase.metadata
 
 # add your model's MetaData object here
 # for 'autogenerate' support

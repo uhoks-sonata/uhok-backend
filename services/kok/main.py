@@ -1,11 +1,11 @@
 """
-recipe 서비스 단독 실행용 (비동기 엔진 기반)
+kok 서비스 단독 실행용 (비동기 엔진 기반)
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from services.recipe.routers import recipe_router
+from services.kok.routers import kok_router
 
-app = FastAPI(title="Recipe Service")
+app = FastAPI(title="Kok Service")
 
 app.add_middleware(
     CORSMiddleware,
@@ -15,4 +15,4 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(recipe_router.router)
+app.include_router(kok_router.router)
