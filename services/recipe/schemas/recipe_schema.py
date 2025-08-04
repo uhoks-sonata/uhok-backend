@@ -6,6 +6,19 @@
 
 from pydantic import BaseModel, Field
 from typing import Optional, List
+from enum import Enum
+
+# -----------------------------
+# 별점 스키마 (별점 0~5 int, 후기 없음)
+# -----------------------------
+
+class RatingValue(int, Enum):
+    zero = 0
+    one = 1
+    two = 2
+    three = 3
+    four = 4
+    five = 5
 
 # -----------------------------
 # 재료(MATERIAL) 스키마
@@ -42,6 +55,7 @@ class RecipeBase(BaseModel):
 class RecipeDetailResponse(RecipeBase):
     """레시피 상세 응답(재료 포함)"""
     materials: List[Material] = Field(default_factory=list)
+    recipe_url: Optional[str]
 
 # -----------------------------
 # 만개의 레시피 URL 응답
@@ -54,27 +68,30 @@ class RecipeUrlResponse(BaseModel):
 # 별점 스키마
 # -----------------------------
 
+class RecipeRatingCreate(BaseModel):
+    """별점 등록 요청 바디"""
+    rating: RatingValue = Field(..., description="0~5 정수만 허용")
+
 class RecipeRatingResponse(BaseModel):
     recipe_id: int
-    rating: Optional[float] = None
+    rating: Optional[float]  # 평균 별점은 float
 
-class RecipeRatingCreate(BaseModel):
-    rating: float
 
-# -----------------------------
-# 후기 스키마
-# -----------------------------
-
-class RecipeCommentCreate(BaseModel):
-    """후기 등록 요청 바디"""
-    comment: str
-
-class RecipeComment(BaseModel):
-    comment_id: int
-    recipe_id: int
-    user_id: int
-    comment: str
-
-class RecipeCommentListResponse(BaseModel):
-    comments: List[RecipeComment]
-    total: int
+###########################################################
+# # -----------------------------
+# # 후기 스키마
+# # -----------------------------
+#
+# class RecipeCommentCreate(BaseModel):
+#     """후기 등록 요청 바디"""
+#     comment: str
+#
+# class RecipeComment(BaseModel):
+#     comment_id: int
+#     recipe_id: int
+#     user_id: int
+#     comment: str
+#
+# class RecipeCommentListResponse(BaseModel):
+#     comments: List[RecipeComment]
+#     total: int
