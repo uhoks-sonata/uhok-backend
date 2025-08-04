@@ -3,12 +3,15 @@
 - 메인화면 상품정보, 상품 상세, 검색, 찜, 장바구니 기능
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
+from datetime import datetime
 
 from common.dependencies import get_current_user
 from services.user.models.user_model import User
+from services.order.schemas.order_schema import KokOrderCreate, OrderRead
+from services.order.crud.order_crud import create_kok_order
 
 from services.kok.schemas.kok_schema import (
     # 제품 관련 스키마
@@ -404,3 +407,20 @@ async def get_purchase_history(
         "purchase_history": purchase_history,
         "total_count": len(purchase_history)
     }
+
+
+# ================================
+# 주문 관련 API
+# ================================
+
+@router.post("/orders", response_model=OrderRead, status_code=status.HTTP_201_CREATED)
+async def create_kok_order_api(
+    order_data: KokOrderCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    주문 생성
+    """
+    order = await create_kok_order(db, current_user.user_id, order_data.price_id)
+    return order
