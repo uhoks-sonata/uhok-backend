@@ -1,61 +1,33 @@
 """
-주문 관련 API 요청/응답 Pydantic 스키마
+주문 공통/서비스별 Pydantic 스키마 정의 (HomeShopping 명칭 통일)
 """
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime
 
-class OrderProduct(BaseModel):
-    """
-    주문 상품 응답 스키마
-    """
-    product_id: int
-    product_name: str
-    product_image: Optional[str]
-    brand_name: Optional[str]
-    quantity: int
-    price: int
+class KokOrderCreate(BaseModel):
+    price_id: int
 
-class OrderDetailResponse(BaseModel):
-    """
-    주문 상세 응답 스키마
-    """
+class HomeShoppingOrderCreate(BaseModel):
+    live_id: int
+
+class KokOrderSchema(BaseModel):
+    kok_order_id: int
+    price_id: int
+
+class HomeShoppingOrderSchema(BaseModel):
+    homeshopping_order_id: int
+    live_id: int
+
+class OrderRead(BaseModel):
     order_id: int
-    order_date: datetime
-    total_price: int
-    status: str
-    payment_method: str
-    shipping_address: str
-    products: List[OrderProduct]
-
-class OrderSummary(BaseModel):
-    """
-    주문 목록/최근 주문 응답용 간단 정보 스키마
-    """
-    order_id: int
-    product_name: str
-    product_image: Optional[str]
-    brand_name: Optional[str]
-    order_date: datetime
-
-class OrderListResponse(BaseModel):
-    """
-    주문 목록(페이지네이션) 응답 스키마
-    """
-    total_count: int
-    page: int
-    size: int
-    orders: List[OrderSummary]
-
-class OrderRecentListResponse(BaseModel):
-    """
-    최근 N일 주문 리스트 응답 스키마
-    """
-    orders: List[OrderSummary]
+    user_id: int
+    order_time: datetime
+    cancel_time: Optional[datetime]
+    kok_order: Optional[KokOrderSchema]
+    homeshopping_order: Optional[HomeShoppingOrderSchema]
+    class Config:
+        orm_mode = True
 
 class OrderCountResponse(BaseModel):
-    """
-    주문 개수 응답 스키마
-    """
     order_count: int
-
