@@ -15,4 +15,4 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(recipe_router.router, prefix="/api/recipes", tags=["recipes"])
+app.include_router(recipe_router.router)

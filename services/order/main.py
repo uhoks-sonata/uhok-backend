@@ -15,4 +15,4 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(order_router.router, prefix="/api/orders", tags=["orders"])
+app.include_router(order_router.router)

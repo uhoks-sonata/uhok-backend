@@ -24,8 +24,7 @@ from services.recipe.crud.recipe_crud import (
 )
 from common.database.mariadb_service import get_maria_service_db
 
-router = APIRouter()
-
+router = APIRouter(prefix="/api/recipes", tags=["recipes"])
 
 @router.get("/{recipe_id}", response_model=RecipeDetailResponse)
 async def get_recipe(
