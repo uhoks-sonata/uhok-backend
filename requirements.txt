@@ -28,6 +28,5 @@ bcrypt==4.0.1
 python-jose==3.5.0             # JWT 토큰 생성 및 검증 (서버 인증/인가에 사용)
 python-multipart==0.0.20       # 파일 업로드/멀티파트 폼 파싱 지원 (FastAPI에서 Form, UploadFile 지원)
 pymysql==1.1.1                 # SQLAlchemy와 MariaDB/MySQL 연동용 드라이버
-alembic==1.16.4
-psycopg2
-aiomysql
+alembic==1.16.4                # 데이터베이스 마이그레이션 도구 (SQLAlchemy 기반 스키마 버전 관리)
+psycopg2==2.9.10               # PostgreSQL용 Python 드라이버(동기), SQLAlchemy 등과 함께 DB 연결/쿼리 실행에 사용
