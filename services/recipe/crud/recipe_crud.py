@@ -4,9 +4,9 @@
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import Optional, List, Tuple
+from typing import Optional
 
-from services.recipe.models.recipe_model import Recipe, Material, RecipeComment, RecipeRating
+from services.recipe.models.recipe_model import Recipe, Material, RecipeRating
 
 async def get_recipe_url(recipe_id: int) -> str:
     """만개의 레시피 상세페이지 URL을 반환 (동적 생성)"""
