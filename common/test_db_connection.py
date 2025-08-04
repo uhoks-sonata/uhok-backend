@@ -3,7 +3,7 @@
 """
 
 import asyncio
-import aiomysql
+import asyncmy
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy import text
@@ -16,9 +16,10 @@ def extract_conn_info(db_url):
     예: mysql+aiomysql://user:pass@host:port/dbname
     """
     m = re.match(
-        r"mysql\+(aiomysql|pymysql)://(?P<user>[^:]+):(?P<password>[^@]+)@(?P<host>[^:/]+)(:(?P<port>\d+))?(\/(?P<dbname>[^?]+))?",
+        r"mysql\+(aiomysql|pymysql|asyncmy)://(?P<user>[^:]+):(?P<password>[^@]+)@(?P<host>[^:/]+):(?P<port>\d+)(/(?P<dbname>[^?]+))?",
         db_url
     )
+
     return m.groupdict() if m else None
 
 async def test_mariadb_server_connection_async():
@@ -32,7 +33,7 @@ async def test_mariadb_server_connection_async():
         return
 
     try:
-        conn = await aiomysql.connect(
+        conn = await asyncmy.connect(
             host=conn_info['host'],
             port=int(conn_info['port']),
             user=conn_info['user'],
@@ -63,5 +64,5 @@ async def test_db_connection_async():
         await engine.dispose()
 
 if __name__ == "__main__":
-    # asyncio.run(test_mariadb_server_connection_async())
+    asyncio.run(test_mariadb_server_connection_async())
     asyncio.run(test_db_connection_async())
