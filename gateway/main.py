@@ -11,10 +11,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from common.config import get_settings
 from common.logger import logger
-from services.user.routers import user_router
-from services.recipe.routers import recipe_router
+from services.user.routers.user_router import router as user_router
+from services.recipe.routers.recipe_router import router as recipe_router
+from services.kok.routers.kok_router import router as kok_router
 from services.order.routers import order_router
-# TODO: 다른 서비스(router) import 추가 (kok, home_shopping, recipe, recommend 등)
+# TODO: 다른 서비스(router) import 추가 (home_shopping, recommend 등)
 
 settings = get_settings()
 
@@ -35,13 +36,13 @@ app.add_middleware(
 # 라우터 등록 (각 서비스별 router를 include)
 app.include_router(user_router.router)
 app.include_router(recipe_router.router)
+app.include_router(kok_router.router)
 app.include_router(order_router.router)
 
 
-
 # TODO: 다른 서비스 라우터도 아래와 같이 추가
-# from services.kok.routers.kok_router import router as kok_router
-# app.include_router(kok_router, prefix="/api/kok")
+# from services.home_shopping.routers.home_shopping_router import router as home_shopping_router
+# app.include_router(home_shopping_router, prefix="/api/home_shopping")
 
 # 공통 예외 처리 (필요시)
 # from common.errors import *

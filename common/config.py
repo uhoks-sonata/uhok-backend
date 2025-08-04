@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = os.path.join(os.path.dirname(__file__), "..", ".env")
         env_file_encoding = "utf-8"
+        extra = "ignore"  # 정의되지 않은 환경변수 무시
 
 @lru_cache()
 def get_settings() -> Settings:
