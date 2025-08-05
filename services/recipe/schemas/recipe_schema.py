@@ -32,7 +32,7 @@ class Material(BaseModel):
     measure_amount: Optional[str] = None
     measure_unit: Optional[str] = None
     details: Optional[str] = None
-    class Config: orm_mode = True
+    class Config: from_attributes = True
 
 # -----------------------------
 # 레시피 기본/목록/상세 스키마
@@ -50,7 +50,7 @@ class RecipeBase(BaseModel):
     number_of_serving: Optional[str] = None
     thumbnail_url: Optional[str] = None
     recipe_url: Optional[str] = None
-    class Config: orm_mode = True
+    class Config: from_attributes = True
 
 class RecipeDetailResponse(RecipeBase):
     """레시피 상세 응답(재료 포함)"""
