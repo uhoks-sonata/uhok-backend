@@ -20,6 +20,8 @@ from services.recipe.crud.recipe_crud import (
     get_recipe_rating,
     set_recipe_rating
 )
+from services.kok.crud.kok_crud import get_kok_products_by_ingredient
+
 from common.database.mariadb_service import get_maria_service_db
 
 router = APIRouter(prefix="/api/recipes", tags=["Recipe"])
@@ -121,6 +123,19 @@ async def post_rating(
     # 실제 서비스에서는 user_id를 인증에서 추출
     rating = await set_recipe_rating(db, recipe_id, user_id=1, rating=int(req.rating))
     return {"recipe_id": recipe_id, "rating": rating}
+
+
+@router.get("/recipes/kok")
+async def get_kok_products(
+    ingredient: str = Query(..., description="검색할 식재료명(예: 감자, 양파 등)"),
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    콕 쇼핑몰 내 ingredient(식재료명) 관련 상품 정보 조회
+    - 반환 필드명은 kok 모델 변수명(소문자)과 100% 일치
+    """
+    products = await get_kok_products_by_ingredient(db, ingredient)
+    return products
 
 
 ###########################################################
