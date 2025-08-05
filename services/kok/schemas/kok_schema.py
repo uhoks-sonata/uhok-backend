@@ -321,13 +321,37 @@ class KokCartListResponse(BaseModel):
 # 메인화면 상품 리스트 스키마
 # -----------------------------
 
+class KokDiscountedProduct(BaseModel):
+    """할인 특가 상품 정보"""
+    kok_product_id: int
+    kok_thumbnail: Optional[str] = None
+    kok_discount_rate: Optional[int] = None
+    kok_discounted_price: Optional[int] = None
+    kok_product_name: Optional[str] = None
+    kok_store_name: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
 class KokDiscountedProductsResponse(BaseModel):
     """할인 특가 상품 응답"""
-    products: List[KokProductBase] = Field(default_factory=list)
+    products: List[KokDiscountedProduct] = Field(default_factory=list)
+
+class KokTopSellingProduct(BaseModel):
+    """판매율 높은 상품 정보"""
+    kok_product_id: int
+    kok_thumbnail: Optional[str] = None
+    kok_discount_rate: Optional[int] = None
+    kok_discounted_price: Optional[int] = None
+    kok_product_name: Optional[str] = None
+    kok_store_name: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
 
 class KokTopSellingProductsResponse(BaseModel):
     """판매율 높은 상품 응답"""
-    products: List[KokProductBase] = Field(default_factory=list)
+    products: List[KokTopSellingProduct] = Field(default_factory=list)
 
 class KokUnpurchasedResponse(BaseModel):
     """미구매 상품 응답"""

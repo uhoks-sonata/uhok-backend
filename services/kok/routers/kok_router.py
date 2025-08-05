@@ -49,7 +49,9 @@ from services.kok.schemas.kok_schema import (
     KokCartListResponse,
     
     # 메인화면 상품 리스트 스키마
+    KokDiscountedProduct,
     KokDiscountedProductsResponse,
+    KokTopSellingProduct,
     KokTopSellingProductsResponse,
     KokUnpurchasedResponse,
     
