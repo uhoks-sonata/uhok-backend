@@ -141,7 +141,7 @@ async def get_kok_search_history(
         select(KokSearchHistory)
         .where(KokSearchHistory.kok_user_id == user_id)
         .order_by(KokSearchHistory.kok_searched_at.desc())
-        .limit(10)
+        .limit(20)
     )
     history = (await db.execute(stmt)).scalars().all()
     return [h.__dict__ for h in history]
@@ -330,7 +330,7 @@ async def get_kok_discounted_products(
         db: AsyncSession
 ) -> List[dict]:
     """
-    할인 특가 상품 목록 조회
+    할인 특가 상품 목록 조회 (할인율 높은 순으로 정렬)
     """
     stmt = (
         select(KokProductInfo)
@@ -339,22 +339,56 @@ async def get_kok_discounted_products(
         .limit(10)
     )
     products = (await db.execute(stmt)).scalars().all()
-    return [product.__dict__ for product in products]
+    
+    discounted_products = []
+    for product in products:
+        # 할인 적용 가격 계산
+        discounted_price = product.kok_product_price
+        if product.kok_discount_rate and product.kok_discount_rate > 0:
+            discounted_price = int(product.kok_product_price * (1 - product.kok_discount_rate / 100))
+        
+        discounted_products.append({
+            "kok_product_id": product.kok_product_id,
+            "kok_thumbnail": product.kok_thumbnail,
+            "kok_discount_rate": product.kok_discount_rate,
+            "kok_discounted_price": discounted_price,
+            "kok_product_name": product.kok_product_name,
+            "kok_store_name": product.kok_store_name,
+        })
+    
+    return discounted_products
 
 async def get_kok_top_selling_products(
         db: AsyncSession
 ) -> List[dict]:
     """
-    판매율 높은 상품 목록 조회 (리뷰 개수 기준)
+    판매율 높은 상품 목록 조회 (리뷰 개수 많은 순으로 정렬, 20개 반환)
     """
     stmt = (
         select(KokProductInfo)
         .where(KokProductInfo.kok_review_cnt > 0)
         .order_by(KokProductInfo.kok_review_cnt.desc())
-        .limit(10)
+        .limit(20)
     )
     products = (await db.execute(stmt)).scalars().all()
-    return [product.__dict__ for product in products]
+    
+    top_selling_products = []
+    for product in products:
+        # 할인 적용 가격 계산
+        discounted_price = product.kok_product_price
+        if product.kok_discount_rate and product.kok_discount_rate > 0:
+            discounted_price = int(product.kok_product_price * (1 - product.kok_discount_rate / 100))
+        
+        top_selling_products.append({
+            "kok_product_id": product.kok_product_id,
+            "kok_thumbnail": product.kok_thumbnail,
+            "kok_discount_rate": product.kok_discount_rate,
+            "kok_discounted_price": discounted_price,
+            "kok_product_name": product.kok_product_name,
+            "kok_store_name": product.kok_store_name,
+        })
+    
+    return top_selling_products
 
 
 async def get_kok_unpurchased(
