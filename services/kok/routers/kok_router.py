@@ -19,14 +19,18 @@ from services.kok.schemas.kok_schema import (
     KokProductListResponse,
     KokProductBase,
     KokProductInfoResponse,
+    KokProductTabsResponse,
     
     # 리뷰 관련 스키마
-    KokReviewListResponse,
+    KokReviewResponse,
+    KokReviewStats,
+    KokReviewDetail,
     KokReviewExample,
     
-    # Q&A 관련 스키마
-    KokQnaListResponse,
-    KokQna,
+    # 상품 상세정보 스키마
+    KokProductDetailsResponse,
+    KokProductDetails,
+    KokDetailInfoItem,
     
     # 검색 관련 스키마
     KokSearchRequest,
@@ -45,7 +49,9 @@ from services.kok.schemas.kok_schema import (
     KokCartListResponse,
     
     # 메인화면 상품 리스트 스키마
+    KokDiscountedProduct,
     KokDiscountedProductsResponse,
+    KokTopSellingProduct,
     KokTopSellingProductsResponse,
     KokUnpurchasedResponse,
     
@@ -60,15 +66,12 @@ from services.kok.crud.kok_crud import (
     get_kok_product_list,
     get_kok_product_by_id,
     get_kok_product_info,
+    get_kok_product_tabs,
+    get_kok_product_details,
     search_kok_products,
     
     # 리뷰 관련 CRUD
-    get_kok_review_list,
-    
-    # Q&A 관련 CRUD
-    get_kok_qna_list,
-    add_kok_qna,
-    answer_kok_qna,
+    get_kok_review_data,
     
     # 검색 이력 관련 CRUD
     get_kok_search_history,
@@ -136,58 +139,50 @@ async def get_unpurchased(
 # 상품 상세 설명
 # ================================
 
-@router.get("/product/{product_id}/tabs")
+@router.get("/product/{product_id}/tabs", response_model=KokProductTabsResponse)
 async def get_product_tabs(
         product_id: int,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    상품 상세 탭 정보 조회
+    상품 설명 탭 정보 조회
     """
-    product = await get_kok_product_by_id(db, product_id)
-    if not product:
+    images = await get_kok_product_tabs(db, product_id)
+    if images is None:
         raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
     
     return {
-        "description": product.get("description", ""),
-        "review_count": product.get("review_count", 0),
-        "qna_count": product.get("qna_count", 0)
+        "images": images
     }
 
-@router.get("/product/{product_id}/reviews", response_model=KokReviewListResponse)
+@router.get("/product/{product_id}/reviews", response_model=KokReviewResponse)
 async def get_product_reviews(
         product_id: int,
-        page: int = Query(1, ge=1),
-        size: int = Query(10, ge=1, le=100),
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
     상품 리뷰 탭 정보 조회
+    - KOK_PRODUCT_INFO 테이블에서 리뷰 통계 정보
+    - KOK_REVIEW_EXAMPLE 테이블에서 개별 리뷰 목록
     """
-    reviews, total = await get_kok_review_list(db, product_id, page, size)
-    return {
-        "total": total,
-        "page": page,
-        "size": size,
-        "items": reviews
-    }
+    review_data = await get_kok_review_data(db, product_id)
+    if review_data is None:
+        raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
+    
+    return review_data
 
-@router.get("/product/{product_id}/qna", response_model=KokQnaListResponse)
-async def get_product_qna(
+@router.get("/product/{product_id}/details", response_model=KokProductDetailsResponse)
+async def get_product_details(
         product_id: int,
-        page: int = Query(1, ge=1),
-        size: int = Query(10, ge=1, le=100),
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    상품 Q&A 탭 정보 조회
+    상품 상세 정보 조회
     """
-    qna_list, total = await get_kok_qna_list(db, product_id, page, size)
-    return {
-        "product_id": product_id,
-        "qna_list": qna_list,
-        "total_count": total
-    }
+    product_details = await get_kok_product_details(db, product_id)
+    if not product_details:
+        raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
+    return product_details
 
 # ================================
 # 검색 기능
@@ -343,36 +338,7 @@ async def get_product_detail(
         raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
     return product
 
-# ================================
-# Q&A 관련 (추가 기능)
-# ================================
 
-@router.post("/product/{product_id}/qna")
-async def create_qna(
-        product_id: int,
-        question: str,
-        author: str,
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    Q&A 질문 등록
-    """
-    qna = await add_kok_qna(db, product_id, question, author)
-    return qna
-
-@router.post("/qna/{qna_id}/answer")
-async def answer_qna(
-        qna_id: int,
-        answer: str,
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    Q&A 답변 등록
-    """
-    qna = await answer_kok_qna(db, qna_id, answer)
-    if not qna:
-        raise HTTPException(status_code=404, detail="Q&A를 찾을 수 없습니다.")
-    return qna
 
 
 # ================================

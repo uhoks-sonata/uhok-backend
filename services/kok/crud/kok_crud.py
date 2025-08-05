@@ -12,7 +12,7 @@ from services.kok.models.kok_model import (
     KokDetailInfo, 
     KokReviewExample, 
     KokPriceInfo, 
-    KokQna,
+
     KokSearchHistory,
     KokLikes,
     KokCart,
@@ -58,11 +58,7 @@ async def get_kok_product_detail(
     )
     price_infos = (await db.execute(price_stmt)).scalars().all()
     
-    # Q&A 조회
-    qna_stmt = (
-        select(KokQna).where(KokQna.kok_product_id == product_id)
-    )
-    qna_list = (await db.execute(qna_stmt)).scalars().all()
+
     
     return {
         **product.__dict__,
@@ -70,7 +66,7 @@ async def get_kok_product_detail(
         "detail_infos": [detail.__dict__ for detail in detail_infos],
         "review_examples": [review.__dict__ for review in review_examples],
         "price_infos": [price.__dict__ for price in price_infos],
-        "qna_list": [qna.__dict__ for qna in qna_list]
+
     }
 
 async def get_kok_product_list(
@@ -145,7 +141,7 @@ async def get_kok_search_history(
         select(KokSearchHistory)
         .where(KokSearchHistory.kok_user_id == user_id)
         .order_by(KokSearchHistory.kok_searched_at.desc())
-        .limit(10)
+        .limit(20)
     )
     history = (await db.execute(stmt)).scalars().all()
     return [h.__dict__ for h in history]
@@ -334,7 +330,7 @@ async def get_kok_discounted_products(
         db: AsyncSession
 ) -> List[dict]:
     """
-    할인 특가 상품 목록 조회
+    할인 특가 상품 목록 조회 (할인율 높은 순으로 정렬)
     """
     stmt = (
         select(KokProductInfo)
@@ -343,22 +339,56 @@ async def get_kok_discounted_products(
         .limit(10)
     )
     products = (await db.execute(stmt)).scalars().all()
-    return [product.__dict__ for product in products]
+    
+    discounted_products = []
+    for product in products:
+        # 할인 적용 가격 계산
+        discounted_price = product.kok_product_price
+        if product.kok_discount_rate and product.kok_discount_rate > 0:
+            discounted_price = int(product.kok_product_price * (1 - product.kok_discount_rate / 100))
+        
+        discounted_products.append({
+            "kok_product_id": product.kok_product_id,
+            "kok_thumbnail": product.kok_thumbnail,
+            "kok_discount_rate": product.kok_discount_rate,
+            "kok_discounted_price": discounted_price,
+            "kok_product_name": product.kok_product_name,
+            "kok_store_name": product.kok_store_name,
+        })
+    
+    return discounted_products
 
 async def get_kok_top_selling_products(
         db: AsyncSession
 ) -> List[dict]:
     """
-    판매율 높은 상품 목록 조회 (리뷰 개수 기준)
+    판매율 높은 상품 목록 조회 (리뷰 개수 많은 순으로 정렬, 20개 반환)
     """
     stmt = (
         select(KokProductInfo)
         .where(KokProductInfo.kok_review_cnt > 0)
         .order_by(KokProductInfo.kok_review_cnt.desc())
-        .limit(10)
+        .limit(20)
     )
     products = (await db.execute(stmt)).scalars().all()
-    return [product.__dict__ for product in products]
+    
+    top_selling_products = []
+    for product in products:
+        # 할인 적용 가격 계산
+        discounted_price = product.kok_product_price
+        if product.kok_discount_rate and product.kok_discount_rate > 0:
+            discounted_price = int(product.kok_product_price * (1 - product.kok_discount_rate / 100))
+        
+        top_selling_products.append({
+            "kok_product_id": product.kok_product_id,
+            "kok_thumbnail": product.kok_thumbnail,
+            "kok_discount_rate": product.kok_discount_rate,
+            "kok_discounted_price": discounted_price,
+            "kok_product_name": product.kok_product_name,
+            "kok_store_name": product.kok_store_name,
+        })
+    
+    return top_selling_products
 
 
 async def get_kok_unpurchased(
@@ -406,99 +436,7 @@ async def get_kok_unpurchased(
     
     return [product.__dict__ for product in products]
 
-async def get_kok_review_list(
-        db: AsyncSession,
-        product_id: int,
-        page: int = 1,
-        size: int = 10
-) -> Tuple[List[dict], int]:
-    """
-    주어진 제품의 리뷰 목록(페이지네이션)과 총 개수를 반환
-    """
-    offset = (page - 1) * size
-    stmt = (
-        select(KokReviewExample)
-        .where(KokReviewExample.kok_product_id == product_id)
-        .order_by(KokReviewExample.kok_review_date.desc())
-        .offset(offset)
-        .limit(size)
-    )
-    reviews = (await db.execute(stmt)).scalars().all()
-    
-    count_stmt = (
-        select(func.count()).where(KokReviewExample.kok_product_id == product_id)
-    )
-    total = (await db.execute(count_stmt)).scalar()
-    
-    return [review.__dict__ for review in reviews], total
 
-async def get_kok_qna_list(
-        db: AsyncSession,
-        product_id: int,
-        page: int = 1,
-        size: int = 10
-) -> Tuple[List[dict], int]:
-    """
-    주어진 제품의 Q&A 목록(페이지네이션)과 총 개수를 반환
-    """
-    offset = (page - 1) * size
-    stmt = (
-        select(KokQna)
-        .where(KokQna.kok_product_id == product_id)
-        .order_by(KokQna.kok_created_at.desc())
-        .offset(offset)
-        .limit(size)
-    )
-    qna_list = (await db.execute(stmt)).scalars().all()
-    
-    count_stmt = (
-        select(func.count()).where(KokQna.kok_product_id == product_id)
-    )
-    total = (await db.execute(count_stmt)).scalar()
-    
-    return [qna.__dict__ for qna in qna_list], total
-
-async def add_kok_qna(
-        db: AsyncSession,
-        product_id: int,
-        question: str,
-        author: str
-) -> dict:
-    """
-    새로운 Q&A 질문을 등록하고 저장된 내용을 반환
-    """
-    new_qna = KokQna(
-        kok_product_id=product_id,
-        kok_question=question,
-        kok_author=author,
-        kok_is_answered=False
-    )
-    db.add(new_qna)
-    await db.commit()
-    await db.refresh(new_qna)
-    return new_qna.__dict__
-
-async def answer_kok_qna(
-        db: AsyncSession,
-        qna_id: int,
-        answer: str
-) -> dict:
-    """
-    Q&A에 답변을 등록하고 업데이트된 내용을 반환
-    """
-    stmt = select(KokQna).where(KokQna.kok_qna_id == qna_id)
-    result = await db.execute(stmt)
-    qna = result.scalar_one_or_none()
-    
-    if not qna:
-        return None
-    
-    qna.kok_answer = answer
-    qna.kok_is_answered = True
-    
-    await db.commit()
-    await db.refresh(qna)
-    return qna.__dict__
 
 async def get_kok_product_by_id(
         db: AsyncSession,
@@ -515,6 +453,27 @@ async def get_kok_product_by_id(
     
     return product.__dict__ if product else None
 
+async def get_kok_product_tabs(
+        db: AsyncSession,
+        product_id: int
+) -> Optional[List[dict]]:
+    """
+    상품 ID로 상품설명 이미지들 조회
+    """
+    # 상품 설명 이미지들 조회
+    image_stmt = (
+        select(KokImageInfo).where(KokImageInfo.kok_product_id == product_id)
+    )
+    images_result = await db.execute(image_stmt)
+    images = images_result.scalars().all()
+    
+    return [
+        {
+            "kok_img_id": img.kok_img_id,
+            "kok_img_url": img.kok_img_url
+        }
+        for img in images
+    ]
 
 
 async def get_kok_product_info(
@@ -652,6 +611,71 @@ async def get_kok_purchase_history(
     
     return purchase_history
 
+async def get_kok_review_data(
+        db: AsyncSession,
+        product_id: int
+) -> Optional[dict]:
+    """
+    상품의 리뷰 통계 정보와 개별 리뷰 목록을 반환
+    - KOK_PRODUCT_INFO 테이블에서 리뷰 통계 정보
+    - KOK_REVIEW_EXAMPLE 테이블에서 개별 리뷰 목록
+    """
+    # 1. KOK_PRODUCT_INFO 테이블에서 리뷰 통계 정보 조회
+    product_stmt = (
+        select(KokProductInfo).where(KokProductInfo.kok_product_id == product_id)
+    )
+    product_result = await db.execute(product_stmt)
+    product = product_result.scalar_one_or_none()
+    
+    if not product:
+        return None
+    
+    # 2. KOK_REVIEW_EXAMPLE 테이블에서 개별 리뷰 목록 조회
+    review_stmt = (
+        select(KokReviewExample)
+        .where(KokReviewExample.kok_product_id == product_id)
+        .order_by(KokReviewExample.kok_review_date.desc())
+    )
+    review_result = await db.execute(review_stmt)
+    reviews = review_result.scalars().all()
+    
+    # 3. 응답 데이터 구성
+    stats = {
+        "kok_review_score": product.kok_review_score,
+        "kok_review_cnt": product.kok_review_cnt,
+        "kok_5_ratio": product.kok_5_ratio,
+        "kok_4_ratio": product.kok_4_ratio,
+        "kok_3_ratio": product.kok_3_ratio,
+        "kok_2_ratio": product.kok_2_ratio,
+        "kok_1_ratio": product.kok_1_ratio,
+        "kok_aspect_price": product.kok_aspect_price,
+        "kok_aspect_price_ratio": product.kok_aspect_price_ratio,
+        "kok_aspect_delivery": product.kok_aspect_delivery,
+        "kok_aspect_delivery_ratio": product.kok_aspect_delivery_ratio,
+        "kok_aspect_taste": product.kok_aspect_taste,
+        "kok_aspect_taste_ratio": product.kok_aspect_taste_ratio,
+    }
+    
+    review_list = [
+        {
+            "kok_review_id": review.kok_review_id,
+            "kok_product_id": review.kok_product_id,
+            "kok_nickname": review.kok_nickname,
+            "kok_review_date": review.kok_review_date,
+            "kok_review_score": review.kok_review_score,
+            "kok_price_eval": review.kok_price_eval,
+            "kok_delivery_eval": review.kok_delivery_eval,
+            "kok_taste_eval": review.kok_taste_eval,
+            "kok_review_text": review.kok_review_text,
+        }
+        for review in reviews
+    ]
+    
+    return {
+        "stats": stats,
+        "reviews": review_list
+    }
+
 async def get_kok_products_by_ingredient(
     db: AsyncSession, 
     ingredient: str, 
@@ -687,3 +711,56 @@ async def get_kok_products_by_ingredient(
         }
         for p in products
     ]
+
+async def get_kok_product_details(
+        db: AsyncSession,
+        product_id: int
+) -> Optional[dict]:
+    """
+    상품의 상세정보를 반환
+    - KOK_PRODUCT_INFO 테이블에서 판매자 정보
+    - KOK_DETAIL_INFO 테이블에서 상세정보 목록
+    """
+    # 1. KOK_PRODUCT_INFO 테이블에서 판매자 정보 조회
+    product_stmt = (
+        select(KokProductInfo).where(KokProductInfo.kok_product_id == product_id)
+    )
+    product_result = await db.execute(product_stmt)
+    product = product_result.scalar_one_or_none()
+    
+    if not product:
+        return None
+    
+    # 2. KOK_DETAIL_INFO 테이블에서 상세정보 목록 조회
+    detail_stmt = (
+        select(KokDetailInfo)
+        .where(KokDetailInfo.kok_product_id == product_id)
+        .order_by(KokDetailInfo.kok_detail_col_id)
+    )
+    detail_result = await db.execute(detail_stmt)
+    detail_infos = detail_result.scalars().all()
+    
+    # 3. 응답 데이터 구성
+    seller_info = {
+        "kok_co_ceo": product.kok_co_ceo,
+        "kok_co_reg_no": product.kok_co_reg_no,
+        "kok_co_ec_reg": product.kok_co_ec_reg,
+        "kok_tell": product.kok_tell,
+        "kok_ver_item": product.kok_ver_item,
+        "kok_ver_date": product.kok_ver_date,
+        "kok_co_addr": product.kok_co_addr,
+        "kok_return_addr": product.kok_return_addr,
+    }
+    
+    detail_info_list = [
+        {
+            "kok_detail_col": detail.kok_detail_col,
+            "kok_detail_val": detail.kok_detail_val,
+        }
+        for detail in detail_infos
+    ]
+    
+    return {
+        "seller_info": seller_info,
+        "detail_info": detail_info_list
+    }
