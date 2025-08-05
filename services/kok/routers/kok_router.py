@@ -272,7 +272,7 @@ async def toggle_likes(
     """
     상품 찜 등록/해제
     """
-    result = await toggle_kok_likes(db, current_user.user_id, req.product_id)
+    result = await toggle_kok_likes(db, current_user.user_id, req.kok_product_id)
     return result
 
 @router.get("/likes", response_model=KokLikesListResponse)
@@ -299,7 +299,7 @@ async def toggle_cart(
     """
     장바구니 등록/해제
     """
-    result = await toggle_kok_cart(db, current_user.user_id, req.product_id)
+    result = await toggle_kok_cart(db, current_user.user_id, req.kok_product_id)
     return result
 
 @router.get("/carts", response_model=KokCartListResponse)
@@ -381,16 +381,16 @@ async def answer_qna(
 
 @router.post("/purchase")
 async def add_purchase(
-        product_id: int,
-        quantity: int = 1,
-        purchase_price: Optional[int] = None,
+        kok_product_id: int,
+        kok_quantity: int = 1,
+        kok_purchase_price: Optional[int] = None,
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
     구매 이력 추가
     """
-    purchase = await add_kok_purchase(db, current_user.user_id, product_id, quantity, purchase_price)
+    purchase = await add_kok_purchase(db, current_user.user_id, kok_product_id, kok_quantity, kok_purchase_price)
     return {
         "message": "구매 이력이 추가되었습니다.",
         "purchase": purchase

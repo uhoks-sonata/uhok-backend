@@ -146,13 +146,14 @@ class KokProductDetailResponse(KokProductBase):
 
 class KokProductInfoResponse(BaseModel):
     """상품 기본 정보 응답"""
-    product_id: str
-    product_name: str
-    store_name: str
-    thumbnail: str
-    product_price: int
-    discount_rate: int
-    discounted_price: int
+    kok_product_id: str
+    kok_product_name: str
+    kok_store_name: str
+    kok_thumbnail: str
+    kok_product_price: int
+    kok_discount_rate: int
+    kok_discounted_price: int
+    kok_review_cnt: int
     
     class Config:
         orm_mode = True
@@ -185,7 +186,7 @@ class KokReviewListResponse(BaseModel):
 
 class KokQnaListResponse(BaseModel):
     """Q&A 리스트 응답"""
-    product_id: int
+    kok_product_id: int
     qna_list: List[KokQna] = Field(default_factory=list)
     total_count: int
 
@@ -207,7 +208,7 @@ class KokSearchRequest(BaseModel):
 
 class KokProductDetailRequest(BaseModel):
     """제품 상세 정보 요청"""
-    product_id: int
+    kok_product_id: int
 
 # -----------------------------
 # 리뷰 요청 스키마
@@ -215,7 +216,7 @@ class KokProductDetailRequest(BaseModel):
 
 class KokReviewRequest(BaseModel):
     """리뷰 목록 요청"""
-    product_id: int
+    kok_product_id: int
     page: int = 1
     size: int = 10
 
@@ -225,7 +226,7 @@ class KokReviewRequest(BaseModel):
 
 class KokQnaRequest(BaseModel):
     """Q&A 목록 요청"""
-    product_id: int
+    kok_product_id: int
     page: int = 1
     size: int = 10
 
@@ -259,7 +260,7 @@ class KokSearchHistoryDelete(BaseModel):
 
 class KokLikesToggle(BaseModel):
     """찜 토글 요청"""
-    product_id: int
+    kok_product_id: int
 
 class KokLikesResponse(BaseModel):
     """찜 응답"""
@@ -268,11 +269,11 @@ class KokLikesResponse(BaseModel):
 
 class KokLikedProduct(BaseModel):
     """찜한 상품 정보"""
-    product_id: int
-    product_name: Optional[str] = None
-    thumbnail: Optional[str] = None
-    product_price: Optional[int] = None
-    thumbnail_url: Optional[str] = None
+    kok_product_id: int
+    kok_product_name: Optional[str] = None
+    kok_thumbnail: Optional[str] = None
+    kok_product_price: Optional[int] = None
+    kok_thumbnail_url: Optional[str] = None
     
     class Config:
         orm_mode = True
@@ -287,7 +288,7 @@ class KokLikesListResponse(BaseModel):
 
 class KokCartToggle(BaseModel):
     """장바구니 토글 요청"""
-    product_id: int
+    kok_product_id: int
 
 class KokCartResponse(BaseModel):
     """장바구니 응답"""
@@ -296,11 +297,11 @@ class KokCartResponse(BaseModel):
 
 class KokCartItem(BaseModel):
     """장바구니 상품 정보"""
-    product_id: int
-    product_name: Optional[str] = None
-    thumbnail: Optional[str] = None
-    product_price: Optional[int] = None
-    quantity: Optional[int] = None
+    kok_product_id: int
+    kok_product_name: Optional[str] = None
+    kok_thumbnail: Optional[str] = None
+    kok_product_price: Optional[int] = None
+    kok_quantity: Optional[int] = None
     
     class Config:
         orm_mode = True
@@ -344,13 +345,13 @@ class KokPurchase(BaseModel):
 
 class KokPurchaseHistory(BaseModel):
     """구매 이력 상세 정보"""
-    purchase_id: int
-    product_id: int
-    product_name: Optional[str] = None
-    thumbnail: Optional[str] = None
-    quantity: Optional[int] = None
-    purchase_price: Optional[int] = None
-    purchased_at: Optional[str] = None
+    kok_purchase_id: int
+    kok_product_id: int
+    kok_product_name: Optional[str] = None
+    kok_thumbnail: Optional[str] = None
+    kok_quantity: Optional[int] = None
+    kok_purchase_price: Optional[int] = None
+    kok_purchased_at: Optional[str] = None
     
     class Config:
         orm_mode = True
@@ -362,6 +363,6 @@ class KokPurchaseHistoryResponse(BaseModel):
 
 class KokPurchaseCreate(BaseModel):
     """구매 이력 생성 요청"""
-    product_id: int
-    quantity: int = 1
-    purchase_price: Optional[int] = None
+    kok_product_id: int
+    kok_quantity: int = 1
+    kok_purchase_price: Optional[int] = None

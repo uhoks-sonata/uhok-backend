@@ -250,11 +250,11 @@ async def get_kok_liked_products(
     liked_products = []
     for like, product in results:
         liked_products.append({
-            "product_id": product.kok_product_id,
-            "product_name": product.kok_product_name,
-            "thumbnail": product.kok_thumbnail,
-            "product_price": product.kok_product_price,
-            "thumbnail_url": product.kok_thumbnail  # thumbnail_url은 thumbnail과 동일
+            "kok_product_id": product.kok_product_id,
+            "kok_product_name": product.kok_product_name,
+            "kok_thumbnail": product.kok_thumbnail,
+            "kok_product_price": product.kok_product_price,
+            "kok_thumbnail_url": product.kok_thumbnail  # thumbnail_url은 thumbnail과 동일
         })
     
     return liked_products
@@ -317,11 +317,11 @@ async def get_kok_cart_items(
     cart_items = []
     for cart, product in results:
         cart_items.append({
-            "product_id": product.kok_product_id,
-            "product_name": product.kok_product_name,
-            "thumbnail": product.kok_thumbnail,
-            "product_price": product.kok_product_price,
-            "quantity": cart.kok_quantity
+            "kok_product_id": product.kok_product_id,
+            "kok_product_name": product.kok_product_name,
+            "kok_thumbnail": product.kok_thumbnail,
+            "kok_product_price": product.kok_product_price,
+            "kok_quantity": cart.kok_quantity
         })
     
     return cart_items
@@ -538,14 +538,14 @@ async def get_kok_product_info(
     product, price = row
     
     return {
-        "product_id": str(product.kok_product_id),
-        "product_name": product.kok_product_name,
-        "store_name": product.kok_store_name,  # KOK_STORE_NAME을 store_name으로 매핑
-        "thumbnail": product.kok_thumbnail,  # KOK_THUMBNAIL을 thumbnail로 매핑
-        "product_price": product.kok_product_price,  # KOK_PRODUCT_PRICE를 product_price로 매핑
-        "discount_rate": price.kok_discount_rate if price else 0,
-        "discounted_price": price.kok_discounted_price if price else product.kok_product_price,
-        "review_count": product.kok_review_cnt or 0  # 리뷰 수 추가
+        "kok_product_id": str(product.kok_product_id),
+        "kok_product_name": product.kok_product_name,
+        "kok_store_name": product.kok_store_name,
+        "kok_thumbnail": product.kok_thumbnail,
+        "kok_product_price": product.kok_product_price,
+        "kok_discount_rate": price.kok_discount_rate if price else 0,
+        "kok_discounted_price": price.kok_discounted_price if price else product.kok_product_price,
+        "kok_review_cnt": product.kok_review_cnt or 0
     }
 
 async def search_kok_products(
@@ -641,13 +641,13 @@ async def get_kok_purchase_history(
     purchase_history = []
     for purchase, product in results:
         purchase_history.append({
-            "purchase_id": purchase.kok_purchase_id,
-            "product_id": purchase.kok_product_id,
-            "product_name": product.kok_product_name,
-            "thumbnail": product.kok_thumbnail,
-            "quantity": purchase.kok_quantity,
-            "purchase_price": purchase.kok_purchase_price,
-            "purchased_at": purchase.kok_purchased_at
+            "kok_purchase_id": purchase.kok_purchase_id,
+            "kok_product_id": purchase.kok_product_id,
+            "kok_product_name": product.kok_product_name,
+            "kok_thumbnail": product.kok_thumbnail,
+            "kok_quantity": purchase.kok_quantity,
+            "kok_purchase_price": purchase.kok_purchase_price,
+            "kok_purchased_at": purchase.kok_purchased_at
         })
     
     return purchase_history
