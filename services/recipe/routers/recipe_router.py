@@ -16,11 +16,12 @@ from services.recipe.crud.recipe_crud import (
     get_recipe_detail,
     get_recipe_url,
     recommend_recipes_by_ingredients,
-    search_recipes_by_keyword_postgres,
+    search_recipes_by_keyword,
     get_recipe_rating,
     set_recipe_rating
 )
 from common.database.mariadb_service import get_maria_service_db
+from common.database.postgres_recommend import get_postgres_recommend_db
 
 router = APIRouter(prefix="/api/recipes", tags=["Recipe"])
 

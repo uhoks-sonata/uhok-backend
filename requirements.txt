@@ -25,7 +25,6 @@ websockets==15.0.1             # WebSocket 구현 (FastAPI 실시간 통신 기�
 sqlalchemy==2.0.42             # ORM 및 데이터베이스 연결/쿼리용 라이브러리
 alembic==1.16.4                # 데이터베이스 마이그레이션 도구 (SQLAlchemy 기반 스키마 버전 관리)
 pymysql==1.1.1                 # SQLAlchemy와 MariaDB/MySQL 연동용 드라이버
-mariadb                        # MariaDB 파이썬 드라이버
 asyncmy==0.2.10                # MariaDB/MySQL용 비동기 SQLAlchemy 드라이버 (SQLAlchemy 1.4+ 지원)
 asyncpg==0.30.0                # PostgreSQL용 비동기 SQLAlchemy 드라이버 (SQLAlchemy 1.4+ 지원)
 greenlet==3.2.3                # SQLAlchemy 등에서 비동기 context 전환에 사용되는 코루틴 지원

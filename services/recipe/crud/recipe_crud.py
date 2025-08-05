@@ -120,8 +120,8 @@ async def recommend_recipes_by_ingredients(
     return filtered[start:end], len(filtered)
 
 
-async def search_recipes_by_keyword_postgres(
-    db: AsyncSession,   # 반드시 get_postgres_recommend_db로 주입!
+async def search_recipes_by_keyword(
+    db: AsyncSession,
     keyword: str,
     page: int = 1,
     size: int = 5
@@ -167,7 +167,9 @@ async def get_recipe_rating(db: AsyncSession, recipe_id: int) -> float:
     """
     해당 레시피의 별점 평균값을 반환
     """
-    stmt = select(func.avg(RecipeRating.rating)).where(RecipeRating.recipe_id == recipe_id) # type: ignore
+    stmt = (
+        select(func.avg(RecipeRating.rating)).where(RecipeRating.recipe_id == recipe_id) # type: ignore
+    )
     avg_rating = (await db.execute(stmt)).scalar()
     return float(avg_rating) if avg_rating is not None else 0.0
 
