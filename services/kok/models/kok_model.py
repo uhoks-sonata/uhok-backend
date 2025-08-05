@@ -27,7 +27,6 @@ class KokProductInfo(MariaBase):
     # 🔹 상품 상세 탭 정보
     kok_description = Column("KOK_DESCRIPTION", Text, nullable=True)  # description (HTML 형식 상품 설명)
     kok_review_cnt = Column("KOK_REVIEW_CNT", Integer, nullable=True)  # reviewCount
-    kok_qna_cnt = Column("KOK_QNA_CNT", Integer, nullable=True)  # qnaCount
 
     # 리뷰 관련 정보
     kok_review_score = Column("KOK_REVIEW_SCORE", Float, nullable=True)  # 리뷰 평점 평균
@@ -86,14 +85,6 @@ class KokProductInfo(MariaBase):
         "KokPriceInfo",
         back_populates="product",
         primaryjoin="KokProductInfo.kok_product_id==KokPriceInfo.kok_product_id",
-        lazy="joined"
-    )
-
-    # Q&A와 1:N 관계 설정
-    qna_list = relationship(
-        "KokQna",
-        back_populates="product",
-        primaryjoin="KokProductInfo.kok_product_id==KokQna.kok_product_id",
         lazy="joined"
     )
 
@@ -194,29 +185,6 @@ class KokPriceInfo(MariaBase):
     product = relationship(
         "KokProductInfo",
         back_populates="price_infos",
-        lazy="joined"
-    )
-
-class KokQna(MariaBase):
-    """
-    KOK_QNA 테이블의 ORM 모델
-    
-    """
-    __tablename__ = "KOK_QNA"
-
-    kok_qna_id = Column("KOK_QNA_ID", Integer, primary_key=True, autoincrement=True)  # Q&A ID
-    kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=True)  # 제품 코드
-    kok_question = Column("KOK_QUESTION", String(2000), nullable=True)  # 질문
-    kok_answer = Column("KOK_ANSWER", String(2000), nullable=True)  # 답변 (없으면 null)
-    kok_is_answered = Column("KOK_IS_ANSWERED", Boolean, nullable=True)  # 답변 여부
-    kok_author = Column("KOK_AUTHOR", String(50), nullable=True)  # 작성자
-    kok_created_at = Column("KOK_CREATED_AT", String(15), nullable=True)  # 질문 작성일
-    kok_answered_at = Column("KOK_ANSWERED_AT", String(15), nullable=True)  # 답변 작성일
-
-    # 제품 정보와 N:1 관계 설정
-    product = relationship(
-        "KokProductInfo",
-        back_populates="qna_list",
         lazy="joined"
     )
 

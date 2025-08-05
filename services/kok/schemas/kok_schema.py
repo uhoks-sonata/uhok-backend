@@ -54,6 +54,51 @@ class KokReviewExample(BaseModel):
     class Config:
         from_attributes = True
 
+class KokReviewStats(BaseModel):
+    """리뷰 통계 정보 (KOK_PRODUCT_INFO 테이블에서)"""
+    kok_review_score: Optional[float] = None  # 리뷰 평점 평균
+    kok_review_cnt: Optional[int] = None  # 리뷰 개수
+    kok_5_ratio: Optional[int] = None  # 5점 비율
+    kok_4_ratio: Optional[int] = None  # 4점 비율
+    kok_3_ratio: Optional[int] = None  # 3점 비율
+    kok_2_ratio: Optional[int] = None  # 2점 비율
+    kok_1_ratio: Optional[int] = None  # 1점 비율
+    kok_aspect_price: Optional[str] = None  # 가격 평가
+    kok_aspect_price_ratio: Optional[int] = None  # 가격 평가 비율
+    kok_aspect_delivery: Optional[str] = None  # 배송 평가
+    kok_aspect_delivery_ratio: Optional[int] = None  # 배송 평가 비율
+    kok_aspect_taste: Optional[str] = None  # 맛 평가
+    kok_aspect_taste_ratio: Optional[int] = None  # 맛 평가 비율
+    
+    class Config:
+        from_attributes = True
+
+class KokReviewDetail(BaseModel):
+    """개별 리뷰 상세 정보 (KOK_REVIEW_EXAMPLE 테이블에서)"""
+    kok_review_id: int  # 리뷰 인덱스
+    kok_product_id: Optional[int] = None  # 제품 코드
+    kok_nickname: Optional[str] = None  # 작성자 닉네임
+    kok_review_date: Optional[str] = None  # 작성일
+    kok_review_score: Optional[int] = None  # 리뷰 점수
+    kok_price_eval: Optional[str] = None  # 가격 평가
+    kok_delivery_eval: Optional[str] = None  # 배송 평가
+    kok_taste_eval: Optional[str] = None  # 맛 평가
+    kok_review_text: Optional[str] = None  # 리뷰 전문
+    
+    class Config:
+        from_attributes = True
+
+class KokReviewResponse(BaseModel):
+    """리뷰 API 응답"""
+    # KOK_PRODUCT_INFO 테이블에서 가져온 통계 정보
+    stats: KokReviewStats
+    
+    # KOK_REVIEW_EXAMPLE 테이블에서 가져온 개별 리뷰 목록
+    reviews: List[KokReviewDetail] = Field(default_factory=list)
+    
+    class Config:
+        from_attributes = True
+
 # -----------------------------
 # 가격 정보 스키마
 # -----------------------------
@@ -68,23 +113,7 @@ class KokPriceInfo(BaseModel):
     class Config:
         from_attributes = True
 
-# -----------------------------
-# Q&A 스키마
-# -----------------------------
 
-class KokQna(BaseModel):
-    """Q&A 정보"""
-    kok_qna_id: int  # Q&A ID
-    kok_product_id: Optional[int] = None
-    kok_question: Optional[str] = None  # 질문
-    kok_answer: Optional[str] = None  # 답변
-    kok_is_answered: Optional[bool] = None  # 답변 여부
-    kok_author: Optional[str] = None  # 작성자
-    kok_created_at: Optional[str] = None  # 질문 작성일
-    kok_answered_at: Optional[str] = None  # 답변 작성일
-    
-    class Config:
-        from_attributes = True
 
 # -----------------------------
 # 제품 기본/목록/상세 스키마
@@ -103,7 +132,6 @@ class KokProductBase(BaseModel):
     # 🔹 상품 상세 탭 정보
     kok_description: Optional[str] = None  # description (HTML 형식 상품 설명)
     kok_review_cnt: Optional[int] = None  # reviewCount
-    kok_qna_cnt: Optional[int] = None  # qnaCount
     
     # 리뷰 관련 정보
     kok_review_score: Optional[float] = None  # 리뷰 평점 평균
@@ -142,7 +170,7 @@ class KokProductDetailResponse(KokProductBase):
     detail_infos: List[KokDetailInfo] = Field(default_factory=list)
     review_examples: List[KokReviewExample] = Field(default_factory=list)
     price_infos: List[KokPriceInfo] = Field(default_factory=list)
-    qna_list: List[KokQna] = Field(default_factory=list)
+
 
 class KokProductInfoResponse(BaseModel):
     """상품 기본 정보 응답"""
@@ -158,6 +186,10 @@ class KokProductInfoResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class KokProductTabsResponse(BaseModel):
+    """상품 탭 정보 응답"""
+    images: List[dict] = Field(default_factory=list)
+
 # -----------------------------
 # 제품 목록 응답 스키마
 # -----------------------------
@@ -168,27 +200,6 @@ class KokProductListResponse(BaseModel):
     total: int
     page: int
     size: int
-
-# -----------------------------
-# 리뷰 리스트 응답 스키마
-# -----------------------------
-
-class KokReviewListResponse(BaseModel):
-    """리뷰 리스트 응답"""
-    total: int
-    page: int
-    size: int
-    items: List[KokReviewExample] = Field(default_factory=list)
-
-# -----------------------------
-# Q&A 리스트 응답 스키마
-# -----------------------------
-
-class KokQnaListResponse(BaseModel):
-    """Q&A 리스트 응답"""
-    kok_product_id: int
-    qna_list: List[KokQna] = Field(default_factory=list)
-    total_count: int
 
 # -----------------------------
 # 검색 요청 스키마
@@ -224,11 +235,7 @@ class KokReviewRequest(BaseModel):
 # Q&A 요청 스키마
 # -----------------------------
 
-class KokQnaRequest(BaseModel):
-    """Q&A 목록 요청"""
-    kok_product_id: int
-    page: int = 1
-    size: int = 10
+
 
 # -----------------------------
 # 검색 이력 스키마
@@ -366,3 +373,40 @@ class KokPurchaseCreate(BaseModel):
     kok_product_id: int
     kok_quantity: int = 1
     kok_purchase_price: Optional[int] = None
+
+# -----------------------------
+# 상품 상세정보 스키마
+# -----------------------------
+
+class KokProductDetails(BaseModel):
+    """상품 상세정보 (KOK_PRODUCT_INFO 테이블에서)"""
+    kok_co_ceo: Optional[str] = None  # 상호명/대표자
+    kok_co_reg_no: Optional[str] = None  # 사업자등록번호
+    kok_co_ec_reg: Optional[str] = None  # 통신판매업신고
+    kok_tell: Optional[str] = None  # 전화번호
+    kok_ver_item: Optional[str] = None  # 인증완료 항목
+    kok_ver_date: Optional[str] = None  # 인증시기
+    kok_co_addr: Optional[str] = None  # 영업소재지
+    kok_return_addr: Optional[str] = None  # 반품주소
+    
+    class Config:
+        from_attributes = True
+
+class KokDetailInfoItem(BaseModel):
+    """상세정보 항목 (KOK_DETAIL_INFO 테이블에서)"""
+    kok_detail_col: Optional[str] = None  # 상세정보 컬럼명
+    kok_detail_val: Optional[str] = None  # 상세정보 내용
+    
+    class Config:
+        from_attributes = True
+
+class KokProductDetailsResponse(BaseModel):
+    """상품 상세정보 응답"""
+    # KOK_PRODUCT_INFO 테이블에서 가져온 판매자 정보
+    seller_info: KokProductDetails
+    
+    # KOK_DETAIL_INFO 테이블에서 가져온 상세정보 목록
+    detail_info: List[KokDetailInfoItem] = Field(default_factory=list)
+    
+    class Config:
+        from_attributes = True
