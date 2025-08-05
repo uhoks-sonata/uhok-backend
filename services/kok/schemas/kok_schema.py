@@ -2,7 +2,7 @@
 콕 쇼핑몰 응답/요청용 Pydantic 스키마 모듈
 - 모든 필드/변수는 소문자
 - DB ORM과 분리, API 직렬화/유효성 검증용
-- API 명세서의 변수명을 기반으로 작성
+- DB 데이터 정의서 기반으로 변수명 통일 (KOK_ 접두사 제거 후 소문자)
 """
 
 from pydantic import BaseModel, Field
@@ -14,9 +14,9 @@ from typing import Optional, List
 
 class KokImageInfo(BaseModel):
     """이미지 정보"""
-    img_id: int
-    product_id: Optional[int] = None
-    img_url: Optional[str] = None
+    kok_img_id: int
+    kok_product_id: Optional[int] = None
+    kok_img_url: Optional[str] = None
     
     class Config:
         orm_mode = True
@@ -27,10 +27,10 @@ class KokImageInfo(BaseModel):
 
 class KokDetailInfo(BaseModel):
     """상세 정보"""
-    detail_col_id: int
-    product_id: Optional[int] = None
-    detail_col: Optional[str] = None
-    detail_val: Optional[str] = None
+    kok_detail_col_id: int
+    kok_product_id: Optional[int] = None
+    kok_detail_col: Optional[str] = None
+    kok_detail_val: Optional[str] = None
     
     class Config:
         orm_mode = True
@@ -41,15 +41,15 @@ class KokDetailInfo(BaseModel):
 
 class KokReviewExample(BaseModel):
     """리뷰 예시 정보"""
-    review_id: int
-    product_id: Optional[int] = None
-    user_name: Optional[str] = None  # userName
-    content: Optional[str] = None  # content
-    created_at: Optional[str] = None  # createdAt
-    review_score: Optional[int] = None
-    price_eval: Optional[str] = None
-    delivery_eval: Optional[str] = None
-    taste_eval: Optional[str] = None
+    kok_review_id: int
+    kok_product_id: Optional[int] = None
+    kok_nickname: Optional[str] = None  # 작성자 닉네임
+    kok_review_text: Optional[str] = None  # 리뷰 전문
+    kok_review_date: Optional[str] = None  # 작성일
+    kok_review_score: Optional[int] = None
+    kok_price_eval: Optional[str] = None
+    kok_delivery_eval: Optional[str] = None
+    kok_taste_eval: Optional[str] = None
     
     class Config:
         orm_mode = True
@@ -60,10 +60,10 @@ class KokReviewExample(BaseModel):
 
 class KokPriceInfo(BaseModel):
     """가격 정보"""
-    price_id: int
-    product_id: Optional[int] = None
-    discount_rate: Optional[int] = None
-    discounted_price: Optional[int] = None
+    kok_price_id: int
+    kok_product_id: Optional[int] = None
+    kok_discount_rate: Optional[int] = None
+    kok_discounted_price: Optional[int] = None
     
     class Config:
         orm_mode = True
@@ -74,14 +74,14 @@ class KokPriceInfo(BaseModel):
 
 class KokQna(BaseModel):
     """Q&A 정보"""
-    qna_id: int  # qnaId
-    product_id: Optional[int] = None
-    question: Optional[str] = None  # question
-    answer: Optional[str] = None  # answer
-    is_answered: Optional[bool] = None  # isAnswered
-    author: Optional[str] = None  # author
-    created_at: Optional[str] = None  # createdAt
-    answered_at: Optional[str] = None  # answeredAt
+    kok_qna_id: int  # Q&A ID
+    kok_product_id: Optional[int] = None
+    kok_question: Optional[str] = None  # 질문
+    kok_answer: Optional[str] = None  # 답변
+    kok_is_answered: Optional[bool] = None  # 답변 여부
+    kok_author: Optional[str] = None  # 작성자
+    kok_created_at: Optional[str] = None  # 질문 작성일
+    kok_answered_at: Optional[str] = None  # 답변 작성일
     
     class Config:
         orm_mode = True
@@ -93,20 +93,20 @@ class KokQna(BaseModel):
 class KokProductBase(BaseModel):
     """제품 기본 정보"""
     # 🔹 공통 상품 정보 (메인화면 리스트 공통)
-    product_id: int  # productId
-    product_image: Optional[str] = None  # productImage (thumbnail)
-    product_name: Optional[str] = None  # productName
-    brand_name: Optional[str] = None  # brandName (store_name)
-    price: Optional[int] = None  # price (product_price)
-    discount_rate: Optional[int] = None  # discountRate
+    kok_product_id: int  # 제품코드
+    kok_thumbnail: Optional[str] = None  # 썸네일 이미지
+    kok_product_name: Optional[str] = None  # 상품명
+    kok_store_name: Optional[str] = None  # 판매자 정보
+    kok_product_price: Optional[int] = None  # 상품 원가
+    kok_discount_rate: Optional[int] = None  # 할인율
     
     # 🔹 상품 상세 탭 정보
-    description: Optional[str] = None  # description (HTML 형식 상품 설명)
-    review_count: Optional[int] = None  # reviewCount
-    qna_count: Optional[int] = None  # qnaCount
+    kok_description: Optional[str] = None  # description (HTML 형식 상품 설명)
+    kok_review_cnt: Optional[int] = None  # reviewCount
+    kok_qna_cnt: Optional[int] = None  # qnaCount
     
     # 리뷰 관련 정보
-    review_score: Optional[float] = None  # 리뷰 평점 평균
+    kok_review_score: Optional[float] = None  # 리뷰 평점 평균
     kok_5_ratio: Optional[int] = None  # 5점 비율
     kok_4_ratio: Optional[int] = None  # 4점 비율
     kok_3_ratio: Optional[int] = None  # 3점 비율
@@ -114,24 +114,24 @@ class KokProductBase(BaseModel):
     kok_1_ratio: Optional[int] = None  # 1점 비율
     
     # 평가 정보
-    aspect_price: Optional[str] = None  # 가격 평가
-    aspect_price_ratio: Optional[int] = None  # 가격 평가 비율
-    aspect_delivery: Optional[str] = None  # 배송 평가
-    aspect_delivery_ratio: Optional[int] = None  # 배송 평가 비율
-    aspect_taste: Optional[str] = None  # 맛 평가
-    aspect_taste_ratio: Optional[int] = None  # 맛 평가 비율
+    kok_aspect_price: Optional[str] = None  # 가격 평가
+    kok_aspect_price_ratio: Optional[int] = None  # 가격 평가 비율
+    kok_aspect_delivery: Optional[str] = None  # 배송 평가
+    kok_aspect_delivery_ratio: Optional[int] = None  # 배송 평가 비율
+    kok_aspect_taste: Optional[str] = None  # 맛 평가
+    kok_aspect_taste_ratio: Optional[int] = None  # 맛 평가 비율
     
     # 판매자 정보
-    seller: Optional[str] = None  # 판매자
-    co_ceo: Optional[str] = None  # 상호명/대표자
-    co_reg_no: Optional[str] = None  # 사업자등록번호
-    co_ec_reg: Optional[str] = None  # 통신판매업신고
-    tell: Optional[str] = None  # 전화번호
-    ver_item: Optional[str] = None  # 인증완료 항목
-    ver_date: Optional[str] = None  # 인증시기
-    co_addr: Optional[str] = None  # 영업소재지
-    return_addr: Optional[str] = None  # 반품주소
-    exchange_addr: Optional[str] = None  # 교환주소
+    kok_seller: Optional[str] = None  # 판매자
+    kok_co_ceo: Optional[str] = None  # 상호명/대표자
+    kok_co_reg_no: Optional[str] = None  # 사업자등록번호
+    kok_co_ec_reg: Optional[str] = None  # 통신판매업신고
+    kok_tell: Optional[str] = None  # 전화번호
+    kok_ver_item: Optional[str] = None  # 인증완료 항목
+    kok_ver_date: Optional[str] = None  # 인증시기
+    kok_co_addr: Optional[str] = None  # 영업소재지
+    kok_return_addr: Optional[str] = None  # 반품주소
+    kok_exchange_addr: Optional[str] = None  # 교환주소
     
     class Config:
         orm_mode = True
@@ -270,8 +270,8 @@ class KokLikedProduct(BaseModel):
     """찜한 상품 정보"""
     product_id: int
     product_name: Optional[str] = None
-    product_image: Optional[str] = None
-    price: Optional[int] = None
+    thumbnail: Optional[str] = None
+    product_price: Optional[int] = None
     thumbnail_url: Optional[str] = None
     
     class Config:
@@ -298,8 +298,8 @@ class KokCartItem(BaseModel):
     """장바구니 상품 정보"""
     product_id: int
     product_name: Optional[str] = None
-    product_image: Optional[str] = None
-    price: Optional[int] = None
+    thumbnail: Optional[str] = None
+    product_price: Optional[int] = None
     quantity: Optional[int] = None
     
     class Config:
@@ -336,12 +336,12 @@ class KokUnpurchasedResponse(BaseModel):
 
 class KokPurchase(BaseModel):
     """구매 이력 정보"""
-    purchase_id: int
-    user_id: Optional[int] = None
-    product_id: Optional[int] = None
-    quantity: Optional[int] = None
-    purchase_price: Optional[int] = None
-    purchased_at: Optional[str] = None
+    kok_purchase_id: int
+    kok_user_id: Optional[int] = None
+    kok_product_id: Optional[int] = None
+    kok_quantity: Optional[int] = None
+    kok_purchase_price: Optional[int] = None
+    kok_purchased_at: Optional[str] = None
     
     class Config:
         orm_mode = True
@@ -351,7 +351,7 @@ class KokPurchaseHistory(BaseModel):
     purchase_id: int
     product_id: int
     product_name: Optional[str] = None
-    product_image: Optional[str] = None
+    thumbnail: Optional[str] = None
     quantity: Optional[int] = None
     purchase_price: Optional[int] = None
     purchased_at: Optional[str] = None
