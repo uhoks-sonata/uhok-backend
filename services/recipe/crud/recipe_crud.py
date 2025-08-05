@@ -7,10 +7,10 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
 from typing import List, Optional, Dict, Tuple
+import pandas as pd
 
 from services.recipe.models.recipe_model import Recipe, Material, RecipeRating
-# 함수 이름 수정 필요 ( 아직 미정의 )
-from services.recommend.team_recommend_model import find_similar_recipes
+from services.recommend.recommend_service import _get_recipe_recommendations
 
 def get_recipe_url(recipe_id: int) -> str:
     """
@@ -120,30 +120,39 @@ async def recommend_recipes_by_ingredients(
     return filtered[start:end], len(filtered)
 
 
-async def search_recipes_by_keyword(
-    db: AsyncSession,
+async def search_recipes_by_keyword_postgres(
+    db: AsyncSession,   # 반드시 get_postgres_recommend_db로 주입!
     keyword: str,
     page: int = 1,
     size: int = 5
 ) -> Tuple[List[dict], int]:
     """
-    레시피명(키워드) 기반 유사 레시피 추천 (모델 결과 기반, 페이지네이션 지원)
+    [PostgreSQL REC_DB] 레시피명(키워드) 기반 유사 레시피 추천 (페이지네이션 지원)
     """
-    # 1. 유사도 모델에서 추천받은 recipe_id 리스트 (입력순서)
-    similar_ids = find_similar_recipes(keyword, n=1000)  # 최대 1000개 등 제한 가능
+    # 1. 추천DB에서 전체 벡터 정보 불러오기 (Postgres 전용 테이블)
+    from sqlalchemy import text
+    result = await db.execute(
+        text("SELECT RECIPE_ID, COOKING_NAME, VECTOR_NAME FROM REC_RECIPE WHERE VECTOR_NAME IS NOT NULL")
+    )
+    rows = result.fetchall()
+    df = pd.DataFrame(rows, columns=["RECIPE_ID", "COOKING_NAME", "VECTOR_NAME"])
+
+    # 2. 유사도 기반 추천
+    sim_df = await _get_recipe_recommendations(df, keyword, top_k=1000)
+    similar_ids = sim_df["RECIPE_ID"].astype(int).tolist()
     if not similar_ids:
         return [], 0
 
-    # 2. 추천된 recipe_id로 상세 DB 조회
-    stmt = select(Recipe).where(Recipe.recipe_id.in_(similar_ids))
-    result = await db.execute(stmt)
-    recipes = result.scalars().all()
-    recipe_map = {r.recipe_id: r for r in recipes}
+    # 3. 상세 조회 (PostgreSQL의 REC_RECIPE, 혹은 정규화된 테이블 사용)
+    stmt = text(f"SELECT * FROM REC_RECIPE WHERE RECIPE_ID = ANY(:ids)")
+    result = await db.execute(stmt, {"ids": similar_ids})
+    recipes = result.fetchall()
+    recipe_map = {r[0]: dict(zip(result.keys(), r)) for r in recipes}
 
-    # 3. 입력 순서/추천 순서 보장 & 페이지네이션 적용
+    # 4. 추천 순서/페이지네이션 적용
     result_list = [
         {
-            **recipe_map[recipe_id].__dict__,
+            **recipe_map[recipe_id],
             "recipe_url": get_recipe_url(recipe_id)
         }
         for recipe_id in similar_ids if recipe_id in recipe_map
