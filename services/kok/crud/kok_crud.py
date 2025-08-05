@@ -374,12 +374,12 @@ async def get_kok_new_products(
     products = (await db.execute(stmt)).scalars().all()
     return [product.__dict__ for product in products]
 
-async def get_kok_recommendations(
+async def get_kok_unpurchased(
         db: AsyncSession,
         user_id: int
 ) -> List[dict]:
     """
-    사용자 맞춤형 상품 목록 조회 (최근 구매 상품과 중복되지 않는 상품)
+    미구매 상품 목록 조회 (최근 구매 상품과 중복되지 않는 상품)
     """
     # 1. 사용자의 최근 구매 상품 ID 목록 조회 (최근 30일)
     from datetime import datetime, timedelta
@@ -527,6 +527,36 @@ async def get_kok_product_by_id(
     product = result.scalar_one_or_none()
     
     return product.__dict__ if product else None
+
+async def get_kok_product_info(
+        db: AsyncSession,
+        product_id: int
+) -> Optional[dict]:
+    """
+    상품 기본 정보 조회 (API 명세서 형식)
+    """
+    stmt = (
+        select(KokProductInfo, KokPriceInfo)
+        .join(KokPriceInfo, KokProductInfo.product_id == KokPriceInfo.product_id)
+        .where(KokProductInfo.product_id == product_id)
+    )
+    result = await db.execute(stmt)
+    row = result.first()
+    
+    if not row:
+        return None
+    
+    product, price = row
+    
+    return {
+        "product_id": str(product.product_id),
+        "product_name": product.product_name,
+        "store_name": product.brand_name,  # KOK_STORE_NAME을 store_name으로 매핑
+        "thumbnail": product.product_image,  # KOK_THUMBNAIL을 thumbnail로 매핑
+        "product_price": product.price,  # KOK_PRODUCT_PRICE를 product_price로 매핑
+        "discount_rate": price.discount_rate if price else 0,
+        "discounted_price": price.discounted_price if price else product.price
+    }
 
 async def search_kok_products(
         db: AsyncSession,

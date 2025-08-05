@@ -94,10 +94,10 @@ class KokProductBase(BaseModel):
     """제품 기본 정보"""
     # 🔹 공통 상품 정보 (메인화면 리스트 공통)
     product_id: int  # productId
-    product_image: Optional[str] = None  # productImage
+    product_image: Optional[str] = None  # productImage (thumbnail)
     product_name: Optional[str] = None  # productName
-    brand_name: Optional[str] = None  # brandName
-    price: Optional[int] = None  # price
+    brand_name: Optional[str] = None  # brandName (store_name)
+    price: Optional[int] = None  # price (product_price)
     discount_rate: Optional[int] = None  # discountRate
     
     # 🔹 상품 상세 탭 정보
@@ -143,6 +143,19 @@ class KokProductDetailResponse(KokProductBase):
     review_examples: List[KokReviewExample] = Field(default_factory=list)
     price_infos: List[KokPriceInfo] = Field(default_factory=list)
     qna_list: List[KokQna] = Field(default_factory=list)
+
+class KokProductInfoResponse(BaseModel):
+    """상품 기본 정보 응답"""
+    product_id: str
+    product_name: str
+    store_name: str
+    thumbnail: str
+    product_price: int
+    discount_rate: int
+    discounted_price: int
+    
+    class Config:
+        orm_mode = True
 
 # -----------------------------
 # 제품 목록 응답 스키마
@@ -312,8 +325,8 @@ class KokNewProductsResponse(BaseModel):
     """신상품 응답"""
     products: List[KokProductBase] = Field(default_factory=list)
 
-class KokRecommendationsResponse(BaseModel):
-    """맞춤형 상품 응답"""
+class KokUnpurchasedResponse(BaseModel):
+    """미구매 상품 응답"""
     products: List[KokProductBase] = Field(default_factory=list)
 
 

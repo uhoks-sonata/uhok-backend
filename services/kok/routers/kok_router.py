@@ -18,6 +18,7 @@ from services.kok.schemas.kok_schema import (
     KokProductDetailResponse,
     KokProductListResponse,
     KokProductBase,
+    KokProductInfoResponse,
     
     # 리뷰 관련 스키마
     KokReviewListResponse,
@@ -47,7 +48,7 @@ from services.kok.schemas.kok_schema import (
     KokDiscountedProductsResponse,
     KokTopSellingProductsResponse,
     KokNewProductsResponse,
-    KokRecommendationsResponse,
+    KokUnpurchasedResponse,
     
     # 구매 이력 관련 스키마
     KokPurchaseHistoryResponse,
@@ -59,6 +60,7 @@ from services.kok.crud.kok_crud import (
     get_kok_product_detail,
     get_kok_product_list,
     get_kok_product_by_id,
+    get_kok_product_info,
     search_kok_products,
     
     # 리뷰 관련 CRUD
@@ -86,7 +88,7 @@ from services.kok.crud.kok_crud import (
     get_kok_discounted_products,
     get_kok_top_selling_products,
     get_kok_new_products,
-    get_kok_recommendations,
+    get_kok_unpurchased,
     
     # 구매 이력 관련 CRUD
     add_kok_purchase,
@@ -131,15 +133,15 @@ async def get_new_products(
     products = await get_kok_new_products(db)
     return {"products": products}
 
-@router.get("/recommendations", response_model=KokRecommendationsResponse)
-async def get_recommendations(
+@router.get("/unpurchased", response_model=KokUnpurchasedResponse)
+async def get_unpurchased(
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    사용자 맞춤형 상품 리스트 조회
+    미구매 상품 리스트 조회
     """
-    products = await get_kok_recommendations(db, current_user.user_id)
+    products = await get_kok_unpurchased(db, current_user.user_id)
     return {"products": products}
 
 # ================================
@@ -326,6 +328,19 @@ async def get_cart_items(
 # ================================
 # 제품 상세 정보
 # ================================
+
+@router.get("/product/{product_id}/info", response_model=KokProductInfoResponse)
+async def get_product_info(
+        product_id: int,
+        db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    상품 기본 정보 조회
+    """
+    product = await get_kok_product_info(db, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
+    return product
 
 @router.get("/product/{product_id}", response_model=KokProductDetailResponse)
 async def get_product_detail(
