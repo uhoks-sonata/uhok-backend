@@ -515,6 +515,8 @@ async def get_kok_product_by_id(
     
     return product.__dict__ if product else None
 
+
+
 async def get_kok_product_info(
         db: AsyncSession,
         product_id: int
@@ -542,7 +544,8 @@ async def get_kok_product_info(
         "thumbnail": product.kok_thumbnail,  # KOK_THUMBNAIL을 thumbnail로 매핑
         "product_price": product.kok_product_price,  # KOK_PRODUCT_PRICE를 product_price로 매핑
         "discount_rate": price.kok_discount_rate if price else 0,
-        "discounted_price": price.kok_discounted_price if price else product.kok_product_price
+        "discounted_price": price.kok_discounted_price if price else product.kok_product_price,
+        "review_count": product.kok_review_cnt or 0  # 리뷰 수 추가
     }
 
 async def search_kok_products(
