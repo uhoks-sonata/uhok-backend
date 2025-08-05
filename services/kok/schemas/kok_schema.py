@@ -202,18 +202,6 @@ class KokProductListResponse(BaseModel):
     size: int
 
 # -----------------------------
-# 검색 요청 스키마
-# -----------------------------
-
-class KokSearchRequest(BaseModel):
-    """제품 검색 요청"""
-    keyword: Optional[str] = None
-    page: int = 1
-    size: int = 10
-    sort_by: Optional[str] = None  # price, review_score, review_count 등
-    sort_order: Optional[str] = "desc"  # asc, desc
-
-# -----------------------------
 # 제품 상세 요청 스키마
 # -----------------------------
 
@@ -230,92 +218,6 @@ class KokReviewRequest(BaseModel):
     kok_product_id: int
     page: int = 1
     size: int = 10
-
-# -----------------------------
-# Q&A 요청 스키마
-# -----------------------------
-
-
-
-# -----------------------------
-# 검색 이력 스키마
-# -----------------------------
-
-class KokSearchHistory(BaseModel):
-    """검색 이력"""
-    keyword: str
-    searched_at: str
-    
-    class Config:
-        from_attributes = True
-
-class KokSearchHistoryResponse(BaseModel):
-    """검색 이력 응답"""
-    history: List[KokSearchHistory] = Field(default_factory=list)
-
-class KokSearchHistoryCreate(BaseModel):
-    """검색 이력 생성"""
-    keyword: str
-
-class KokSearchHistoryDelete(BaseModel):
-    """검색 이력 삭제"""
-    keyword: str
-
-# -----------------------------
-# 찜 관련 스키마
-# -----------------------------
-
-class KokLikesToggle(BaseModel):
-    """찜 토글 요청"""
-    kok_product_id: int
-
-class KokLikesResponse(BaseModel):
-    """찜 응답"""
-    liked: bool
-    message: str
-
-class KokLikedProduct(BaseModel):
-    """찜한 상품 정보"""
-    kok_product_id: int
-    kok_product_name: Optional[str] = None
-    kok_thumbnail: Optional[str] = None
-    kok_product_price: Optional[int] = None
-    kok_thumbnail_url: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
-
-class KokLikesListResponse(BaseModel):
-    """찜한 상품 목록 응답"""
-    liked_products: List[KokLikedProduct] = Field(default_factory=list)
-
-# -----------------------------
-# 장바구니 관련 스키마
-# -----------------------------
-
-class KokCartToggle(BaseModel):
-    """장바구니 토글 요청"""
-    kok_product_id: int
-
-class KokCartResponse(BaseModel):
-    """장바구니 응답"""
-    in_cart: bool
-    message: str
-
-class KokCartItem(BaseModel):
-    """장바구니 상품 정보"""
-    kok_product_id: int
-    kok_product_name: Optional[str] = None
-    kok_thumbnail: Optional[str] = None
-    kok_product_price: Optional[int] = None
-    kok_quantity: Optional[int] = None
-    
-    class Config:
-        from_attributes = True
-
-class KokCartListResponse(BaseModel):
-    """장바구니 목록 응답"""
-    cart_items: List[KokCartItem] = Field(default_factory=list)
 
 # -----------------------------
 # 메인화면 상품 리스트 스키마
@@ -353,21 +255,7 @@ class KokTopSellingProductsResponse(BaseModel):
     """판매율 높은 상품 응답"""
     products: List[KokTopSellingProduct] = Field(default_factory=list)
 
-class KokSearchProduct(BaseModel):
-    """검색 결과 상품 정보"""
-    kok_product_id: int
-    kok_thumbnail: Optional[str] = None
-    kok_discount_rate: Optional[int] = None
-    kok_discounted_price: Optional[int] = None
-    kok_product_name: Optional[str] = None
-    kok_store_name: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
 
-class KokSearchProductsResponse(BaseModel):
-    """검색 결과 상품 응답"""
-    products: List[KokSearchProduct] = Field(default_factory=list)
 
 class KokUnpurchasedResponse(BaseModel):
     """미구매 상품 응답"""
