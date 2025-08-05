@@ -353,9 +353,41 @@ class KokTopSellingProductsResponse(BaseModel):
     """판매율 높은 상품 응답"""
     products: List[KokTopSellingProduct] = Field(default_factory=list)
 
+class KokSearchProduct(BaseModel):
+    """검색 결과 상품 정보"""
+    kok_product_id: int
+    kok_thumbnail: Optional[str] = None
+    kok_discount_rate: Optional[int] = None
+    kok_discounted_price: Optional[int] = None
+    kok_product_name: Optional[str] = None
+    kok_store_name: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+class KokSearchProductsResponse(BaseModel):
+    """검색 결과 상품 응답"""
+    products: List[KokSearchProduct] = Field(default_factory=list)
+
 class KokUnpurchasedResponse(BaseModel):
     """미구매 상품 응답"""
     products: List[KokProductBase] = Field(default_factory=list)
+
+class KokStoreBestProduct(BaseModel):
+    """스토어 베스트 상품 정보"""
+    kok_product_id: int
+    kok_thumbnail: Optional[str] = None
+    kok_discount_rate: Optional[int] = None
+    kok_discounted_price: Optional[int] = None
+    kok_product_name: Optional[str] = None
+    kok_store_name: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+class KokStoreBestProductsResponse(BaseModel):
+    """스토어 베스트 상품 응답"""
+    products: List[KokStoreBestProduct] = Field(default_factory=list)
 
 
 # -----------------------------

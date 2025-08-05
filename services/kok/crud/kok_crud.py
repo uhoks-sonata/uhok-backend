@@ -19,6 +19,8 @@ from services.kok.models.kok_model import (
     KokPurchase
 )
 
+from services.order.models.order_model import KokOrders
+
 async def get_kok_product_detail(
         db: AsyncSession,
         product_id: int
@@ -436,6 +438,62 @@ async def get_kok_unpurchased(
     
     return [product.__dict__ for product in products]
 
+async def get_kok_store_best_items(
+        db: AsyncSession,
+        user_id: int
+) -> List[dict]:
+    """
+    구매한 스토어의 리뷰 많은 상품 목록 조회
+    """
+    # 1. 사용자가 구매한 주문에서 price_id를 통해 상품 정보 조회
+    stmt = (
+        select(KokOrders, KokPriceInfo, KokProductInfo)
+        .join(KokPriceInfo, KokOrders.price_id == KokPriceInfo.kok_price_id)
+        .join(KokProductInfo, KokPriceInfo.kok_product_id == KokProductInfo.kok_product_id)
+        .where(KokOrders.user_id == user_id)
+        .distinct()
+    )
+    results = (await db.execute(stmt)).all()
+    
+    if not results:
+        return []
+    
+    # 2. 구매한 상품들의 판매자 정보 수집
+    store_names = set()
+    for order, price, product in results:
+        if product.kok_store_name:
+            store_names.add(product.kok_store_name)
+    
+    if not store_names:
+        return []
+    
+    # 3. 해당 판매자들이 판매중인 상품 중 리뷰 개수가 많은 순으로 10개 조회
+    store_best_stmt = (
+        select(KokProductInfo)
+        .where(KokProductInfo.kok_store_name.in_(store_names))
+        .where(KokProductInfo.kok_review_cnt > 0)
+        .order_by(KokProductInfo.kok_review_cnt.desc())
+        .limit(10)
+    )
+    store_products = (await db.execute(store_best_stmt)).scalars().all()
+    
+    store_best_products = []
+    for product in store_products:
+        # 할인 적용 가격 계산
+        discounted_price = product.kok_product_price
+        if product.kok_discount_rate and product.kok_discount_rate > 0:
+            discounted_price = int(product.kok_product_price * (1 - product.kok_discount_rate / 100))
+        
+        store_best_products.append({
+            "kok_product_id": product.kok_product_id,
+            "kok_thumbnail": product.kok_thumbnail,
+            "kok_discount_rate": product.kok_discount_rate,
+            "kok_discounted_price": discounted_price,
+            "kok_product_name": product.kok_product_name,
+            "kok_store_name": product.kok_store_name,
+        })
+    
+    return store_best_products
 
 
 async def get_kok_product_by_id(
@@ -512,9 +570,9 @@ async def search_kok_products(
         keyword: str,
         page: int = 1,
         size: int = 10
-) -> Tuple[List[dict], int]:
+) -> List[dict]:
     """
-    키워드로 제품 검색
+    키워드로 제품 검색 (필요한 필드만 반환)
     """
     offset = (page - 1) * size
     stmt = (
@@ -530,17 +588,23 @@ async def search_kok_products(
     )
     products = (await db.execute(stmt)).scalars().all()
     
-    count_stmt = (
-        select(func.count(KokProductInfo.kok_product_id))
-        .where(
-            KokProductInfo.kok_product_name.contains(keyword) |
-            KokProductInfo.kok_store_name.contains(keyword) |
-            KokProductInfo.kok_description.contains(keyword)
-        )
-    )
-    total = (await db.execute(count_stmt)).scalar()
+    search_products = []
+    for product in products:
+        # 할인 적용 가격 계산
+        discounted_price = product.kok_product_price
+        if product.kok_discount_rate and product.kok_discount_rate > 0:
+            discounted_price = int(product.kok_product_price * (1 - product.kok_discount_rate / 100))
+        
+        search_products.append({
+            "kok_product_id": product.kok_product_id,
+            "kok_thumbnail": product.kok_thumbnail,
+            "kok_discount_rate": product.kok_discount_rate,
+            "kok_discounted_price": discounted_price,
+            "kok_product_name": product.kok_product_name,
+            "kok_store_name": product.kok_store_name,
+        })
     
-    return [product.__dict__ for product in products], total
+    return search_products
 
 
 async def add_kok_purchase(
