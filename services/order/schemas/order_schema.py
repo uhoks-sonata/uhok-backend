@@ -27,7 +27,7 @@ class OrderRead(BaseModel):
     kok_order: Optional[KokOrderSchema]
     homeshopping_order: Optional[HomeShoppingOrderSchema]
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class OrderCountResponse(BaseModel):
     order_count: int

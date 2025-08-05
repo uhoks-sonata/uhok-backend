@@ -29,3 +29,8 @@ python-jose==3.5.0             # JWT 토큰 생성 및 검증 (서버 인증/인
 python-multipart==0.0.20       # 파일 업로드/멀티파트 폼 파싱 지원 (FastAPI에서 Form, UploadFile 지원)
 pymysql==1.1.1                 # SQLAlchemy와 MariaDB/MySQL 연동용 드라이버
 alembic==1.16.4                # 데이터베이스 마이그레이션 도구 (SQLAlchemy 기반 스키마 버전 관리)
+pandas==2.3.1
+sentence-transformers==5.0.0   # BERT, SBERT 등 문장 임베딩(문장 벡터화) 라이브러리
+huggingface_hub==0.34.3        # HuggingFace 허브에서 모델 다운로드/관리용 유틸리티
+transformers==4.54.1           # HuggingFace의 트랜스포머 기반 사전학습 모델 라이브러리
+scikit-learn==1.7.1            # 머신러닝/유사도계산 등 데이터 분석용 라이브러리 (cosine_similarity 등)
