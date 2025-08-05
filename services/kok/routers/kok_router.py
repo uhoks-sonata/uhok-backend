@@ -47,7 +47,6 @@ from services.kok.schemas.kok_schema import (
     # 메인화면 상품 리스트 스키마
     KokDiscountedProductsResponse,
     KokTopSellingProductsResponse,
-    KokNewProductsResponse,
     KokUnpurchasedResponse,
     
     # 구매 이력 관련 스키마
@@ -87,7 +86,6 @@ from services.kok.crud.kok_crud import (
     # 메인화면 상품 리스트 CRUD
     get_kok_discounted_products,
     get_kok_top_selling_products,
-    get_kok_new_products,
     get_kok_unpurchased,
     
     # 구매 이력 관련 CRUD
@@ -122,17 +120,7 @@ async def get_top_selling_products(
     """
     products = await get_kok_top_selling_products(db)
     return {"products": products}
-
-@router.get("/new", response_model=KokNewProductsResponse)
-async def get_new_products(
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    신상품 리스트 조회
-    """
-    products = await get_kok_new_products(db)
-    return {"products": products}
-
+    
 @router.get("/unpurchased", response_model=KokUnpurchasedResponse)
 async def get_unpurchased(
         current_user: User = Depends(get_current_user),

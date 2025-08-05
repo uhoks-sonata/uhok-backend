@@ -360,19 +360,6 @@ async def get_kok_top_selling_products(
     products = (await db.execute(stmt)).scalars().all()
     return [product.__dict__ for product in products]
 
-async def get_kok_new_products(
-        db: AsyncSession
-) -> List[dict]:
-    """
-    신상품 목록 조회 (최근 등록된 상품)
-    """
-    stmt = (
-        select(KokProductInfo)
-        .order_by(KokProductInfo.kok_product_id.desc())
-        .limit(10)
-    )
-    products = (await db.execute(stmt)).scalars().all()
-    return [product.__dict__ for product in products]
 
 async def get_kok_unpurchased(
         db: AsyncSession,

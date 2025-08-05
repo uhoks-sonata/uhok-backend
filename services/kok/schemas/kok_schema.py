@@ -321,10 +321,6 @@ class KokTopSellingProductsResponse(BaseModel):
     """판매율 높은 상품 응답"""
     products: List[KokProductBase] = Field(default_factory=list)
 
-class KokNewProductsResponse(BaseModel):
-    """신상품 응답"""
-    products: List[KokProductBase] = Field(default_factory=list)
-
 class KokUnpurchasedResponse(BaseModel):
     """미구매 상품 응답"""
     products: List[KokProductBase] = Field(default_factory=list)
