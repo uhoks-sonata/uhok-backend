@@ -20,6 +20,7 @@ from services.recipe.crud.recipe_crud import (
     get_recipe_rating,
     set_recipe_rating
 )
+from services.kok.crud.kok_crud import get_kok_products_by_ingredient
 from common.database.mariadb_service import get_maria_service_db
 from common.database.postgres_recommend import get_postgres_recommend_db
 
@@ -53,13 +54,12 @@ async def by_ingredients(
     ingredient: List[str] = Query(..., min_length=3, description="식재료 리스트 (최소 3개)"),
     amount: Optional[List[str]] = Query(None, description="각 재료별 분량(옵션)"),
     unit: Optional[List[str]] = Query(None, description="각 재료별 단위(옵션)"),
-    consume_count: Optional[int] = Query(None, description="재료 소진 횟수(옵션)"),
     page: int = Query(1, ge=1, description="페이지 번호 (1부터 시작)"),
     size: int = Query(5, ge=1, le=50, description="페이지당 결과 개수"),
     db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    재료/분량/단위/소진횟수 기반 레시피 추천 (페이지네이션)
+    재료/분량/단위 기반 레시피 추천 (페이지네이션)
     - matched_ingredient_count 포함
     - 응답: recipes(추천 목록), page(현재 페이지), total(전체 결과 개수)
     """
@@ -69,7 +69,7 @@ async def by_ingredients(
         raise HTTPException(status_code=400, detail="amount, unit 파라미터 개수가 ingredient와 일치해야 합니다.")
     # 추천 결과 + 전체 개수 반환
     recipes, total = await recommend_recipes_by_ingredients(
-        db, ingredient, amount, unit, consume_count, page=page, size=size
+        db, ingredient, amount, unit, page=page, size=size
     )
     return {
         "recipes": recipes,
@@ -164,3 +164,33 @@ async def get_kok_products(
 #     # 실서비스에서는 user_id를 인증에서 추출
 #     comment = await add_recipe_comment(db, recipe_id, user_id=1, comment=req.comment)
 #     return comment
+#
+# # 소진 횟수 포함
+# @router.get("/by-ingredients")
+# async def by_ingredients(
+#     ingredient: List[str] = Query(..., min_length=3, description="식재료 리스트 (최소 3개)"),
+#     amount: Optional[List[str]] = Query(None, description="각 재료별 분량(옵션)"),
+#     unit: Optional[List[str]] = Query(None, description="각 재료별 단위(옵션)"),
+#     consume_count: Optional[int] = Query(None, description="재료 소진 횟수(옵션)"),
+#     page: int = Query(1, ge=1, description="페이지 번호 (1부터 시작)"),
+#     size: int = Query(5, ge=1, le=50, description="페이지당 결과 개수"),
+#     db: AsyncSession = Depends(get_maria_service_db)
+# ):
+#     """
+#     재료/분량/단위/소진횟수 기반 레시피 추천 (페이지네이션)
+#     - matched_ingredient_count 포함
+#     - 응답: recipes(추천 목록), page(현재 페이지), total(전체 결과 개수)
+#     """
+#     # amount/unit 길이 체크
+#     if (amount and len(amount) != len(ingredient)) or (unit and len(unit) != len(ingredient)):
+#         from fastapi import HTTPException
+#         raise HTTPException(status_code=400, detail="amount, unit 파라미터 개수가 ingredient와 일치해야 합니다.")
+#     # 추천 결과 + 전체 개수 반환
+#     recipes, total = await recommend_recipes_by_ingredients(
+#         db, ingredient, amount, unit, consume_count, page=page, size=size
+#     )
+#     return {
+#         "recipes": recipes,
+#         "page": page,
+#         "total": total
+#     }

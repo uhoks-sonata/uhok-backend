@@ -41,15 +41,14 @@ async def recommend_recipes_by_ingredients(
     ingredients: List[str],
     amounts: Optional[List[str]] = None,
     units: Optional[List[str]] = None,
-    consume_count: Optional[int] = None,
     page: int = 1,
     size: int = 5
 ) -> Tuple[List[Dict], int]:
     """
+    재료명, 분량, 단위 기반 레시피 추천 (matched_ingredient_count 포함)
+    - 소진횟수 파라미터 없이 동작
     - 페이지네이션(page, size)과 전체 개수(total) 반환
-    - matched_ingredient_count(입력 재료 중 실제로 들어간 개수) 포함
     """
-
     # 1. 입력 재료 중 하나 이상을 포함하는 레시피 후보 전체 추출(인기순)
     stmt = (
         select(Recipe)
@@ -74,8 +73,8 @@ async def recommend_recipes_by_ingredients(
         mats = recipe_materials_map[recipe_id]
         return len(set(ingredients) & {m.material_name for m in mats})
 
-    # 4. case2: 소진조건 미입력 → 단순 재료 포함 레시피 반환
-    if not amounts or not units or not consume_count:
+    # 4. amount/unit이 없으면 단순 재료 포함 레시피 전체 반환(페이지네이션)
+    if not amounts or not units:
         filtered = [
             {
                 **r.__dict__,
@@ -84,13 +83,12 @@ async def recommend_recipes_by_ingredients(
             }
             for r in candidate_recipes
         ]
-        # 페이지네이션
         start, end = (page-1)*size, (page-1)*size + size
         return filtered[start:end], total
 
-    # 5. case1: amounts, units, consume_count 모두 있을 때 소진조건 체크
+    # 5. amount/unit 모두 있으면, 입력한 분량/단위만큼의 재료가 레시피 요구량보다 크거나 같은 경우만 반환
     usable_total = {
-        (ingredients[i], units[i]): float(amounts[i]) * consume_count
+        (ingredients[i], units[i]): float(amounts[i])
         for i in range(len(ingredients))
     }
     filtered = []
@@ -115,7 +113,6 @@ async def recommend_recipes_by_ingredients(
             })
         if len(filtered) >= (page * size):  # 성능 최적화: 필요한 개수만 필터링
             break
-    # 페이지네이션
     start, end = (page-1)*size, (page-1)*size + size
     return filtered[start:end], len(filtered)
 
@@ -222,3 +219,87 @@ async def set_recipe_rating(db: AsyncSession, recipe_id: int, user_id: int, rati
 #     await db.commit()
 #     await db.refresh(new_comment)
 #     return new_comment.__dict__
+#
+# # 소진횟수 포함
+# async def recommend_recipes_by_ingredients(
+#     db: AsyncSession,
+#     ingredients: List[str],
+#     amounts: Optional[List[str]] = None,
+#     units: Optional[List[str]] = None,
+#     consume_count: Optional[int] = None,
+#     page: int = 1,
+#     size: int = 5
+# ) -> Tuple[List[Dict], int]:
+#     """
+#     - 페이지네이션(page, size)과 전체 개수(total) 반환
+#     - matched_ingredient_count(입력 재료 중 실제로 들어간 개수) 포함
+#     """
+#
+#     # 1. 입력 재료 중 하나 이상을 포함하는 레시피 후보 전체 추출(인기순)
+#     stmt = (
+#         select(Recipe)
+#         .join(Material, Recipe.recipe_id == Material.recipe_id) # type: ignore
+#         .where(Material.material_name.in_(ingredients))
+#         .group_by(Recipe.recipe_id)
+#         .order_by(desc(Recipe.scrap_count))
+#     )
+#     result = await db.execute(stmt)
+#     candidate_recipes = result.scalars().all()
+#     total = len(candidate_recipes)  # 전체 후보 개수
+#
+#     # 2. 레시피별 실제 들어간 재료(Material) 리스트 미리 조회(map 저장, 최적화)
+#     recipe_materials_map = {}
+#     for recipe in candidate_recipes:
+#         mats_stmt = select(Material).where(Material.recipe_id == recipe.recipe_id) # type: ignore
+#         mats = (await db.execute(mats_stmt)).scalars().all()
+#         recipe_materials_map[recipe.recipe_id] = mats
+#
+#     # 3. 입력한 재료가 실제로 들어간 개수 반환 함수
+#     def get_matched_count(recipe_id):
+#         mats = recipe_materials_map[recipe_id]
+#         return len(set(ingredients) & {m.material_name for m in mats})
+#
+#     # 4. case2: 소진조건 미입력 → 단순 재료 포함 레시피 반환
+#     if not amounts or not units or not consume_count:
+#         filtered = [
+#             {
+#                 **r.__dict__,
+#                 "recipe_url": get_recipe_url(r.recipe_id),
+#                 "matched_ingredient_count": get_matched_count(r.recipe_id),
+#             }
+#             for r in candidate_recipes
+#         ]
+#         # 페이지네이션
+#         start, end = (page-1)*size, (page-1)*size + size
+#         return filtered[start:end], total
+#
+#     # 5. case1: amounts, units, consume_count 모두 있을 때 소진조건 체크
+#     usable_total = {
+#         (ingredients[i], units[i]): float(amounts[i]) * consume_count
+#         for i in range(len(ingredients))
+#     }
+#     filtered = []
+#     for recipe in candidate_recipes:
+#         mats = recipe_materials_map[recipe.recipe_id]
+#         ok = True
+#         for m in mats:
+#             key = (m.material_name, m.measure_unit)
+#             if key in usable_total:
+#                 try:
+#                     recipe_required = float(m.measure_amount) if m.measure_amount else 0
+#                 except Exception:
+#                     recipe_required = 0
+#                 if recipe_required > usable_total[key]:
+#                     ok = False
+#                     break
+#         if ok:
+#             filtered.append({
+#                 **recipe.__dict__,
+#                 "recipe_url": get_recipe_url(recipe.recipe_id),
+#                 "matched_ingredient_count": get_matched_count(recipe.recipe_id),
+#             })
+#         if len(filtered) >= (page * size):  # 성능 최적화: 필요한 개수만 필터링
+#             break
+#     # 페이지네이션
+#     start, end = (page-1)*size, (page-1)*size + size
+#     return filtered[start:end], len(filtered)
