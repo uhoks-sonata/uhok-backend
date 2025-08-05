@@ -32,27 +32,14 @@ from services.kok.schemas.kok_schema import (
     KokProductDetails,
     KokDetailInfoItem,
     
-    # 검색 관련 스키마
-    KokSearchRequest,
-    KokSearchHistoryResponse,
-    KokSearchHistoryCreate,
-    KokSearchHistoryDelete,
-    
-    # 찜 관련 스키마
-    KokLikesToggle,
-    KokLikesResponse,
-    KokLikesListResponse,
-    
-    # 장바구니 관련 스키마
-    KokCartToggle,
-    KokCartResponse,
-    KokCartListResponse,
-    
     # 메인화면 상품 리스트 스키마
     KokDiscountedProduct,
     KokDiscountedProductsResponse,
     KokTopSellingProduct,
     KokTopSellingProductsResponse,
+
+    KokStoreBestProduct,
+    KokStoreBestProductsResponse,
     KokUnpurchasedResponse,
     
     # 구매 이력 관련 스키마
@@ -68,27 +55,16 @@ from services.kok.crud.kok_crud import (
     get_kok_product_info,
     get_kok_product_tabs,
     get_kok_product_details,
-    search_kok_products,
     
     # 리뷰 관련 CRUD
     get_kok_review_data,
     
-    # 검색 이력 관련 CRUD
-    get_kok_search_history,
-    add_kok_search_history,
-    delete_kok_search_history,
-    
-    # 찜 관련 CRUD
-    toggle_kok_likes,
-    get_kok_liked_products,
-    
-    # 장바구니 관련 CRUD
-    toggle_kok_cart,
-    get_kok_cart_items,
+
     
     # 메인화면 상품 리스트 CRUD
     get_kok_discounted_products,
     get_kok_top_selling_products,
+    get_kok_store_best_items,
     get_kok_unpurchased,
     
     # 구매 이력 관련 CRUD
@@ -124,15 +100,15 @@ async def get_top_selling_products(
     products = await get_kok_top_selling_products(db)
     return {"products": products}
     
-@router.get("/unpurchased", response_model=KokUnpurchasedResponse)
-async def get_unpurchased(
+@router.get("/store-best-items", response_model=KokStoreBestProductsResponse)
+async def get_store_best_items(
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    미구매 상품 리스트 조회
+    구매한 스토어의 리뷰 많은 상품 리스트 조회
     """
-    products = await get_kok_unpurchased(db, current_user.user_id)
+    products = await get_kok_store_best_items(db, current_user.user_id)
     return {"products": products}
 
 # ================================
@@ -184,129 +160,11 @@ async def get_product_details(
         raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
     return product_details
 
-# ================================
-# 검색 기능
-# ================================
 
-@router.get("/search")
-async def search_products(
-        keyword: str = Query(..., description="검색 키워드"),
-        page: int = Query(1, ge=1),
-        size: int = Query(20, ge=1, le=100),
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    키워드 기반 상품 검색
-    """
-    products, total = await search_kok_products(db, keyword, page, size)
-    
-    # 검색 이력 저장
-    await add_kok_search_history(db, current_user.user_id, keyword)
-    
-    return {
-        "total": total,
-        "page": page,
-        "size": size,
-        "products": products
-    }
 
-@router.get("/search/history", response_model=KokSearchHistoryResponse)
-async def get_search_history(
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    사용자 검색 이력 조회
-    """
-    history = await get_kok_search_history(db, current_user.user_id)
-    return {"history": history}
 
-@router.post("/search/history")
-async def save_search_history(
-        req: KokSearchHistoryCreate,
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    검색 이력 저장
-    """
-    saved_history = await add_kok_search_history(db, current_user.user_id, req.keyword)
-    
-    return {
-        "message": "검색 이력이 저장되었습니다.",
-        "saved": saved_history
-    }
 
-@router.delete("/search/history")
-async def delete_search_history(
-        keyword: str = Query(..., description="삭제할 키워드"),
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    검색 이력 삭제
-    """
-    deleted = await delete_kok_search_history(db, current_user.user_id, keyword)
-    
-    if deleted:
-        return {"message": f"'{keyword}' 키워드 검색 이력이 삭제되었습니다."}
-    else:
-        raise HTTPException(status_code=404, detail="검색 이력을 찾을 수 없습니다.")
 
-# ================================
-# 상품 찜 등록/해제
-# ================================
-
-@router.post("/likes/toggle", response_model=KokLikesResponse)
-async def toggle_likes(
-        req: KokLikesToggle,
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    상품 찜 등록/해제
-    """
-    result = await toggle_kok_likes(db, current_user.user_id, req.kok_product_id)
-    return result
-
-@router.get("/likes", response_model=KokLikesListResponse)
-async def get_liked_products(
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    찜한 상품 목록 조회
-    """
-    liked_products = await get_kok_liked_products(db, current_user.user_id)
-    return {"liked_products": liked_products}
-
-# ================================
-# 장바구니 등록/해제
-# ================================
-
-@router.post("/carts/toggle", response_model=KokCartResponse)
-async def toggle_cart(
-        req: KokCartToggle,
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    장바구니 등록/해제
-    """
-    result = await toggle_kok_cart(db, current_user.user_id, req.kok_product_id)
-    return result
-
-@router.get("/carts", response_model=KokCartListResponse)
-async def get_cart_items(
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    장바구니 상품 목록 조회
-    """
-    cart_items = await get_kok_cart_items(db, current_user.user_id)
-    return {"cart_items": cart_items}
 
 # ================================
 # 제품 상세 정보
