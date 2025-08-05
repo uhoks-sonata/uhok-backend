@@ -341,7 +341,7 @@ class KokPurchase(BaseModel):
     kok_purchased_at: Optional[str] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class KokPurchaseHistory(BaseModel):
     """구매 이력 상세 정보"""
@@ -354,7 +354,7 @@ class KokPurchaseHistory(BaseModel):
     kok_purchased_at: Optional[str] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class KokPurchaseHistoryResponse(BaseModel):
     """구매 이력 목록 응답"""
