@@ -651,3 +651,39 @@ async def get_kok_purchase_history(
         })
     
     return purchase_history
+
+async def get_kok_products_by_ingredient(
+    db: AsyncSession, 
+    ingredient: str, 
+    limit: int = 10
+) -> List[dict]:
+    """
+    ingredient(예: 고춧가루)로 콕 상품을 LIKE 검색, 필드명 model 변수명과 100% 일치
+    """
+    stmt = (
+        select(KokProductInfo)
+        .where(KokProductInfo.kok_product_name.ilike(f"%{ingredient}%"))
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    products = result.scalars().all()
+
+    return [
+        {
+            "kok_product_id": p.kok_product_id,
+            "kok_product_name": p.kok_product_name,
+            "kok_thumbnail": p.kok_thumbnail,
+            "kok_store_name": p.kok_store_name,
+            "kok_product_price": p.kok_product_price,
+            "kok_discount_rate": p.kok_discount_rate,
+            "kok_discounted_price": (
+                p.price_infos[0].kok_discounted_price
+                if p.price_infos and p.price_infos[0].kok_discounted_price
+                else p.kok_product_price
+            ),
+            "kok_review_score": p.kok_review_score,
+            "kok_review_cnt": p.kok_review_cnt,
+            # 필요시 model에 정의된 추가 필드도 동일하게 추출
+        }
+        for p in products
+    ]
