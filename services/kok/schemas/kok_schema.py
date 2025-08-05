@@ -19,7 +19,7 @@ class KokImageInfo(BaseModel):
     kok_img_url: Optional[str] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # -----------------------------
 # 상세 정보 스키마
@@ -33,7 +33,7 @@ class KokDetailInfo(BaseModel):
     kok_detail_val: Optional[str] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # -----------------------------
 # 리뷰 스키마
@@ -52,7 +52,7 @@ class KokReviewExample(BaseModel):
     kok_taste_eval: Optional[str] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # -----------------------------
 # 가격 정보 스키마
@@ -66,7 +66,7 @@ class KokPriceInfo(BaseModel):
     kok_discounted_price: Optional[int] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # -----------------------------
 # Q&A 스키마
@@ -84,7 +84,7 @@ class KokQna(BaseModel):
     kok_answered_at: Optional[str] = None  # 답변 작성일
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # -----------------------------
 # 제품 기본/목록/상세 스키마
@@ -134,7 +134,7 @@ class KokProductBase(BaseModel):
     kok_exchange_addr: Optional[str] = None  # 교환주소
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class KokProductDetailResponse(KokProductBase):
     """제품 상세 응답(이미지, 상세정보, 리뷰, 가격, Q&A 포함)"""
@@ -156,7 +156,7 @@ class KokProductInfoResponse(BaseModel):
     kok_review_cnt: int
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # -----------------------------
 # 제품 목록 응답 스키마
@@ -240,7 +240,7 @@ class KokSearchHistory(BaseModel):
     searched_at: str
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class KokSearchHistoryResponse(BaseModel):
     """검색 이력 응답"""
@@ -276,7 +276,7 @@ class KokLikedProduct(BaseModel):
     kok_thumbnail_url: Optional[str] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class KokLikesListResponse(BaseModel):
     """찜한 상품 목록 응답"""
@@ -304,7 +304,7 @@ class KokCartItem(BaseModel):
     kok_quantity: Optional[int] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class KokCartListResponse(BaseModel):
     """장바구니 목록 응답"""
