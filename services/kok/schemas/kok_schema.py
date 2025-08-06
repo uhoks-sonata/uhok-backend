@@ -278,45 +278,7 @@ class KokStoreBestProductsResponse(BaseModel):
     products: List[KokStoreBestProduct] = Field(default_factory=list)
 
 
-# -----------------------------
-# 구매 이력 관련 스키마
-# -----------------------------
 
-class KokPurchase(BaseModel):
-    """구매 이력 정보"""
-    kok_purchase_id: int
-    kok_user_id: Optional[int] = None
-    kok_product_id: Optional[int] = None
-    kok_quantity: Optional[int] = None
-    kok_purchase_price: Optional[int] = None
-    kok_purchased_at: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
-
-class KokPurchaseHistory(BaseModel):
-    """구매 이력 상세 정보"""
-    kok_purchase_id: int
-    kok_product_id: int
-    kok_product_name: Optional[str] = None
-    kok_thumbnail: Optional[str] = None
-    kok_quantity: Optional[int] = None
-    kok_purchase_price: Optional[int] = None
-    kok_purchased_at: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
-
-class KokPurchaseHistoryResponse(BaseModel):
-    """구매 이력 목록 응답"""
-    purchase_history: List[KokPurchaseHistory] = Field(default_factory=list)
-    total_count: int
-
-class KokPurchaseCreate(BaseModel):
-    """구매 이력 생성 요청"""
-    kok_product_id: int
-    kok_quantity: int = 1
-    kok_purchase_price: Optional[int] = None
 
 # -----------------------------
 # 상품 상세정보 스키마
@@ -354,3 +316,120 @@ class KokProductDetailsResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+# -----------------------------
+# 찜 관련 스키마
+# -----------------------------
+
+class KokLikes(BaseModel):
+    """찜 정보"""
+    kok_like_id: int
+    user_id: int
+    kok_product_id: int
+    kok_created_at: str
+    
+    class Config:
+        from_attributes = True
+
+class KokLikesToggleRequest(BaseModel):
+    """찜 등록/해제 요청"""
+    kok_product_id: int
+
+class KokLikesToggleResponse(BaseModel):
+    """찜 등록/해제 응답"""
+    liked: bool
+    message: str
+
+class KokLikedProduct(BaseModel):
+    """찜한 상품 정보"""
+    kok_product_id: int
+    kok_product_name: Optional[str] = None
+    kok_thumbnail: Optional[str] = None
+    kok_product_price: Optional[int] = None
+    kok_discount_rate: Optional[int] = None
+    kok_discounted_price: Optional[int] = None
+    kok_store_name: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+class KokLikedProductsResponse(BaseModel):
+    """찜한 상품 목록 응답"""
+    liked_products: List[KokLikedProduct] = Field(default_factory=list)
+
+# -----------------------------
+# 장바구니 관련 스키마
+# -----------------------------
+
+class KokCart(BaseModel):
+    """장바구니 정보"""
+    kok_cart_id: int
+    user_id: int
+    kok_product_id: int
+    kok_quantity: int
+    kok_created_at: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+class KokCartToggleRequest(BaseModel):
+    """장바구니 등록/해제 요청"""
+    kok_product_id: int
+    kok_quantity: int = 1
+
+class KokCartToggleResponse(BaseModel):
+    """장바구니 등록/해제 응답"""
+    in_cart: bool
+    message: str
+
+class KokCartItem(BaseModel):
+    """장바구니 상품 정보"""
+    kok_cart_id: int
+    kok_product_id: int
+    kok_product_name: Optional[str] = None
+    kok_thumbnail: Optional[str] = None
+    kok_product_price: Optional[int] = None
+    kok_discount_rate: Optional[int] = None
+    kok_discounted_price: Optional[int] = None
+    kok_store_name: Optional[str] = None
+    kok_quantity: int
+    
+    class Config:
+        from_attributes = True
+
+class KokCartItemsResponse(BaseModel):
+    """장바구니 상품 목록 응답"""
+    cart_items: List[KokCartItem] = Field(default_factory=list)
+
+# -----------------------------
+# 검색 관련 스키마
+# -----------------------------
+
+class KokSearchHistory(BaseModel):
+    """검색 이력 정보"""
+    kok_history_id: int
+    user_id: int
+    kok_keyword: str
+    kok_searched_at: str
+    
+    class Config:
+        from_attributes = True
+
+class KokSearchRequest(BaseModel):
+    """검색 요청"""
+    keyword: str
+
+class KokSearchResponse(BaseModel):
+    """검색 결과 응답"""
+    total: int
+    page: int
+    size: int
+    products: List[dict] = Field(default_factory=list)
+
+class KokSearchHistoryResponse(BaseModel):
+    """검색 이력 응답"""
+    history: List[KokSearchHistory] = Field(default_factory=list)
+
+class KokSearchHistoryCreate(BaseModel):
+    """검색 이력 생성 요청"""
+    keyword: str
