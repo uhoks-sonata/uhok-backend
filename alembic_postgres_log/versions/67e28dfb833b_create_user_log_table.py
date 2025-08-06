@@ -1,8 +1,8 @@
 """create user_log table
 
-Revision ID: 8049915e52e1
-Revises: None
-Create Date: 2025-08-06 11:46:21.210247
+Revision ID: 67e28dfb833b
+Revises: 
+Create Date: 2025-08-06 12:36:30.771822
 
 """
 from typing import Sequence, Union
@@ -12,10 +12,10 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '8049915e52e1'    # ← 현재 파일의 리비전(파일명과 동일)
-down_revision = None         # ← 최초 migration이면 None, 아니면 이전 리비전의 revision 값
-branch_labels = None
-depends_on = None
+revision: str = '67e28dfb833b'
+down_revision: Union[str, Sequence[str], None] = None
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
@@ -26,7 +26,7 @@ def upgrade() -> None:
     sa.Column('USER_ID', sa.Integer(), nullable=True, comment='사용자 ID'),
     sa.Column('EVENT_TYPE', sa.String(length=50), nullable=False, comment='이벤트 유형'),
     sa.Column('EVENT_DATA', sa.JSON(), nullable=True, comment='이벤트 상세 데이터(JSON)'),
-    sa.Column('CREATED_AT', sa.DateTime(), nullable=False, comment='이벤트 발생 시각'),
+    sa.Column('CREATED_AT', sa.DateTime(), nullable=False, server_default=sa.text('NOW()'), comment='이벤트 발생 시각'),
     sa.PrimaryKeyConstraint('LOG_ID')
     )
     op.create_index(op.f('ix_USER_LOG_USER_ID'), 'USER_LOG', ['USER_ID'], unique=False)
