@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     postgres_recommend_url: str = Field(..., env="POSTGRES_RECOMMEND_URL")
     postgres_log_url: str = Field(..., env="POSTGRES_LOG_URL")
 
+    log_api_url: str = Field(..., env="LOG_API_URL")
+
     app_name: str = Field(..., env="APP_NAME")
     debug: bool = Field(..., env="DEBUG")
 
