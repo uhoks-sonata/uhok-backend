@@ -31,7 +31,10 @@ async def list_orders(
     from sqlalchemy.future import select
 
     result = await db.execute(
-        select(Order).where(Order.user_id == user.user_id).order_by(Order.order_time.desc()).limit(limit) # type: ignore
+        select(Order)
+        .where(Order.user_id == user.user_id) # type: ignore
+        .order_by(Order.order_time.desc())
+        .limit(limit)
     )
     orders = result.scalars().all()
     
