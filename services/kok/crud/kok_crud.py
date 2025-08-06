@@ -16,7 +16,7 @@ from services.kok.models.kok_model import (
     KokPurchase
 )
 
-from services.order.models.order_model import KokOrders
+from services.order.models.order_model import KokOrder, Order
 
 async def get_kok_product_detail(
         db: AsyncSession,
@@ -246,10 +246,11 @@ async def get_kok_store_best_items(
     """
     # 1. 사용자가 구매한 주문에서 price_id를 통해 상품 정보 조회
     stmt = (
-        select(KokOrders, KokPriceInfo, KokProductInfo)
-        .join(KokPriceInfo, KokOrders.price_id == KokPriceInfo.kok_price_id)
+        select(KokOrder, KokPriceInfo, KokProductInfo)
+        .join(KokPriceInfo, KokOrder.price_id == KokPriceInfo.kok_price_id)
         .join(KokProductInfo, KokPriceInfo.kok_product_id == KokProductInfo.kok_product_id)
-        .where(KokOrders.user_id == user_id)
+        .join(Order, KokOrder.order_id == Order.order_id)
+        .where(Order.user_id == user_id)
         .distinct()
     )
     results = (await db.execute(stmt)).all()
