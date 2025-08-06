@@ -30,9 +30,7 @@ async def create_user_log(db: AsyncSession, log_data: dict) -> UserLog:
         data["event_data"] = log_data["event_data"]
 
     try:
-        print("UserLog 생성 data:", data)
         log = UserLog(**data)  # created_at 없음!
-        print("UserLog 생성 data:", data)
 
         db.add(log)
         await db.commit()
