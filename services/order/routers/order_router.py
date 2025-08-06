@@ -50,32 +50,6 @@ async def list_orders(
     return orders
 
 
-@router.get("/{order_id}", response_model=OrderRead)
-async def read_order(
-    order_id: int,
-    background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_maria_service_db),
-    user=Depends(get_current_user)
-):
-    """
-    단일 주문 조회 (공통+콕+HomeShopping 상세 포함)
-    """
-    order = await get_order_by_id(db, order_id)
-    if not order or order.user_id != user.user_id:
-        raise HTTPException(status_code=404, detail="주문 내역이 없습니다.")
-    
-    # 주문 상세 조회 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=user.user_id, 
-            event_type="order_detail_view", 
-            event_data={"order_id": order_id}
-        )
-    
-    return order
-
-
 @router.get("/count", response_model=OrderCountResponse)
 async def order_count(
     background_tasks: BackgroundTasks = None,
@@ -130,3 +104,29 @@ async def recent_orders(
         )
     
     return orders
+
+
+@router.get("/{order_id}", response_model=OrderRead)
+async def read_order(
+        order_id: int,
+        background_tasks: BackgroundTasks = None,
+        db: AsyncSession = Depends(get_maria_service_db),
+        user=Depends(get_current_user)
+):
+    """
+    단일 주문 조회 (공통+콕+HomeShopping 상세 포함)
+    """
+    order = await get_order_by_id(db, order_id)
+    if not order or order.user_id != user.user_id:
+        raise HTTPException(status_code=404, detail="주문 내역이 없습니다.")
+
+    # 주문 상세 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log,
+            user_id=user.user_id,
+            event_type="order_detail_view",
+            event_data={"order_id": order_id}
+        )
+
+    return order

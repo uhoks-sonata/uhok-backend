@@ -9,7 +9,6 @@ class KokOrderCreate(BaseModel):
     kok_price_id: int
     kok_product_id: int
     quantity: int = 1
-    order_price: Optional[int] = None
 
 class HomeShoppingOrderCreate(BaseModel):
     live_id: int
