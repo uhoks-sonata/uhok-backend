@@ -2,7 +2,7 @@
 레시피 상세/재료/만개의레시피 url, 후기, 별점 API 라우터 (MariaDB)
 """
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 
@@ -23,12 +23,16 @@ from services.recipe.crud.recipe_crud import (
 from services.kok.crud.kok_crud import get_kok_products_by_ingredient
 from common.database.mariadb_service import get_maria_service_db
 from common.database.postgres_recommend import get_postgres_recommend_db
+from common.dependencies import get_current_user
+from common.log_utils import send_user_log
 
 router = APIRouter(prefix="/api/recipes", tags=["Recipe"])
 
 @router.get("/{recipe_id}", response_model=RecipeDetailResponse)
 async def get_recipe(
         recipe_id: int,
+        current_user = Depends(get_current_user),
+        background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
@@ -37,15 +41,39 @@ async def get_recipe(
     result = await get_recipe_detail(db, recipe_id)
     if not result:
         raise HTTPException(status_code=404, detail="레시피가 존재하지 않습니다.")
+    
+    # 레시피 상세 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="recipe_detail_view", 
+            event_data={"recipe_id": recipe_id, "recipe_name": result.recipe_name}
+        )
+    
     return result
 
 
 @router.get("/{recipe_id}/url", response_model=RecipeUrlResponse)
-async def get_recipe_url_api(recipe_id: int):
+async def get_recipe_url_api(
+    recipe_id: int,
+    current_user = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
+):
     """
     만개의 레시피 URL 동적 생성하여 반환
     """
     url = get_recipe_url(recipe_id)
+    
+    # 레시피 URL 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="recipe_url_view", 
+            event_data={"recipe_id": recipe_id}
+        )
+    
     return {"url": url}
 
 
@@ -56,6 +84,8 @@ async def by_ingredients(
     unit: Optional[List[str]] = Query(None, description="각 재료별 단위(옵션)"),
     page: int = Query(1, ge=1, description="페이지 번호 (1부터 시작)"),
     size: int = Query(5, ge=1, le=50, description="페이지당 결과 개수"),
+    current_user = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
@@ -71,6 +101,23 @@ async def by_ingredients(
     recipes, total = await recommend_recipes_by_ingredients(
         db, ingredient, amount, unit, page=page, size=size
     )
+    
+    # 재료 기반 레시피 검색 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="recipe_search_by_ingredients", 
+            event_data={
+                "ingredients": ingredient,
+                "amount": amount,
+                "unit": unit,
+                "page": page,
+                "size": size,
+                "total_results": total
+            }
+        )
+    
     return {
         "recipes": recipes,
         "page": page,
@@ -83,6 +130,8 @@ async def search_recipe(
     recipe: str = Query(..., description="레시피명(키워드)"),
     page: int = Query(1, ge=1, description="페이지 번호 (1부터 시작)"),
     size: int = Query(5, ge=1, le=50, description="페이지당 결과 개수"),
+    current_user = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
@@ -91,6 +140,21 @@ async def search_recipe(
     - 응답: recipes(추천 목록), page(현재 페이지), total(전체 결과 개수)
     """
     recipes, total = await search_recipes_by_keyword(db, recipe, page=page, size=size)
+    
+    # 레시피 키워드 검색 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="recipe_search_by_keyword", 
+            event_data={
+                "keyword": recipe,
+                "page": page,
+                "size": size,
+                "total_results": total
+            }
+        )
+    
     return {
         "recipes": recipes,
         "page": page,
@@ -101,12 +165,24 @@ async def search_recipe(
 @router.get("/{recipe_id}/rating", response_model=RecipeRatingResponse)
 async def get_rating(
         recipe_id: int,
+        current_user = Depends(get_current_user),
+        background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
     레시피 별점 평균 조회
     """
     rating = await get_recipe_rating(db, recipe_id)
+    
+    # 레시피 별점 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="recipe_rating_view", 
+            event_data={"recipe_id": recipe_id, "rating": rating}
+        )
+    
     return {"recipe_id": recipe_id, "rating": rating}
 
 
@@ -114,19 +190,36 @@ async def get_rating(
 async def post_rating(
         recipe_id: int,
         req: RecipeRatingCreate,
+        current_user = Depends(get_current_user),
+        background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
     레시피 별점 등록 (0~5 정수만 허용)
     """
     # 실제 서비스에서는 user_id를 인증에서 추출
-    rating = await set_recipe_rating(db, recipe_id, user_id=1, rating=int(req.rating))
+    rating = await set_recipe_rating(db, recipe_id, user_id=current_user.user_id, rating=int(req.rating))
+    
+    # 레시피 별점 등록 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="recipe_rating_create", 
+            event_data={
+                "recipe_id": recipe_id,
+                "rating": int(req.rating)
+            }
+        )
+    
     return {"recipe_id": recipe_id, "rating": rating}
 
 
 @router.get("/recipes/kok")
 async def get_kok_products(
     ingredient: str = Query(..., description="검색할 식재료명(예: 감자, 양파 등)"),
+    current_user = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
@@ -134,6 +227,19 @@ async def get_kok_products(
     - 반환 필드명은 kok 모델 변수명(소문자)과 100% 일치
     """
     products = await get_kok_products_by_ingredient(db, ingredient)
+    
+    # 식재료 기반 상품 검색 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="ingredient_product_search", 
+            event_data={
+                "ingredient": ingredient,
+                "product_count": len(products)
+            }
+        )
+    
     return products
 
 
