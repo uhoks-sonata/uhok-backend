@@ -27,6 +27,9 @@ if mariadb_auth_migrate_url:
     config.set_main_option('sqlalchemy.url', mariadb_auth_migrate_url)
 
 from common.database.base_mariadb import MariaBase
+
+from services.user.models import User, UserSetting
+
 target_metadata = MariaBase.metadata
 
 # add your model's MetaData object here

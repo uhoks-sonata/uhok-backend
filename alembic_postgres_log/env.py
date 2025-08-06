@@ -27,6 +27,10 @@ if postgres_log_migrate_url:
     config.set_main_option('sqlalchemy.url', postgres_log_migrate_url)
 
 from common.database.base_postgres import PostgresBase
+
+# 반드시 모델 import 필요!
+from services.log.models.log_model import UserLog
+
 target_metadata = PostgresBase.metadata
 
 # add your model's MetaData object here
