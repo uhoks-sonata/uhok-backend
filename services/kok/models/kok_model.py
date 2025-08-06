@@ -22,10 +22,8 @@ class KokProductInfo(MariaBase):
     kok_product_name = Column("KOK_PRODUCT_NAME", String(300), nullable=True)  # 상품명
     kok_store_name = Column("KOK_STORE_NAME", String(100), nullable=True)  # 판매자 정보
     kok_product_price = Column("KOK_PRODUCT_PRICE", Integer, nullable=True)  # 상품 원가
-    kok_discount_rate = Column("KOK_DISCOUNT_RATE", Integer, nullable=True)  # 할인율
 
     # 🔹 상품 상세 탭 정보
-    kok_description = Column("KOK_DESCRIPTION", Text, nullable=True)  # description (HTML 형식 상품 설명)
     kok_review_cnt = Column("KOK_REVIEW_CNT", Integer, nullable=True)  # reviewCount
 
     # 리뷰 관련 정보
@@ -61,7 +59,7 @@ class KokProductInfo(MariaBase):
         "KokImageInfo",
         back_populates="product",
         primaryjoin="KokProductInfo.kok_product_id==KokImageInfo.kok_product_id",
-        lazy="joined"
+        lazy="select"
     )
 
     # 상세 정보와 1:N 관계 설정
@@ -69,7 +67,7 @@ class KokProductInfo(MariaBase):
         "KokDetailInfo",
         back_populates="product",
         primaryjoin="KokProductInfo.kok_product_id==KokDetailInfo.kok_product_id",
-        lazy="joined"
+        lazy="select"
     )
 
     # 리뷰 예시와 1:N 관계 설정
@@ -77,7 +75,7 @@ class KokProductInfo(MariaBase):
         "KokReviewExample",
         back_populates="product",
         primaryjoin="KokProductInfo.kok_product_id==KokReviewExample.kok_product_id",
-        lazy="joined"
+        lazy="select"
     )
 
     # 가격 정보와 1:N 관계 설정
@@ -85,7 +83,7 @@ class KokProductInfo(MariaBase):
         "KokPriceInfo",
         back_populates="product",
         primaryjoin="KokProductInfo.kok_product_id==KokPriceInfo.kok_product_id",
-        lazy="joined"
+        lazy="select"
     )
 
     # 찜과 1:N 관계 설정
@@ -93,7 +91,7 @@ class KokProductInfo(MariaBase):
         "KokLikes",
         back_populates="product",
         primaryjoin="KokProductInfo.kok_product_id==KokLikes.kok_product_id",
-        lazy="joined"
+        lazy="select"
     )
 
     # 장바구니와 1:N 관계 설정
@@ -101,7 +99,7 @@ class KokProductInfo(MariaBase):
         "KokCart",
         back_populates="product",
         primaryjoin="KokProductInfo.kok_product_id==KokCart.kok_product_id",
-        lazy="joined"
+        lazy="select"
     )
 
 
@@ -113,14 +111,14 @@ class KokImageInfo(MariaBase):
     __tablename__ = "FCT_KOK_IMAGE_INFO"
 
     kok_img_id = Column("KOK_IMG_ID", Integer, primary_key=True, autoincrement=True)  # 이미지 인덱스
-    kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=True)  # 제품코드
+    kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("FCT_KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=True)  # 제품코드
     kok_img_url = Column("KOK_IMG_URL", Text, nullable=True)  # 이미지 URL
 
     # 제품 정보와 N:1 관계 설정
     product = relationship(
         "KokProductInfo",
         back_populates="images",
-        lazy="joined"
+        lazy="select"
     )
 
 class KokDetailInfo(MariaBase):
@@ -130,7 +128,7 @@ class KokDetailInfo(MariaBase):
     __tablename__ = "FCT_KOK_DETAIL_INFO"
 
     kok_detail_col_id = Column("KOK_DETAIL_COL_ID", Integer, primary_key=True, autoincrement=True)  # 상세정보 컬럼 인덱스
-    kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=True)  # 제품 코드
+    kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("FCT_KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=True)  # 제품 코드
     kok_detail_col = Column("KOK_DETAIL_COL", Text, nullable=True)  # 상세정보 컬럼명
     kok_detail_val = Column("KOK_DETAIL_VAL", Text, nullable=True)  # 상세정보 내용
 
@@ -138,7 +136,7 @@ class KokDetailInfo(MariaBase):
     product = relationship(
         "KokProductInfo",
         back_populates="detail_infos",
-        lazy="joined"
+        lazy="select"
     )
 
 class KokReviewExample(MariaBase):
@@ -148,7 +146,7 @@ class KokReviewExample(MariaBase):
     __tablename__ = "FCT_KOK_REVIEW_EXAMPLE"
 
     kok_review_id = Column("KOK_REVIEW_ID", Integer, primary_key=True, autoincrement=True)  # 리뷰 인덱스
-    kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=True)  # 제품 코드
+    kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("FCT_KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=True)  # 제품 코드
     kok_nickname = Column("KOK_NICKNAME", String(30), nullable=True)  # 작성자 닉네임
     kok_review_text = Column("KOK_REVIEW_TEXT", Text, nullable=True)  # 리뷰 전문
     kok_review_date = Column("KOK_REVIEW_DATE", String(30), nullable=True)  # 작성일
@@ -161,7 +159,7 @@ class KokReviewExample(MariaBase):
     product = relationship(
         "KokProductInfo",
         back_populates="review_examples",
-        lazy="joined"
+        lazy="select"
     )
 
 class KokPriceInfo(MariaBase):
@@ -171,7 +169,7 @@ class KokPriceInfo(MariaBase):
     __tablename__ = "FCT_KOK_PRICE_INFO"
 
     kok_price_id = Column("KOK_PRICE_ID", Integer, primary_key=True, autoincrement=True)  # 가격 인덱스
-    kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=True)  # 상품 인덱스
+    kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("FCT_KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=True)  # 상품 인덱스
     kok_discount_rate = Column("KOK_DISCOUNT_RATE", Integer, nullable=True)  # 할인율
     kok_discounted_price = Column("KOK_DISCOUNTED_PRICE", Integer, nullable=True)  # 할인적용가격
 
@@ -179,7 +177,7 @@ class KokPriceInfo(MariaBase):
     product = relationship(
         "KokProductInfo",
         back_populates="price_infos",
-        lazy="joined"
+        lazy="select"
     )
 
 class KokSearchHistory(MariaBase):
@@ -208,7 +206,7 @@ class KokLikes(MariaBase):
     product = relationship(
         "KokProductInfo",
         back_populates="likes",
-        lazy="joined"
+        lazy="select"
     )
 
 class KokCart(MariaBase):
@@ -227,7 +225,7 @@ class KokCart(MariaBase):
     product = relationship(
         "KokProductInfo",
         back_populates="cart_items",
-        lazy="joined"
+        lazy="select"
     )
 
 
