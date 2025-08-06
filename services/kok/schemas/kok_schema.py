@@ -372,6 +372,32 @@ class KokCart(BaseModel):
     class Config:
         from_attributes = True
 
+# 새로운 장바구니 스키마들
+class KokCartAddRequest(BaseModel):
+    """장바구니 추가 요청"""
+    kok_product_id: int
+    kok_quantity: int = 1
+
+class KokCartAddResponse(BaseModel):
+    """장바구니 추가 응답"""
+    kok_cart_id: int
+    message: str
+
+class KokCartUpdateRequest(BaseModel):
+    """장바구니 수량 변경 요청"""
+    kok_quantity: int = Field(..., ge=1, description="변경할 수량")
+
+class KokCartUpdateResponse(BaseModel):
+    """장바구니 수량 변경 응답"""
+    kok_cart_id: int
+    kok_quantity: int
+    message: str
+
+class KokCartDeleteResponse(BaseModel):
+    """장바구니 삭제 응답"""
+    message: str
+
+# 기존 스키마들 (하위 호환성을 위해 유지)
 class KokCartToggleRequest(BaseModel):
     """장바구니 등록/해제 요청"""
     kok_product_id: int

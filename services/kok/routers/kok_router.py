@@ -42,7 +42,7 @@ from services.kok.schemas.kok_schema import (
     KokStoreBestProductsResponse,
     KokUnpurchasedResponse,
     
-
+    
     
     # 찜 관련 스키마
     KokLikesToggleRequest,
@@ -53,6 +53,11 @@ from services.kok.schemas.kok_schema import (
     KokCartToggleRequest,
     KokCartToggleResponse,
     KokCartItemsResponse,
+    KokCartAddRequest,
+    KokCartAddResponse,
+    KokCartUpdateRequest,
+    KokCartUpdateResponse,
+    KokCartDeleteResponse,
     
     # 검색 관련 스키마
     KokSearchRequest,
@@ -79,7 +84,7 @@ from services.kok.crud.kok_crud import (
     get_kok_store_best_items,
     get_kok_unpurchased,
     
-
+    
     
     # 찜 관련 CRUD
     toggle_kok_likes,
@@ -88,6 +93,9 @@ from services.kok.crud.kok_crud import (
     # 장바구니 관련 CRUD
     toggle_kok_cart,
     get_kok_cart_items,
+    add_kok_cart,
+    update_kok_cart_quantity,
+    delete_kok_cart_item,
     
     # 검색 관련 CRUD
     search_kok_products,
@@ -304,7 +312,7 @@ async def get_product_detail(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="product_view", 
-            event_data={"product_id": product_id, "product_name": product.product_name}
+            event_data={"product_id": product_id, "product_name": product.get("kok_product_name", "")}
         )
     
     return product
@@ -327,7 +335,7 @@ async def create_kok_order_api(
     """
     주문 생성
     """
-    order = await create_kok_order(db, current_user.user_id, order_data.price_id)
+    order = await create_kok_order(db, current_user.user_id, order_data.kok_price_id)
     
     # 주문 생성 로그 기록
     if background_tasks:
@@ -361,15 +369,6 @@ async def search_products(
     키워드 기반으로 콕 쇼핑몰 내에 있는 상품을 검색
     """
     products, total = await search_kok_products(db, keyword, page, size)
-    
-    # 검색 이력 저장
-    if background_tasks:
-        background_tasks.add_task(
-            add_kok_search_history,
-            db=db,
-            user_id=current_user.user_id,
-            keyword=keyword
-        )
     
     # 검색 로그 기록
     if background_tasks:
@@ -592,3 +591,96 @@ async def get_cart_items(
         )
     
     return {"cart_items": cart_items}
+
+# 새로운 장바구니 API들
+@router.post("/carts", response_model=KokCartAddResponse, status_code=status.HTTP_201_CREATED)
+async def add_cart_item(
+    cart_data: KokCartAddRequest,
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    장바구니에 상품 추가
+    """
+    result = await add_kok_cart(db, current_user.user_id, cart_data.kok_product_id, cart_data.kok_quantity)
+    
+    # 장바구니 추가 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="cart_add", 
+            event_data={
+                "product_id": cart_data.kok_product_id,
+                "quantity": cart_data.kok_quantity,
+                "cart_id": result["kok_cart_id"]
+            }
+        )
+    
+    return KokCartAddResponse(
+        kok_cart_id=result["kok_cart_id"],
+        message=result["message"]
+    )
+
+@router.patch("/carts/{cart_item_id}", response_model=KokCartUpdateResponse)
+async def update_cart_quantity(
+    cart_item_id: int,
+    update_data: KokCartUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    장바구니 상품 수량 변경
+    """
+    try:
+        result = await update_kok_cart_quantity(db, current_user.user_id, cart_item_id, update_data.kok_quantity)
+        
+        # 장바구니 수량 변경 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="cart_update", 
+                event_data={
+                    "cart_id": cart_item_id,
+                    "quantity": update_data.kok_quantity
+                }
+            )
+        
+        return KokCartUpdateResponse(
+            kok_cart_id=result["kok_cart_id"],
+            kok_quantity=result["kok_quantity"],
+            message=result["message"]
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.delete("/carts/{cart_item_id}", response_model=KokCartDeleteResponse)
+async def delete_cart_item(
+    cart_item_id: int,
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    장바구니에서 상품 삭제
+    """
+    deleted = await delete_kok_cart_item(db, current_user.user_id, cart_item_id)
+    
+    if deleted:
+        # 장바구니 삭제 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="cart_delete", 
+                event_data={
+                    "cart_id": cart_item_id
+                }
+            )
+        
+        return KokCartDeleteResponse(message="장바구니에서 상품이 삭제되었습니다.")
+    else:
+        raise HTTPException(status_code=404, detail="장바구니 항목을 찾을 수 없습니다.")

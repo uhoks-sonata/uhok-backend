@@ -715,6 +715,110 @@ async def get_kok_cart_items(
     
     return cart_items
 
+# 새로운 장바구니 CRUD 함수들
+async def add_kok_cart(
+    db: AsyncSession,
+    user_id: int,
+    kok_product_id: int,
+    kok_quantity: int = 1
+) -> dict:
+    """
+    장바구니에 상품 추가
+    """
+    # 기존 장바구니 항목 확인
+    stmt = (
+        select(KokCart)
+        .where(KokCart.user_id == user_id)
+        .where(KokCart.kok_product_id == kok_product_id)
+    )
+    result = await db.execute(stmt)
+    existing_cart = result.scalar_one_or_none()
+    
+    if existing_cart:
+        # 이미 장바구니에 있는 경우 수량 증가
+        existing_cart.kok_quantity += kok_quantity
+        await db.commit()
+        return {
+            "kok_cart_id": existing_cart.kok_cart_id,
+            "message": f"장바구니에 추가되었습니다. (수량: {existing_cart.kok_quantity})"
+        }
+    else:
+        # 새로운 상품 추가
+        from datetime import datetime
+        created_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        
+        new_cart = KokCart(
+            user_id=user_id,
+            kok_product_id=kok_product_id,
+            kok_quantity=kok_quantity,
+            kok_created_at=created_at
+        )
+        
+        db.add(new_cart)
+        await db.commit()
+        await db.refresh(new_cart)
+        
+        return {
+            "kok_cart_id": new_cart.kok_cart_id,
+            "message": "장바구니에 추가되었습니다."
+        }
+
+async def update_kok_cart_quantity(
+    db: AsyncSession,
+    user_id: int,
+    kok_cart_id: int,
+    kok_quantity: int
+) -> dict:
+    """
+    장바구니 상품 수량 변경
+    """
+    # 장바구니 항목 확인
+    stmt = (
+        select(KokCart)
+        .where(KokCart.kok_cart_id == kok_cart_id)
+        .where(KokCart.user_id == user_id)
+    )
+    result = await db.execute(stmt)
+    cart_item = result.scalar_one_or_none()
+    
+    if not cart_item:
+        raise ValueError("장바구니 항목을 찾을 수 없습니다.")
+    
+    # 수량 변경
+    cart_item.kok_quantity = kok_quantity
+    await db.commit()
+    
+    return {
+        "kok_cart_id": cart_item.kok_cart_id,
+        "kok_quantity": cart_item.kok_quantity,
+        "message": f"수량이 {kok_quantity}개로 변경되었습니다."
+    }
+
+async def delete_kok_cart_item(
+    db: AsyncSession,
+    user_id: int,
+    kok_cart_id: int
+) -> bool:
+    """
+    장바구니에서 상품 삭제
+    """
+    # 장바구니 항목 확인
+    stmt = (
+        select(KokCart)
+        .where(KokCart.kok_cart_id == kok_cart_id)
+        .where(KokCart.user_id == user_id)
+    )
+    result = await db.execute(stmt)
+    cart_item = result.scalar_one_or_none()
+    
+    if not cart_item:
+        return False
+    
+    # 장바구니에서 삭제
+    await db.delete(cart_item)
+    await db.commit()
+    return True
+
 # -----------------------------
 # 검색 관련 CRUD 함수
 # -----------------------------
