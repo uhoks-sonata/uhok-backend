@@ -15,7 +15,10 @@ from services.user.routers.user_router import router as user_router
 from services.recipe.routers.recipe_router import router as recipe_router
 from services.kok.routers.kok_router import router as kok_router
 from services.order.routers.order_router import router as order_router
-# TODO: 다른 서비스(router) import 추가 (home_shopping, recommend 등)
+from services.log.routers.log_router import router as log_router
+from services.home_shopping.routers.home_shopping_router import router as home_shopping_router
+
+# TODO: 다른 서비스(router) import 추가 (recommend 등)
 
 settings = get_settings()
 
@@ -38,11 +41,13 @@ app.include_router(user_router)
 app.include_router(recipe_router)
 app.include_router(kok_router)
 app.include_router(order_router)
+app.include_router(log_router)
+app.include_router(home_shopping_router)
 
 
 # TODO: 다른 서비스 라우터도 아래와 같이 추가
-# from services.home_shopping.routers.home_shopping_router import router as home_shopping_router
-# app.include_router(home_shopping_router, prefix="/api/home_shopping")
+# from services.recommend.routers.recommend_router import router as recommend_router
+# app.include_router(recommend_router, prefix="/api/recommend")
 
 # 공통 예외 처리 (필요시)
 # from common.errors import *

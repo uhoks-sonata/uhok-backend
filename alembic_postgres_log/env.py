@@ -22,11 +22,15 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # DB URL을 환경변수에서 읽어서 적용
-postgres_log_url = os.getenv("POSTGRES_LOG_URL")
-if postgres_log_url:
-    config.set_main_option('sqlalchemy.url', postgres_log_url)
+postgres_log_migrate_url = os.getenv("POSTGRES_LOG_MIGRATE_URL")
+if postgres_log_migrate_url:
+    config.set_main_option('sqlalchemy.url', postgres_log_migrate_url)
 
 from common.database.base_postgres import PostgresBase
+
+# 반드시 모델 import 필요!
+from services.log.models.log_model import UserLog
+
 target_metadata = PostgresBase.metadata
 
 # add your model's MetaData object here

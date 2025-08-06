@@ -2,7 +2,7 @@
 User API 엔드포인트 (회원가입, 로그인) - 비동기 패턴
 """
 
-from fastapi import APIRouter, Depends, status, Query
+from fastapi import APIRouter, Depends, status, Query, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +22,7 @@ from common.database.mariadb_auth import get_maria_auth_db
 from common.errors import ConflictException, NotAuthenticatedException
 from common.auth.jwt_handler import create_access_token
 from common.dependencies import get_current_user
+from common.log_utils import send_user_log
 
 router = APIRouter(prefix="/api/user", tags=["user"])
 
@@ -29,6 +30,7 @@ router = APIRouter(prefix="/api/user", tags=["user"])
 @router.post("/signup", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def signup(
     user: UserCreate,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_maria_auth_db)
 ):
     """
@@ -40,6 +42,15 @@ async def signup(
     if exist_user:
         raise ConflictException("이미 가입된 이메일입니다.")
     new_user = await create_user(db, str(user.email), user.password, user.username)
+    
+    # 회원가입 로그 기록
+    background_tasks.add_task(
+        send_user_log, 
+        user_id=new_user.user_id, 
+        event_type="user_signup", 
+        event_data={"email": str(user.email), "username": user.username}
+    )
+    
     return new_user
 
 
@@ -59,6 +70,7 @@ async def check_email_duplicate(
 @router.post("/login")
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
+    background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_auth_db)
 ):
     """
@@ -74,6 +86,16 @@ async def login(
         raise NotAuthenticatedException()
 
     access_token = create_access_token({"sub": str(db_user.user_id)})
+    
+    # 로그인 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=db_user.user_id, 
+            event_type="user_login", 
+            event_data={"email": email}
+        )
+    
     return {"access_token": access_token, "token_type": "bearer"}
 
 

@@ -22,11 +22,14 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # DB URL을 환경변수에서 읽어서 적용
-mariadb_auth_url = os.getenv("MARIADB_AUTH_URL")
-if mariadb_auth_url:
-    config.set_main_option('sqlalchemy.url', mariadb_auth_url)
+mariadb_auth_migrate_url = os.getenv("MARIADB_AUTH_MIGRATE_URL")
+if mariadb_auth_migrate_url:
+    config.set_main_option('sqlalchemy.url', mariadb_auth_migrate_url)
 
 from common.database.base_mariadb import MariaBase
+
+from services.user.models import User, UserSetting
+
 target_metadata = MariaBase.metadata
 
 # add your model's MetaData object here
