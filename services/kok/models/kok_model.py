@@ -11,10 +11,10 @@ from common.database.base_mariadb import MariaBase
 
 class KokProductInfo(MariaBase):
     """
-    KOK_PRODUCT_INFO 테이블의 ORM 모델
+    FCT_KOK_PRODUCT_INFO 테이블의 ORM 모델
     DB 데이터 정의서 기반으로 변수명 통일
     """
-    __tablename__ = "KOK_PRODUCT_INFO"
+    __tablename__ = "FCT_KOK_PRODUCT_INFO"
 
     # 🔹 공통 상품 정보 (메인화면 리스트 공통)
     kok_product_id = Column("KOK_PRODUCT_ID", Integer, primary_key=True, autoincrement=False)  # 제품코드
@@ -114,9 +114,9 @@ class KokProductInfo(MariaBase):
 
 class KokImageInfo(MariaBase):
     """
-    KOK_IMAGE_INFO 테이블의 ORM 모델
+    FCT_KOK_IMAGE_INFO 테이블의 ORM 모델
     """
-    __tablename__ = "KOK_IMAGE_INFO"
+    __tablename__ = "FCT_KOK_IMAGE_INFO"
 
     kok_img_id = Column("KOK_IMG_ID", Integer, primary_key=True, autoincrement=True)  # 이미지 인덱스
     kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=True)  # 제품코드
@@ -131,9 +131,9 @@ class KokImageInfo(MariaBase):
 
 class KokDetailInfo(MariaBase):
     """
-    KOK_DETAIL_INFO 테이블의 ORM 모델
+    FCT_KOK_DETAIL_INFO 테이블의 ORM 모델
     """
-    __tablename__ = "KOK_DETAIL_INFO"
+    __tablename__ = "FCT_KOK_DETAIL_INFO"
 
     kok_detail_col_id = Column("KOK_DETAIL_COL_ID", Integer, primary_key=True, autoincrement=True)  # 상세정보 컬럼 인덱스
     kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=True)  # 제품 코드
@@ -149,9 +149,9 @@ class KokDetailInfo(MariaBase):
 
 class KokReviewExample(MariaBase):
     """
-    KOK_REVIEW_EXAMPLE 테이블의 ORM 모델
+    FCT_KOK_REVIEW_EXAMPLE 테이블의 ORM 모델
     """
-    __tablename__ = "KOK_REVIEW_EXAMPLE"
+    __tablename__ = "FCT_KOK_REVIEW_EXAMPLE"
 
     kok_review_id = Column("KOK_REVIEW_ID", Integer, primary_key=True, autoincrement=True)  # 리뷰 인덱스
     kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=True)  # 제품 코드
@@ -172,9 +172,9 @@ class KokReviewExample(MariaBase):
 
 class KokPriceInfo(MariaBase):
     """
-    KOK_PRICE_INFO 테이블의 ORM 모델
+    FCT_KOK_PRICE_INFO 테이블의 ORM 모델
     """
-    __tablename__ = "KOK_PRICE_INFO"
+    __tablename__ = "FCT_KOK_PRICE_INFO"
 
     kok_price_id = Column("KOK_PRICE_ID", Integer, primary_key=True, autoincrement=True)  # 가격 인덱스
     kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=True)  # 상품 인덱스
@@ -190,9 +190,9 @@ class KokPriceInfo(MariaBase):
 
 class KokSearchHistory(MariaBase):
     """
-    KOK_SEARCH_HISTORY 테이블의 ORM 모델
+    FCT_KOK_SEARCH_HISTORY 테이블의 ORM 모델
     """
-    __tablename__ = "KOK_SEARCH_HISTORY"
+    __tablename__ = "FCT_KOK_SEARCH_HISTORY"
 
     kok_history_id = Column("KOK_HISTORY_ID", Integer, primary_key=True, autoincrement=True)  # 검색 이력 ID
     kok_user_id = Column("KOK_USER_ID", Integer, nullable=True)  # 사용자 ID
@@ -201,9 +201,9 @@ class KokSearchHistory(MariaBase):
 
 class KokLikes(MariaBase):
     """
-    KOK_LIKES 테이블의 ORM 모델
+    FCT_KOK_LIKES 테이블의 ORM 모델
     """
-    __tablename__ = "KOK_LIKES"
+    __tablename__ = "FCT_KOK_LIKES"
 
     kok_like_id = Column("KOK_LIKE_ID", Integer, primary_key=True, autoincrement=True)  # 찜 ID
     kok_user_id = Column("KOK_USER_ID", Integer, nullable=True)  # 사용자 ID
@@ -219,9 +219,9 @@ class KokLikes(MariaBase):
 
 class KokCart(MariaBase):
     """
-    KOK_CART 테이블의 ORM 모델
+    FCT_KOK_CART 테이블의 ORM 모델
     """
-    __tablename__ = "KOK_CART"
+    __tablename__ = "FCT_KOK_CART"
 
     kok_cart_id = Column("KOK_CART_ID", Integer, primary_key=True, autoincrement=True)  # 장바구니 ID
     kok_user_id = Column("KOK_USER_ID", Integer, nullable=True)  # 사용자 ID
@@ -239,9 +239,9 @@ class KokCart(MariaBase):
 
 class KokPurchase(MariaBase):
     """
-    KOK_PURCHASE 테이블의 ORM 모델 (구매 이력)
+    FCT_KOK_PURCHASE 테이블의 ORM 모델 (구매 이력)
     """
-    __tablename__ = "KOK_PURCHASE"
+    __tablename__ = "FCT_KOK_PURCHASE"
 
     kok_purchase_id = Column("KOK_PURCHASE_ID", Integer, primary_key=True, autoincrement=True)  # 구매 ID
     kok_user_id = Column("KOK_USER_ID", Integer, nullable=True)  # 사용자 ID
