@@ -12,8 +12,9 @@ from services.kok.models.kok_model import (
     KokDetailInfo, 
     KokReviewExample, 
     KokPriceInfo, 
-
-    KokPurchase
+    KokSearchHistory,
+    KokLikes,
+    KokCart
 )
 
 from services.order.models.order_model import KokOrder, Order
@@ -203,13 +204,27 @@ async def get_kok_unpurchased(
     from datetime import datetime, timedelta
     thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S")
     
+    # Order와 KokOrder를 통해 구매한 상품 조회
     purchased_products_stmt = (
-        select(KokPurchase.kok_product_id)
-        .where(KokPurchase.kok_user_id == user_id)
-        .where(KokPurchase.kok_purchased_at >= thirty_days_ago)
+        select(KokOrder, Order)
+        .join(Order, KokOrder.order_id == Order.order_id)
+        .where(Order.user_id == user_id)
+        .where(Order.order_time >= thirty_days_ago)
     )
-    purchased_products = (await db.execute(purchased_products_stmt)).scalars().all()
-    purchased_product_ids = [p.kok_product_id for p in purchased_products]
+    purchased_orders = (await db.execute(purchased_products_stmt)).all()
+    
+    # 구매한 상품 ID 목록 추출 (price_id를 통해 상품 정보 조회)
+    purchased_product_ids = []
+    for kok_order, order in purchased_orders:
+        # price_id를 통해 상품 정보 조회
+        product_stmt = (
+            select(KokPriceInfo.kok_product_id)
+            .where(KokPriceInfo.kok_price_id == kok_order.price_id)
+        )
+        product_result = await db.execute(product_stmt)
+        product_id = product_result.scalar_one_or_none()
+        if product_id:
+            purchased_product_ids.append(product_id)
     
     # 2. 최근 구매 상품과 중복되지 않는 상품 중에서 추천 상품 선택
     # 조건: 리뷰 점수가 높고, 할인이 있는 상품 우선
@@ -368,73 +383,7 @@ async def get_kok_product_info(
 
 
 
-async def add_kok_purchase(
-        db: AsyncSession,
-        user_id: int,
-        product_id: int,
-        quantity: int = 1,
-        purchase_price: Optional[int] = None
-) -> dict:
-    """
-    구매 이력 추가
-    """
-    from datetime import datetime
-    
-    # 구매 가격이 없으면 제품 가격으로 설정
-    if purchase_price is None:
-        product_stmt = select(KokProductInfo).where(KokProductInfo.kok_product_id == product_id)
-        product = (await db.execute(product_stmt)).scalar_one_or_none()
-        if product:
-            purchase_price = product.kok_product_price
-    
-    purchased_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-    
-    new_purchase = KokPurchase(
-        kok_user_id=user_id,
-        kok_product_id=product_id,
-        kok_quantity=quantity,
-        kok_purchase_price=purchase_price,
-        kok_purchased_at=purchased_at
-    )
-    
-    db.add(new_purchase)
-    await db.commit()
-    await db.refresh(new_purchase)
-    
-    return new_purchase.__dict__
 
-
-async def get_kok_purchase_history(
-        db: AsyncSession,
-        user_id: int,
-        limit: int = 10
-) -> List[dict]:
-    """
-    사용자의 구매 이력 조회
-    """
-    stmt = (
-        select(KokPurchase, KokProductInfo)
-        .join(KokProductInfo, KokPurchase.kok_product_id == KokProductInfo.kok_product_id)
-        .where(KokPurchase.kok_user_id == user_id)
-        .order_by(KokPurchase.kok_purchased_at.desc())
-        .limit(limit)
-    )
-    
-    results = (await db.execute(stmt)).all()
-    
-    purchase_history = []
-    for purchase, product in results:
-        purchase_history.append({
-            "kok_purchase_id": purchase.kok_purchase_id,
-            "kok_product_id": purchase.kok_product_id,
-            "kok_product_name": product.kok_product_name,
-            "kok_thumbnail": product.kok_thumbnail,
-            "kok_quantity": purchase.kok_quantity,
-            "kok_purchase_price": purchase.kok_purchase_price,
-            "kok_purchased_at": purchase.kok_purchased_at
-        })
-    
-    return purchase_history
 
 async def get_kok_review_data(
         db: AsyncSession,
@@ -589,3 +538,313 @@ async def get_kok_product_details(
         "seller_info": seller_info,
         "detail_info": detail_info_list
     }
+
+# -----------------------------
+# 찜 관련 CRUD 함수
+# -----------------------------
+
+async def toggle_kok_likes(
+    db: AsyncSession,
+    user_id: int,
+    kok_product_id: int
+) -> bool:
+    """
+    찜 등록/해제 토글
+    """
+    # 기존 찜 확인
+    stmt = (
+        select(KokLikes)
+        .where(KokLikes.user_id == user_id)
+        .where(KokLikes.kok_product_id == kok_product_id)
+    )
+    result = await db.execute(stmt)
+    existing_like = result.scalar_one_or_none()
+    
+    if existing_like:
+        # 찜 해제
+        await db.delete(existing_like)
+        await db.commit()
+        return False
+    else:
+        # 찜 등록
+        from datetime import datetime
+        created_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        
+        new_like = KokLikes(
+            user_id=user_id,
+            kok_product_id=kok_product_id,
+            kok_created_at=created_at
+        )
+        
+        db.add(new_like)
+        await db.commit()
+        return True
+
+async def get_kok_liked_products(
+    db: AsyncSession,
+    user_id: int,
+    limit: int = 50
+) -> List[dict]:
+    """
+    사용자가 찜한 상품 목록 조회
+    """
+    stmt = (
+        select(KokLikes, KokProductInfo, KokPriceInfo)
+        .join(KokProductInfo, KokLikes.kok_product_id == KokProductInfo.kok_product_id)
+        .join(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id, isouter=True)
+        .where(KokLikes.user_id == user_id)
+        .order_by(KokLikes.kok_created_at.desc())
+        .limit(limit)
+    )
+    
+    results = (await db.execute(stmt)).all()
+    
+    liked_products = []
+    for like, product, price in results:
+        # 할인 적용 가격 계산
+        discounted_price = product.kok_product_price
+        discount_rate = 0
+        if price and price.kok_discount_rate and price.kok_discount_rate > 0:
+            discount_rate = price.kok_discount_rate
+            discounted_price = int(product.kok_product_price * (1 - price.kok_discount_rate / 100))
+        
+        liked_products.append({
+            "kok_product_id": product.kok_product_id,
+            "kok_product_name": product.kok_product_name,
+            "kok_thumbnail": product.kok_thumbnail,
+            "kok_product_price": product.kok_product_price,
+            "kok_discount_rate": discount_rate,
+            "kok_discounted_price": discounted_price,
+            "kok_store_name": product.kok_store_name,
+        })
+    
+    return liked_products
+
+# -----------------------------
+# 장바구니 관련 CRUD 함수
+# -----------------------------
+
+async def toggle_kok_cart(
+    db: AsyncSession,
+    user_id: int,
+    kok_product_id: int,
+    kok_quantity: int = 1
+) -> bool:
+    """
+    장바구니 등록/해제 토글
+    """
+    # 기존 장바구니 항목 확인
+    stmt = (
+        select(KokCart)
+        .where(KokCart.user_id == user_id)
+        .where(KokCart.kok_product_id == kok_product_id)
+    )
+    result = await db.execute(stmt)
+    existing_cart = result.scalar_one_or_none()
+    
+    if existing_cart:
+        # 장바구니에서 제거
+        await db.delete(existing_cart)
+        await db.commit()
+        return False
+    else:
+        # 장바구니에 추가
+        from datetime import datetime
+        created_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        
+        new_cart = KokCart(
+            user_id=user_id,
+            kok_product_id=kok_product_id,
+            kok_quantity=kok_quantity,
+            kok_created_at=created_at
+        )
+        
+        db.add(new_cart)
+        await db.commit()
+        return True
+
+async def get_kok_cart_items(
+    db: AsyncSession,
+    user_id: int,
+    limit: int = 100
+) -> List[dict]:
+    """
+    사용자의 장바구니 상품 목록 조회
+    """
+    stmt = (
+        select(KokCart, KokProductInfo, KokPriceInfo)
+        .join(KokProductInfo, KokCart.kok_product_id == KokProductInfo.kok_product_id)
+        .join(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id, isouter=True)
+        .where(KokCart.user_id == user_id)
+        .order_by(KokCart.kok_created_at.desc())
+        .limit(limit)
+    )
+    
+    results = (await db.execute(stmt)).all()
+    
+    cart_items = []
+    for cart, product, price in results:
+        # 할인 적용 가격 계산
+        discounted_price = product.kok_product_price
+        discount_rate = 0
+        if price and price.kok_discount_rate and price.kok_discount_rate > 0:
+            discount_rate = price.kok_discount_rate
+            discounted_price = int(product.kok_product_price * (1 - price.kok_discount_rate / 100))
+        
+        cart_items.append({
+            "kok_cart_id": cart.kok_cart_id,
+            "kok_product_id": product.kok_product_id,
+            "kok_product_name": product.kok_product_name,
+            "kok_thumbnail": product.kok_thumbnail,
+            "kok_product_price": product.kok_product_price,
+            "kok_discount_rate": discount_rate,
+            "kok_discounted_price": discounted_price,
+            "kok_store_name": product.kok_store_name,
+            "kok_quantity": cart.kok_quantity,
+        })
+    
+    return cart_items
+
+# -----------------------------
+# 검색 관련 CRUD 함수
+# -----------------------------
+
+async def search_kok_products(
+    db: AsyncSession,
+    keyword: str,
+    page: int = 1,
+    size: int = 20
+) -> Tuple[List[dict], int]:
+    """
+    키워드로 콕 상품 검색
+    """
+    offset = (page - 1) * size
+    
+    # 검색 쿼리
+    stmt = (
+        select(KokProductInfo, KokPriceInfo)
+        .join(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id, isouter=True)
+        .where(
+            KokProductInfo.kok_product_name.ilike(f"%{keyword}%") |
+            KokProductInfo.kok_store_name.ilike(f"%{keyword}%")
+        )
+        .order_by(KokProductInfo.kok_product_id.desc())
+        .offset(offset)
+        .limit(size)
+    )
+    
+    results = (await db.execute(stmt)).all()
+    
+    # 총 개수 조회
+    count_stmt = (
+        select(func.count(KokProductInfo.kok_product_id))
+        .where(
+            KokProductInfo.kok_product_name.ilike(f"%{keyword}%") |
+            KokProductInfo.kok_store_name.ilike(f"%{keyword}%")
+        )
+    )
+    total = (await db.execute(count_stmt)).scalar()
+    
+    # 결과 변환
+    products = []
+    for product, price in results:
+        # 할인 적용 가격 계산
+        discounted_price = product.kok_product_price
+        discount_rate = 0
+        if price and price.kok_discount_rate and price.kok_discount_rate > 0:
+            discount_rate = price.kok_discount_rate
+            discounted_price = int(product.kok_product_price * (1 - price.kok_discount_rate / 100))
+        
+        products.append({
+            "kok_product_id": product.kok_product_id,
+            "kok_product_name": product.kok_product_name,
+            "kok_store_name": product.kok_store_name,
+            "kok_thumbnail": product.kok_thumbnail,
+            "kok_product_price": product.kok_product_price,
+            "kok_discount_rate": discount_rate,
+            "kok_discounted_price": discounted_price,
+            "kok_review_cnt": product.kok_review_cnt,
+            "kok_review_score": product.kok_review_score,
+        })
+    
+    return products, total
+
+async def get_kok_search_history(
+    db: AsyncSession,
+    user_id: int,
+    limit: int = 10
+) -> List[dict]:
+    """
+    사용자의 검색 이력 조회
+    """
+    stmt = (
+        select(KokSearchHistory)
+        .where(KokSearchHistory.user_id == user_id)
+        .order_by(KokSearchHistory.kok_searched_at.desc())
+        .limit(limit)
+    )
+    
+    results = (await db.execute(stmt)).scalars().all()
+    
+    return [
+        {
+            "kok_history_id": history.kok_history_id,
+            "user_id": history.user_id,
+            "kok_keyword": history.kok_keyword,
+            "kok_searched_at": history.kok_searched_at,
+        }
+        for history in results
+    ]
+
+async def add_kok_search_history(
+    db: AsyncSession,
+    user_id: int,
+    keyword: str
+) -> dict:
+    """
+    검색 이력 추가
+    """
+    from datetime import datetime
+    
+    searched_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    
+    new_history = KokSearchHistory(
+        user_id=user_id,
+        kok_keyword=keyword,
+        kok_searched_at=searched_at
+    )
+    
+    db.add(new_history)
+    await db.commit()
+    await db.refresh(new_history)
+    
+    return {
+        "kok_history_id": new_history.kok_history_id,
+        "user_id": new_history.user_id,
+        "kok_keyword": new_history.kok_keyword,
+        "kok_searched_at": new_history.kok_searched_at,
+    }
+
+async def delete_kok_search_history(
+    db: AsyncSession,
+    user_id: int,
+    keyword: str
+) -> bool:
+    """
+    특정 키워드의 검색 이력 삭제
+    """
+    stmt = (
+        select(KokSearchHistory)
+        .where(KokSearchHistory.user_id == user_id)
+        .where(KokSearchHistory.kok_keyword == keyword)
+    )
+    
+    result = await db.execute(stmt)
+    history = result.scalar_one_or_none()
+    
+    if history:
+        await db.delete(history)
+        await db.commit()
+        return True
+    
+    return False

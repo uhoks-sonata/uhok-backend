@@ -104,13 +104,7 @@ class KokProductInfo(MariaBase):
         lazy="joined"
     )
 
-    # 구매 이력과 1:N 관계 설정
-    purchases = relationship(
-        "KokPurchase",
-        back_populates="product",
-        primaryjoin="KokProductInfo.kok_product_id==KokPurchase.kok_product_id",
-        lazy="joined"
-    )
+
 
 class KokImageInfo(MariaBase):
     """
@@ -190,25 +184,25 @@ class KokPriceInfo(MariaBase):
 
 class KokSearchHistory(MariaBase):
     """
-    FCT_KOK_SEARCH_HISTORY 테이블의 ORM 모델
+    KOK_SEARCH_HISTORY 테이블의 ORM 모델
     """
-    __tablename__ = "FCT_KOK_SEARCH_HISTORY"
+    __tablename__ = "KOK_SEARCH_HISTORY"
 
     kok_history_id = Column("KOK_HISTORY_ID", Integer, primary_key=True, autoincrement=True)  # 검색 이력 ID
-    kok_user_id = Column("KOK_USER_ID", Integer, nullable=True)  # 사용자 ID
-    kok_keyword = Column("KOK_KEYWORD", String(100), nullable=True)  # 검색 키워드
-    kok_searched_at = Column("KOK_SEARCHED_AT", String(20), nullable=True)  # 검색 시간
+    user_id = Column("USER_ID", Integer, nullable=False)  # 사용자 ID (회원 PK 참조)
+    kok_keyword = Column("KOK_KEYWORD", String(100), nullable=False)  # 검색 키워드
+    kok_searched_at = Column("KOK_SEARCHED_AT", String(20), nullable=False)  # 검색 시간
 
 class KokLikes(MariaBase):
     """
-    FCT_KOK_LIKES 테이블의 ORM 모델
+    KOK_LIKES 테이블의 ORM 모델
     """
-    __tablename__ = "FCT_KOK_LIKES"
+    __tablename__ = "KOK_LIKES"
 
     kok_like_id = Column("KOK_LIKE_ID", Integer, primary_key=True, autoincrement=True)  # 찜 ID
-    kok_user_id = Column("KOK_USER_ID", Integer, nullable=True)  # 사용자 ID
-    kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=True)  # 제품 ID
-    kok_created_at = Column("KOK_CREATED_AT", String(20), nullable=True)  # 찜한 시간
+    user_id = Column("USER_ID", Integer, nullable=False)  # 사용자 ID (회원 PK 참조)
+    kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("FCT_KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=False)  # 제품 ID
+    kok_created_at = Column("KOK_CREATED_AT", String(20), nullable=False)  # 찜한 시간
 
     # 제품 정보와 N:1 관계 설정
     product = relationship(
@@ -219,14 +213,14 @@ class KokLikes(MariaBase):
 
 class KokCart(MariaBase):
     """
-    FCT_KOK_CART 테이블의 ORM 모델
+    KOK_CART 테이블의 ORM 모델
     """
-    __tablename__ = "FCT_KOK_CART"
+    __tablename__ = "KOK_CART"
 
     kok_cart_id = Column("KOK_CART_ID", Integer, primary_key=True, autoincrement=True)  # 장바구니 ID
-    kok_user_id = Column("KOK_USER_ID", Integer, nullable=True)  # 사용자 ID
-    kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=True)  # 제품 ID
-    kok_quantity = Column("KOK_QUANTITY", Integer, nullable=True)  # 수량
+    user_id = Column("USER_ID", Integer, nullable=False)  # 사용자 ID (회원 PK 참조)
+    kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("FCT_KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=False)  # 제품 ID
+    kok_quantity = Column("KOK_QUANTITY", Integer, nullable=False)  # 수량
     kok_created_at = Column("KOK_CREATED_AT", String(20), nullable=True)  # 추가 시간
 
     # 제품 정보와 N:1 관계 설정
@@ -237,22 +231,4 @@ class KokCart(MariaBase):
     )
 
 
-class KokPurchase(MariaBase):
-    """
-    FCT_KOK_PURCHASE 테이블의 ORM 모델 (구매 이력)
-    """
-    __tablename__ = "FCT_KOK_PURCHASE"
 
-    kok_purchase_id = Column("KOK_PURCHASE_ID", Integer, primary_key=True, autoincrement=True)  # 구매 ID
-    kok_user_id = Column("KOK_USER_ID", Integer, nullable=True)  # 사용자 ID
-    kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=True)  # 제품 ID
-    kok_quantity = Column("KOK_QUANTITY", Integer, nullable=True)  # 구매 수량
-    kok_purchase_price = Column("KOK_PURCHASE_PRICE", Integer, nullable=True)  # 구매 가격
-    kok_purchased_at = Column("KOK_PURCHASED_AT", String(20), nullable=True)  # 구매 시간
-
-    # 제품 정보와 N:1 관계 설정
-    product = relationship(
-        "KokProductInfo",
-        back_populates="purchases",
-        lazy="joined"
-    )

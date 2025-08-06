@@ -42,9 +42,23 @@ from services.kok.schemas.kok_schema import (
     KokStoreBestProductsResponse,
     KokUnpurchasedResponse,
     
-    # 구매 이력 관련 스키마
-    KokPurchaseHistoryResponse,
-    KokPurchaseCreate
+
+    
+    # 찜 관련 스키마
+    KokLikesToggleRequest,
+    KokLikesToggleResponse,
+    KokLikedProductsResponse,
+    
+    # 장바구니 관련 스키마
+    KokCartToggleRequest,
+    KokCartToggleResponse,
+    KokCartItemsResponse,
+    
+    # 검색 관련 스키마
+    KokSearchRequest,
+    KokSearchResponse,
+    KokSearchHistoryResponse,
+    KokSearchHistoryCreate
 )
 
 from services.kok.crud.kok_crud import (
@@ -65,9 +79,21 @@ from services.kok.crud.kok_crud import (
     get_kok_store_best_items,
     get_kok_unpurchased,
     
-    # 구매 이력 관련 CRUD
-    add_kok_purchase,
-    get_kok_purchase_history
+
+    
+    # 찜 관련 CRUD
+    toggle_kok_likes,
+    get_kok_liked_products,
+    
+    # 장바구니 관련 CRUD
+    toggle_kok_cart,
+    get_kok_cart_items,
+    
+    # 검색 관련 CRUD
+    search_kok_products,
+    get_kok_search_history,
+    add_kok_search_history,
+    delete_kok_search_history
 )
 
 from common.database.mariadb_service import get_maria_service_db
@@ -284,70 +310,7 @@ async def get_product_detail(
     return product
 
 
-# ================================
-# 구매 이력 관련 API
-# ================================
 
-@router.post("/purchase")
-async def add_purchase(
-        kok_product_id: int,
-        kok_quantity: int = 1,
-        kok_purchase_price: Optional[int] = None,
-        current_user: User = Depends(get_current_user),
-        background_tasks: BackgroundTasks = None,
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    구매 이력 추가
-    """
-    purchase = await add_kok_purchase(db, current_user.user_id, kok_product_id, kok_quantity, kok_purchase_price)
-    
-    # 구매 이력 추가 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="purchase_history_add", 
-            event_data={
-                "product_id": kok_product_id, 
-                "quantity": kok_quantity, 
-                "purchase_price": kok_purchase_price
-            }
-        )
-    
-    return {
-        "message": "구매 이력이 추가되었습니다.",
-        "purchase": purchase
-    }
-
-@router.get("/purchase/history", response_model=KokPurchaseHistoryResponse)
-async def get_purchase_history(
-        limit: int = Query(10, ge=1, le=50),
-        current_user: User = Depends(get_current_user),
-        background_tasks: BackgroundTasks = None,
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    구매 이력 조회
-    """
-    purchase_history = await get_kok_purchase_history(db, current_user.user_id, limit)
-    
-    # 구매 이력 조회 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="purchase_history_view", 
-            event_data={
-                "limit": limit,
-                "purchase_count": len(purchase_history)
-            }
-        )
-    
-    return {
-        "purchase_history": purchase_history,
-        "total_count": len(purchase_history)
-    }
 
 
 # ================================
@@ -380,3 +343,252 @@ async def create_kok_order_api(
         )
     
     return order
+
+# ================================
+# 검색 관련 API
+# ================================
+
+@router.get("/search", response_model=KokSearchResponse)
+async def search_products(
+    keyword: str = Query(..., description="검색 키워드"),
+    page: int = Query(1, ge=1, description="페이지 번호"),
+    size: int = Query(20, ge=1, le=100, description="페이지 크기"),
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    키워드 기반으로 콕 쇼핑몰 내에 있는 상품을 검색
+    """
+    products, total = await search_kok_products(db, keyword, page, size)
+    
+    # 검색 이력 저장
+    if background_tasks:
+        background_tasks.add_task(
+            add_kok_search_history,
+            db=db,
+            user_id=current_user.user_id,
+            keyword=keyword
+        )
+    
+    # 검색 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="product_search", 
+            event_data={"keyword": keyword, "result_count": len(products)}
+        )
+    
+    return {
+        "total": total,
+        "page": page,
+        "size": size,
+        "products": products
+    }
+
+@router.get("/search/history", response_model=KokSearchHistoryResponse)
+async def get_search_history(
+    limit: int = Query(10, ge=1, le=50, description="조회할 이력 개수"),
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    사용자의 검색 이력을 조회
+    """
+    history = await get_kok_search_history(db, current_user.user_id, limit)
+    
+    # 검색 이력 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="search_history_view", 
+            event_data={"history_count": len(history)}
+        )
+    
+    return {"history": history}
+
+@router.post("/search/history", response_model=dict)
+async def add_search_history(
+    search_data: KokSearchHistoryCreate,
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    사용자의 검색 이력을 저장
+    """
+    saved_history = await add_kok_search_history(db, current_user.user_id, search_data.keyword)
+    
+    # 검색 이력 저장 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="search_history_save", 
+            event_data={"keyword": search_data.keyword}
+        )
+    
+    return {
+        "message": "검색 이력이 저장되었습니다.",
+        "saved": saved_history
+    }
+
+@router.delete("/search/history/{keyword}")
+async def delete_search_history(
+    keyword: str,
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    사용자의 검색 이력을 삭제
+    """
+    deleted = await delete_kok_search_history(db, current_user.user_id, keyword)
+    
+    if deleted:
+        # 검색 이력 삭제 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="search_history_delete", 
+                event_data={"keyword": keyword}
+            )
+        
+        return {"message": f"'{keyword}' 키워드 검색 이력이 삭제되었습니다."}
+    else:
+        raise HTTPException(status_code=404, detail="해당 키워드의 검색 이력을 찾을 수 없습니다.")
+
+# ================================
+# 찜 관련 API
+# ================================
+
+@router.post("/likes/toggle", response_model=KokLikesToggleResponse)
+async def toggle_likes(
+    like_data: KokLikesToggleRequest,
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    상품 찜 등록/해제
+    """
+    liked = await toggle_kok_likes(db, current_user.user_id, like_data.kok_product_id)
+    
+    # 찜 토글 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="likes_toggle", 
+            event_data={
+                "product_id": like_data.kok_product_id,
+                "liked": liked
+            }
+        )
+    
+    if liked:
+        return {
+            "liked": True,
+            "message": "상품을 찜했습니다."
+        }
+    else:
+        return {
+            "liked": False,
+            "message": "찜이 취소되었습니다."
+        }
+
+@router.get("/likes", response_model=KokLikedProductsResponse)
+async def get_liked_products(
+    limit: int = Query(50, ge=1, le=100, description="조회할 찜 상품 개수"),
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    찜한 상품 목록 조회
+    """
+    liked_products = await get_kok_liked_products(db, current_user.user_id, limit)
+    
+    # 찜한 상품 목록 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="liked_products_view", 
+            event_data={
+                "limit": limit,
+                "product_count": len(liked_products)
+            }
+        )
+    
+    return {"liked_products": liked_products}
+
+# ================================
+# 장바구니 관련 API
+# ================================
+
+@router.post("/carts/toggle", response_model=KokCartToggleResponse)
+async def toggle_cart(
+    cart_data: KokCartToggleRequest,
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    장바구니 등록/해제
+    """
+    in_cart = await toggle_kok_cart(db, current_user.user_id, cart_data.kok_product_id, cart_data.kok_quantity)
+    
+    # 장바구니 토글 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="cart_toggle", 
+            event_data={
+                "product_id": cart_data.kok_product_id,
+                "quantity": cart_data.kok_quantity,
+                "in_cart": in_cart
+            }
+        )
+    
+    if in_cart:
+        return {
+            "in_cart": True,
+            "message": "장바구니에 추가되었습니다."
+        }
+    else:
+        return {
+            "in_cart": False,
+            "message": "장바구니에서 제거되었습니다."
+        }
+
+@router.get("/carts", response_model=KokCartItemsResponse)
+async def get_cart_items(
+    limit: int = Query(100, ge=1, le=200, description="조회할 장바구니 상품 개수"),
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    장바구니 상품 목록 조회
+    """
+    cart_items = await get_kok_cart_items(db, current_user.user_id, limit)
+    
+    # 장바구니 상품 목록 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="cart_items_view", 
+            event_data={
+                "limit": limit,
+                "item_count": len(cart_items)
+            }
+        )
+    
+    return {"cart_items": cart_items}
