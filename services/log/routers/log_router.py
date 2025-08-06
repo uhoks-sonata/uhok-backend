@@ -44,7 +44,7 @@ async def write_log(
                 user_id=log.user_id, 
                 event_type="log_write_success", 
                 event_data={
-                    "log_id": log_obj.id,
+                    "log_id": log_obj.log_id,
                     "event_type": log.event_type,
                     "event_data": log.event_data
                 }
