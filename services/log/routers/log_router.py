@@ -24,71 +24,63 @@ router = APIRouter(
 
 @router.post("/", response_model=UserLogRead, status_code=status.HTTP_201_CREATED)
 async def write_log(
-    log: UserLogCreate,
-    background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_postgres_log_db)
+        log: UserLogCreate,
+        background_tasks: BackgroundTasks = None,
+        db: AsyncSession = Depends(get_postgres_log_db)
 ):
     """
     사용자 로그 적재(비동기)
-    - user_id는 MariaDB USERS.USER_ID와 동일하게 받아서 저장
-    - event_type, event_data(옵션) 포함
-    - 필수 필드 검증 및 DB 예외 처리
     """
     try:
         log_obj = await create_user_log(db, log.model_dump())
-        
-        # 로그 적재 성공 시 추가 로그 기록
-        if background_tasks:
+
+        # log_write_success 이벤트일 때는 또 기록하지 않도록 방지!
+        if background_tasks and log.event_type != "log_write_success":
             background_tasks.add_task(
-                send_user_log, 
-                user_id=log.user_id, 
-                event_type="log_write_success", 
+                send_user_log,
+                user_id=log.user_id,
+                event_type="log_write_success",
                 event_data={
                     "log_id": log_obj.log_id,
                     "event_type": log.event_type,
                     "event_data": log.event_data
                 }
             )
-        
+
         return log_obj
     except BadRequestException as e:
-        # 파라미터 오류(400)
         raise e
     except InternalServerErrorException as e:
-        # 서버 내부 로직 오류(500)
         raise e
     except SQLAlchemyError:
-        # DB 예외(500)
         raise InternalServerErrorException("DB 오류로 로그 저장에 실패했습니다.")
     except Exception:
-        # 알 수 없는 예외(500)
         raise InternalServerErrorException()
+
 
 @router.get("/user/{user_id}", response_model=List[UserLogRead])
 async def read_user_logs(
-    user_id: int,
-    background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_postgres_log_db)
+        user_id: int,
+        background_tasks: BackgroundTasks = None,
+        db: AsyncSession = Depends(get_postgres_log_db)
 ):
     """
     특정 사용자의 최근 로그 조회
-    - user_id: MariaDB USERS.USER_ID 기준
     """
     try:
         logs = await get_user_logs(db, user_id)
-        
-        # 로그 조회 로그 기록
+
         if background_tasks:
             background_tasks.add_task(
-                send_user_log, 
-                user_id=user_id, 
-                event_type="log_read", 
+                send_user_log,
+                user_id=user_id,
+                event_type="log_read",
                 event_data={
                     "target_user_id": user_id,
                     "log_count": len(logs)
                 }
             )
-        
+
         return logs
     except Exception:
         raise InternalServerErrorException("로그 조회 중 오류가 발생했습니다.")
