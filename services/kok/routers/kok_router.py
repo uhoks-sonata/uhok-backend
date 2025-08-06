@@ -335,7 +335,13 @@ async def create_kok_order_api(
     """
     주문 생성
     """
-    order = await create_kok_order(db, current_user.user_id, order_data.kok_price_id)
+    order = await create_kok_order(
+        db, 
+        current_user.user_id, 
+        order_data.kok_price_id,
+        order_data.kok_product_id,
+        order_data.quantity
+    )
     
     # 주문 생성 로그 기록
     if background_tasks:
@@ -345,7 +351,7 @@ async def create_kok_order_api(
             event_type="order_create", 
             event_data={
                 "order_id": order.order_id,
-                "price_id": order_data.price_id,
+                "price_id": order_data.kok_price_id,
                 "service_type": "kok"
             }
         )
