@@ -134,25 +134,27 @@ async def get_kok_discounted_products(
     """
     할인 특가 상품 목록 조회 (할인율 높은 순으로 정렬)
     """
+    # KokProductInfo와 KokPriceInfo를 JOIN해서 할인율 정보 가져오기
     stmt = (
-        select(KokProductInfo)
-        .where(KokProductInfo.kok_discount_rate > 0)
-        .order_by(KokProductInfo.kok_discount_rate.desc())
+        select(KokProductInfo, KokPriceInfo)
+        .join(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
+        .where(KokPriceInfo.kok_discount_rate > 0)
+        .order_by(KokPriceInfo.kok_discount_rate.desc())
         .limit(10)
     )
-    products = (await db.execute(stmt)).scalars().all()
+    results = (await db.execute(stmt)).all()
     
     discounted_products = []
-    for product in products:
+    for product, price_info in results:
         # 할인 적용 가격 계산
         discounted_price = product.kok_product_price
-        if product.kok_discount_rate and product.kok_discount_rate > 0:
-            discounted_price = int(product.kok_product_price * (1 - product.kok_discount_rate / 100))
+        if price_info.kok_discount_rate and price_info.kok_discount_rate > 0:
+            discounted_price = int(product.kok_product_price * (1 - price_info.kok_discount_rate / 100))
         
         discounted_products.append({
             "kok_product_id": product.kok_product_id,
             "kok_thumbnail": product.kok_thumbnail,
-            "kok_discount_rate": product.kok_discount_rate,
+            "kok_discount_rate": price_info.kok_discount_rate,
             "kok_discounted_price": discounted_price,
             "kok_product_name": product.kok_product_name,
             "kok_store_name": product.kok_store_name,
@@ -166,25 +168,29 @@ async def get_kok_top_selling_products(
     """
     판매율 높은 상품 목록 조회 (리뷰 개수 많은 순으로 정렬, 20개 반환)
     """
+    # KokProductInfo와 KokPriceInfo를 LEFT JOIN해서 할인율 정보 가져오기
     stmt = (
-        select(KokProductInfo)
+        select(KokProductInfo, KokPriceInfo)
+        .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
         .where(KokProductInfo.kok_review_cnt > 0)
         .order_by(KokProductInfo.kok_review_cnt.desc())
         .limit(20)
     )
-    products = (await db.execute(stmt)).scalars().all()
+    results = (await db.execute(stmt)).all()
     
     top_selling_products = []
-    for product in products:
+    for product, price_info in results:
         # 할인 적용 가격 계산
         discounted_price = product.kok_product_price
-        if product.kok_discount_rate and product.kok_discount_rate > 0:
-            discounted_price = int(product.kok_product_price * (1 - product.kok_discount_rate / 100))
+        discount_rate = 0
+        if price_info and price_info.kok_discount_rate and price_info.kok_discount_rate > 0:
+            discount_rate = price_info.kok_discount_rate
+            discounted_price = int(product.kok_product_price * (1 - price_info.kok_discount_rate / 100))
         
         top_selling_products.append({
             "kok_product_id": product.kok_product_id,
             "kok_thumbnail": product.kok_thumbnail,
-            "kok_discount_rate": product.kok_discount_rate,
+            "kok_discount_rate": discount_rate,
             "kok_discounted_price": discounted_price,
             "kok_product_name": product.kok_product_name,
             "kok_store_name": product.kok_store_name,
@@ -284,25 +290,28 @@ async def get_kok_store_best_items(
     
     # 3. 해당 판매자들이 판매중인 상품 중 리뷰 개수가 많은 순으로 10개 조회
     store_best_stmt = (
-        select(KokProductInfo)
+        select(KokProductInfo, KokPriceInfo)
+        .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
         .where(KokProductInfo.kok_store_name.in_(store_names))
         .where(KokProductInfo.kok_review_cnt > 0)
         .order_by(KokProductInfo.kok_review_cnt.desc())
         .limit(10)
     )
-    store_products = (await db.execute(store_best_stmt)).scalars().all()
+    store_results = (await db.execute(store_best_stmt)).all()
     
     store_best_products = []
-    for product in store_products:
+    for product, price_info in store_results:
         # 할인 적용 가격 계산
         discounted_price = product.kok_product_price
-        if product.kok_discount_rate and product.kok_discount_rate > 0:
-            discounted_price = int(product.kok_product_price * (1 - product.kok_discount_rate / 100))
+        discount_rate = 0
+        if price_info and price_info.kok_discount_rate and price_info.kok_discount_rate > 0:
+            discount_rate = price_info.kok_discount_rate
+            discounted_price = int(product.kok_product_price * (1 - price_info.kok_discount_rate / 100))
         
         store_best_products.append({
             "kok_product_id": product.kok_product_id,
             "kok_thumbnail": product.kok_thumbnail,
-            "kok_discount_rate": product.kok_discount_rate,
+            "kok_discount_rate": discount_rate,
             "kok_discounted_price": discounted_price,
             "kok_product_name": product.kok_product_name,
             "kok_store_name": product.kok_store_name,
@@ -459,12 +468,13 @@ async def get_kok_products_by_ingredient(
     ingredient(예: 고춧가루)로 콕 상품을 LIKE 검색, 필드명 model 변수명과 100% 일치
     """
     stmt = (
-        select(KokProductInfo)
+        select(KokProductInfo, KokPriceInfo)
+        .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
         .where(KokProductInfo.kok_product_name.ilike(f"%{ingredient}%"))
         .limit(limit)
     )
     result = await db.execute(stmt)
-    products = result.scalars().all()
+    results = result.all()
 
     return [
         {
@@ -473,17 +483,17 @@ async def get_kok_products_by_ingredient(
             "kok_thumbnail": p.kok_thumbnail,
             "kok_store_name": p.kok_store_name,
             "kok_product_price": p.kok_product_price,
-            "kok_discount_rate": p.kok_discount_rate,
+            "kok_discount_rate": price.kok_discount_rate if price else 0,
             "kok_discounted_price": (
-                p.price_infos[0].kok_discounted_price
-                if p.price_infos and p.price_infos[0].kok_discounted_price
+                price.kok_discounted_price
+                if price and price.kok_discounted_price
                 else p.kok_product_price
             ),
             "kok_review_score": p.kok_review_score,
             "kok_review_cnt": p.kok_review_cnt,
             # 필요시 model에 정의된 추가 필드도 동일하게 추출
         }
-        for p in products
+        for p, price in results
     ]
 
 async def get_kok_product_details(
