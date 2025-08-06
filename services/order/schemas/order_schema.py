@@ -6,14 +6,20 @@ from typing import Optional
 from datetime import datetime
 
 class KokOrderCreate(BaseModel):
-    price_id: int
+    kok_price_id: int
+    kok_product_id: int
+    quantity: int = 1
+    order_price: Optional[int] = None
 
 class HomeShoppingOrderCreate(BaseModel):
     live_id: int
 
 class KokOrderSchema(BaseModel):
     kok_order_id: int
-    price_id: int
+    kok_price_id: int
+    kok_product_id: int
+    quantity: int
+    order_price: Optional[int]
 
 class HomeShoppingOrderSchema(BaseModel):
     homeshopping_order_id: int

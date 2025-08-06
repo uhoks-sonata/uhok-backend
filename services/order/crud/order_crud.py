@@ -5,14 +5,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime
 from services.order.models.order_model import Order, KokOrder, HomeShoppingOrder
 
-async def create_kok_order(db: AsyncSession, user_id: int, price_id: int) -> Order:
+async def create_kok_order(db: AsyncSession, user_id: int, kok_price_id: int, kok_product_id: int, quantity: int = 1, order_price: int = None) -> Order:
     """
     콕 주문 생성 (트랜잭션)
     """
     order = Order(user_id=user_id, order_time=datetime.now())
     db.add(order)
     await db.flush()
-    kok_order = KokOrder(order_id=order.order_id, price_id=price_id)
+    kok_order = KokOrder(
+        order_id=order.order_id, 
+        kok_price_id=kok_price_id,
+        kok_product_id=kok_product_id,
+        quantity=quantity,
+        order_price=order_price
+    )
     db.add(kok_order)
     await db.commit()
     await db.refresh(order)
