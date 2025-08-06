@@ -11,10 +11,12 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = Field(..., env="ACCESS_TOKEN_EXPIRE_MINUTES")
 
     mariadb_auth_url: str = Field(..., env="MARIADB_AUTH_URL")
+    mariadb_auth_migrate_url: str = Field(..., env="MARIADB_AUTH_MIGRATE_URL")
     mariadb_service_url: str = Field(..., env="MARIADB_SERVICE_URL")
 
     postgres_recommend_url: str = Field(..., env="POSTGRES_RECOMMEND_URL")
     postgres_log_url: str = Field(..., env="POSTGRES_LOG_URL")
+    postgres_log_migrate_url: str = Field(..., env="POSTGRES_LOG_MIGRATE_URL")
 
     log_api_url: str = Field(..., env="LOG_API_URL")
 
