@@ -30,7 +30,6 @@ from common.database.base_postgres import PostgresBase
 
 # 반드시 모델 import 필요!
 from services.log.models.log_model import UserLog
-from services.recipe.models.recipe_model import Recipe, Material, RecipeRating
 
 target_metadata = PostgresBase.metadata
 
