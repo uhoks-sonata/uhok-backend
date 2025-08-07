@@ -2,12 +2,14 @@
 주문 통합(ORDERS), 콕 주문(KOK_ORDERS), 홈쇼핑 주문(HOMESHOPPING_ORDERS) ORM 모델 정의
 """
 from sqlalchemy import Column, Integer, DateTime, ForeignKey, String, BigInteger
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import relationship
 from datetime import datetime
 
-Base = declarative_base()
+from services.kok.models.kok_model import KokProductInfo  # 반드시 임포트
 
-class StatusMaster(Base):
+from common.database.base_mariadb import MariaBase
+
+class StatusMaster(MariaBase):
     """
     STATUS_MASTER 테이블 (상태 코드 마스터)
     """
@@ -17,21 +19,21 @@ class StatusMaster(Base):
     status_code = Column("STATUS_CODE", String(30), nullable=False, unique=True)
     status_name = Column("STATUS_NAME", String(100), nullable=False)
 
-class Order(Base):
+class Order(MariaBase):
     """
     ORDERS 테이블 (주문 공통 정보)
     """
     __tablename__ = "ORDERS"
 
     order_id = Column("ORDER_ID", Integer, primary_key=True, autoincrement=True)
-    user_id = Column("USER_ID", Integer, ForeignKey("USERS.USER_ID"), nullable=False)
+    user_id = Column("USER_ID", Integer, nullable=False)
     order_time = Column("ORDER_TIME", DateTime, nullable=False)
     cancel_time = Column("CANCEL_TIME", DateTime, nullable=True)
 
     kok_order = relationship("KokOrder", uselist=False, back_populates="order")
     homeshopping_order = relationship("HomeShoppingOrder", uselist=False, back_populates="order")
 
-class KokOrder(Base):
+class KokOrder(MariaBase):
     """
     KOK_ORDERS 테이블 (콕 주문 상세)
     """
@@ -47,7 +49,7 @@ class KokOrder(Base):
     order = relationship("Order", back_populates="kok_order")
     status_history = relationship("KokOrderStatusHistory", back_populates="kok_order")
 
-class KokOrderStatusHistory(Base):
+class KokOrderStatusHistory(MariaBase):
     """
     KOK_ORDER_STATUS_HISTORY 테이블 (콕 주문 상태 변경 이력)
     """
@@ -62,7 +64,7 @@ class KokOrderStatusHistory(Base):
     kok_order = relationship("KokOrder", back_populates="status_history")
     status = relationship("StatusMaster")
 
-class HomeShoppingOrder(Base):
+class HomeShoppingOrder(MariaBase):
     """
     HOMESHOPPING_ORDERS 테이블 (HomeShopping 주문 상세)
     """
