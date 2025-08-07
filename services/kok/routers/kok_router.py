@@ -50,8 +50,6 @@ from services.kok.schemas.kok_schema import (
     KokLikedProductsResponse,
     
     # 장바구니 관련 스키마
-    KokCartToggleRequest,
-    KokCartToggleResponse,
     KokCartItemsResponse,
     KokCartAddRequest,
     KokCartAddResponse,
@@ -63,7 +61,9 @@ from services.kok.schemas.kok_schema import (
     KokSearchRequest,
     KokSearchResponse,
     KokSearchHistoryResponse,
-    KokSearchHistoryCreate
+    KokSearchHistoryCreate,
+    KokSearchHistoryDeleteRequest,
+    KokSearchHistoryDeleteResponse
 )
 
 from services.kok.crud.kok_crud import (
@@ -91,7 +91,6 @@ from services.kok.crud.kok_crud import (
     get_kok_liked_products,
     
     # 장바구니 관련 CRUD
-    toggle_kok_cart,
     get_kok_cart_items,
     add_kok_cart,
     update_kok_cart_quantity,
@@ -312,7 +311,7 @@ async def get_product_detail(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="product_view", 
-            event_data={"product_id": product_id, "product_name": product.get("kok_product_name", "")}
+            event_data={"product_id": product_id, "kok_product_name": product.get("kok_product_name", "")}
         )
     
     return product
@@ -345,7 +344,7 @@ async def create_kok_order_api(
             event_type="order_create", 
             event_data={
                 "order_id": order.order_id,
-                "price_id": order_data.price_id,
+                "kok_price_id": order_data.kok_price_id,
                 "service_type": "kok"
             }
         )
@@ -435,9 +434,9 @@ async def add_search_history(
         "saved": saved_history
     }
 
-@router.delete("/search/history/{keyword}")
+@router.delete("/search/history/{history_id}", response_model=KokSearchHistoryDeleteResponse)
 async def delete_search_history(
-    keyword: str,
+    history_id: int,
     current_user: User = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
@@ -445,7 +444,7 @@ async def delete_search_history(
     """
     사용자의 검색 이력을 삭제
     """
-    deleted = await delete_kok_search_history(db, current_user.user_id, keyword)
+    deleted = await delete_kok_search_history(db, current_user.user_id, history_id)
     
     if deleted:
         # 검색 이력 삭제 로그 기록
@@ -454,12 +453,12 @@ async def delete_search_history(
                 send_user_log, 
                 user_id=current_user.user_id, 
                 event_type="search_history_delete", 
-                event_data={"keyword": keyword}
+                event_data={"history_id": history_id}
             )
         
-        return {"message": f"'{keyword}' 키워드 검색 이력이 삭제되었습니다."}
+        return {"message": f"검색 이력 ID {history_id}가 삭제되었습니다."}
     else:
-        raise HTTPException(status_code=404, detail="해당 키워드의 검색 이력을 찾을 수 없습니다.")
+        raise HTTPException(status_code=404, detail="해당 검색 이력을 찾을 수 없습니다.")
 
 # ================================
 # 찜 관련 API
@@ -530,42 +529,6 @@ async def get_liked_products(
 # 장바구니 관련 API
 # ================================
 
-@router.post("/carts/toggle", response_model=KokCartToggleResponse)
-async def toggle_cart(
-    cart_data: KokCartToggleRequest,
-    current_user: User = Depends(get_current_user),
-    background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    장바구니 등록/해제
-    """
-    in_cart = await toggle_kok_cart(db, current_user.user_id, cart_data.kok_product_id, cart_data.kok_quantity)
-    
-    # 장바구니 토글 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="cart_toggle", 
-            event_data={
-                "product_id": cart_data.kok_product_id,
-                "quantity": cart_data.kok_quantity,
-                "in_cart": in_cart
-            }
-        )
-    
-    if in_cart:
-        return {
-            "in_cart": True,
-            "message": "장바구니에 추가되었습니다."
-        }
-    else:
-        return {
-            "in_cart": False,
-            "message": "장바구니에서 제거되었습니다."
-        }
-
 @router.get("/carts", response_model=KokCartItemsResponse)
 async def get_cart_items(
     limit: int = Query(100, ge=1, le=200, description="조회할 장바구니 상품 개수"),
@@ -592,7 +555,6 @@ async def get_cart_items(
     
     return {"cart_items": cart_items}
 
-# 새로운 장바구니 API들
 @router.post("/carts", response_model=KokCartAddResponse, status_code=status.HTTP_201_CREATED)
 async def add_cart_item(
     cart_data: KokCartAddRequest,

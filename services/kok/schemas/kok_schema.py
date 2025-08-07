@@ -398,16 +398,6 @@ class KokCartDeleteResponse(BaseModel):
     message: str
 
 # 기존 스키마들 (하위 호환성을 위해 유지)
-class KokCartToggleRequest(BaseModel):
-    """장바구니 등록/해제 요청"""
-    kok_product_id: int
-    kok_quantity: int = 1
-
-class KokCartToggleResponse(BaseModel):
-    """장바구니 등록/해제 응답"""
-    in_cart: bool
-    message: str
-
 class KokCartItem(BaseModel):
     """장바구니 상품 정보"""
     kok_cart_id: int
@@ -459,3 +449,11 @@ class KokSearchHistoryResponse(BaseModel):
 class KokSearchHistoryCreate(BaseModel):
     """검색 이력 생성 요청"""
     keyword: str
+
+class KokSearchHistoryDeleteRequest(BaseModel):
+    """검색 이력 삭제 요청"""
+    kok_history_id: int
+
+class KokSearchHistoryDeleteResponse(BaseModel):
+    """검색 이력 삭제 응답"""
+    message: str

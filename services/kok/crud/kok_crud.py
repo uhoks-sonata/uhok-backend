@@ -634,45 +634,6 @@ async def get_kok_liked_products(
 # 장바구니 관련 CRUD 함수
 # -----------------------------
 
-async def toggle_kok_cart(
-    db: AsyncSession,
-    user_id: int,
-    kok_product_id: int,
-    kok_quantity: int = 1
-) -> bool:
-    """
-    장바구니 등록/해제 토글
-    """
-    # 기존 장바구니 항목 확인
-    stmt = (
-        select(KokCart)
-        .where(KokCart.user_id == user_id)
-        .where(KokCart.kok_product_id == kok_product_id)
-    )
-    result = await db.execute(stmt)
-    existing_cart = result.scalar_one_or_none()
-    
-    if existing_cart:
-        # 장바구니에서 제거
-        await db.delete(existing_cart)
-        await db.commit()
-        return False
-    else:
-        # 장바구니에 추가
-        from datetime import datetime
-        created_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-        
-        new_cart = KokCart(
-            user_id=user_id,
-            kok_product_id=kok_product_id,
-            kok_quantity=kok_quantity,
-            kok_created_at=created_at
-        )
-        
-        db.add(new_cart)
-        await db.commit()
-        return True
-
 async def get_kok_cart_items(
     db: AsyncSession,
     user_id: int,
@@ -942,15 +903,15 @@ async def add_kok_search_history(
 async def delete_kok_search_history(
     db: AsyncSession,
     user_id: int,
-    keyword: str
+    kok_history_id: int
 ) -> bool:
     """
-    특정 키워드의 검색 이력 삭제
+    특정 검색 이력 ID로 검색 이력 삭제
     """
     stmt = (
         select(KokSearchHistory)
         .where(KokSearchHistory.user_id == user_id)
-        .where(KokSearchHistory.kok_keyword == keyword)
+        .where(KokSearchHistory.kok_history_id == kok_history_id)
     )
     
     result = await db.execute(stmt)
