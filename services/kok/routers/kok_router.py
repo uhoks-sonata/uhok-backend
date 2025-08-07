@@ -16,33 +16,19 @@ from services.order.crud.order_crud import create_kok_order
 from services.kok.schemas.kok_schema import (
     # 제품 관련 스키마
     KokProductDetailResponse,
-    KokProductListResponse,
-    KokProductBase,
     KokProductInfoResponse,
     KokProductTabsResponse,
     
     # 리뷰 관련 스키마
     KokReviewResponse,
-    KokReviewStats,
-    KokReviewDetail,
-    KokReviewExample,
     
     # 상품 상세정보 스키마
     KokProductDetailsResponse,
-    KokProductDetails,
-    KokDetailInfoItem,
     
     # 메인화면 상품 리스트 스키마
-    KokDiscountedProduct,
     KokDiscountedProductsResponse,
-    KokTopSellingProduct,
     KokTopSellingProductsResponse,
-
-    KokStoreBestProduct,
     KokStoreBestProductsResponse,
-    KokUnpurchasedResponse,
-    
-    
     
     # 찜 관련 스키마
     KokLikesToggleRequest,
@@ -58,11 +44,9 @@ from services.kok.schemas.kok_schema import (
     KokCartDeleteResponse,
     
     # 검색 관련 스키마
-    KokSearchRequest,
     KokSearchResponse,
     KokSearchHistoryResponse,
     KokSearchHistoryCreate,
-    KokSearchHistoryDeleteRequest,
     KokSearchHistoryDeleteResponse,
     
     # 알림 관련 스키마
