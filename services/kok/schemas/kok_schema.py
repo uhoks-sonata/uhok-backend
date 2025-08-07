@@ -457,3 +457,28 @@ class KokSearchHistoryDeleteRequest(BaseModel):
 class KokSearchHistoryDeleteResponse(BaseModel):
     """검색 이력 삭제 응답"""
     message: str
+
+# -----------------------------
+# 알림 관련 스키마
+# -----------------------------
+
+class KokNotification(BaseModel):
+    """콕 알림 정보"""
+    notification_id: int
+    user_id: int
+    kok_order_id: int
+    status_id: int
+    title: str
+    message: str
+    created_at: str
+    
+    class Config:
+        from_attributes = True
+
+class KokNotificationResponse(BaseModel):
+    """콕 알림 내역 응답"""
+    notifications: List[KokNotification] = Field(default_factory=list)
+    total: int = 0
+    
+    class Config:
+        from_attributes = True
