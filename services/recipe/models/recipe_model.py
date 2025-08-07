@@ -30,7 +30,7 @@ class Recipe(MariaBase):
         "Material",
         back_populates="recipe",
         primaryjoin="Recipe.recipe_id==Material.recipe_id",
-        lazy="joined"
+        lazy="select"
     )
 
 class Material(MariaBase):
@@ -41,7 +41,7 @@ class Material(MariaBase):
     __tablename__ = "FCT_MTRL"
 
     material_id = Column("MATERIAL_ID", Integer, primary_key=True, autoincrement=True)
-    recipe_id = Column("RECIPE_ID", Integer, ForeignKey("FCT_RECIPE.RECIPE_ID"), nullable=True)
+    recipe_id = Column("RECIPE_ID", Integer, ForeignKey("FCT_RECIPE.RECIPE_ID", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
     material_name = Column("MATERIAL_NAME", String(100), nullable=True)
     measure_amount = Column("MEASURE_AMOUNT", String(100), nullable=True)
     measure_unit = Column("MEASURE_UNIT", String(200), nullable=True)
@@ -51,7 +51,7 @@ class Material(MariaBase):
     recipe = relationship(
         "Recipe",
         back_populates="materials",
-        lazy="joined"
+        lazy="select"
     )
 
 class RecipeRating(MariaBase):
@@ -62,7 +62,7 @@ class RecipeRating(MariaBase):
     __tablename__ = "RECIPE_RATING"
 
     rating_id = Column("RATING_ID", Integer, primary_key=True, autoincrement=True)
-    recipe_id = Column("RECIPE_ID", Integer, ForeignKey("FCT_RECIPE.RECIPE_ID"), nullable=False)
+    recipe_id = Column("RECIPE_ID", Integer, ForeignKey("FCT_RECIPE.RECIPE_ID", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
     user_id = Column("USER_ID", Integer, nullable=False)
     rating = Column("RATING", Integer, nullable=False)   # INT로 변경
 

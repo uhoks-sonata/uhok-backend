@@ -28,55 +28,6 @@ from common.log_utils import send_user_log
 
 router = APIRouter(prefix="/api/recipes", tags=["Recipe"])
 
-@router.get("/{recipe_id}", response_model=RecipeDetailResponse)
-async def get_recipe(
-        recipe_id: int,
-        current_user = Depends(get_current_user),
-        background_tasks: BackgroundTasks = None,
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    레시피 상세 정보 + 재료 리스트 + 만개의레시피 url 조회
-    """
-    result = await get_recipe_detail(db, recipe_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="레시피가 존재하지 않습니다.")
-    
-    # 레시피 상세 조회 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="recipe_detail_view", 
-            event_data={"recipe_id": recipe_id, "recipe_name": result.recipe_name}
-        )
-    
-    return result
-
-
-@router.get("/{recipe_id}/url", response_model=RecipeUrlResponse)
-async def get_recipe_url_api(
-    recipe_id: int,
-    current_user = Depends(get_current_user),
-    background_tasks: BackgroundTasks = None
-):
-    """
-    만개의 레시피 URL 동적 생성하여 반환
-    """
-    url = get_recipe_url(recipe_id)
-    
-    # 레시피 URL 조회 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="recipe_url_view", 
-            event_data={"recipe_id": recipe_id}
-        )
-    
-    return {"url": url}
-
-
 @router.get("/by-ingredients")
 async def by_ingredients(
     ingredient: List[str] = Query(..., min_length=3, description="식재료 리스트 (최소 3개)"),
@@ -160,6 +111,54 @@ async def search_recipe(
         "page": page,
         "total": total
     }
+
+@router.get("/{recipe_id}", response_model=RecipeDetailResponse)
+async def get_recipe(
+        recipe_id: int,
+        current_user = Depends(get_current_user),
+        background_tasks: BackgroundTasks = None,
+        db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    레시피 상세 정보 + 재료 리스트 + 만개의레시피 url 조회
+    """
+    result = await get_recipe_detail(db, recipe_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="레시피가 존재하지 않습니다.")
+    
+    # 레시피 상세 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="recipe_detail_view", 
+            event_data={"recipe_id": recipe_id, "recipe_name": result.recipe_name}
+        )
+    
+    return result
+
+
+@router.get("/{recipe_id}/url", response_model=RecipeUrlResponse)
+async def get_recipe_url_api(
+    recipe_id: int,
+    current_user = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
+):
+    """
+    만개의 레시피 URL 동적 생성하여 반환
+    """
+    url = get_recipe_url(recipe_id)
+    
+    # 레시피 URL 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="recipe_url_view", 
+            event_data={"recipe_id": recipe_id}
+        )
+    
+    return {"url": url}
 
 
 @router.get("/{recipe_id}/rating", response_model=RecipeRatingResponse)

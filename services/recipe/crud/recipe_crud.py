@@ -60,7 +60,7 @@ async def recommend_recipes_by_ingredients(
         .order_by(desc(Recipe.scrap_count))
     )
     result = await db.execute(stmt)
-    candidate_recipes = result.scalars().all()
+    candidate_recipes = result.scalars().unique().all()
     total = len(candidate_recipes)  # 전체 후보 개수
 
     # 2. 레시피별 실제 들어간 재료(Material) 리스트 미리 조회(map 저장, 최적화)
@@ -130,6 +130,9 @@ async def recommend_recipes_by_ingredients(
             'MATCHED_INGREDIENT_COUNT': get_matched_count(recipe.recipe_id)
         }
         recipe_df.append(recipe_dict)
+    
+    # DataFrame으로 변환
+    recipe_df = pd.DataFrame(recipe_df)
 
     # 5-4. 순차적 재고 소진 알고리즘 실행
     recommended, remaining_stock = recommend_sequentially_for_inventory(
@@ -203,11 +206,10 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
         for mat, detail in best_usage.items():
             remaining_stock[mat]['amount'] -= detail['amount']
 
-        recipe_info = next((r for r in recipe_df if r['RECIPE_ID'] == best_recipe), None)
-        if recipe_info:
-            recipe_info['used_ingredients'] = best_usage
-            recommended.append(recipe_info)
-            used_recipe_ids.add(best_recipe)
+        recipe_info = recipe_df[recipe_df['RECIPE_ID'] == best_recipe].iloc[0].to_dict()
+        recipe_info['used_ingredients'] = best_usage
+        recommended.append(recipe_info)
+        used_recipe_ids.add(best_recipe)
 
     return recommended, remaining_stock
 
