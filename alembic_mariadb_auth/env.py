@@ -29,6 +29,7 @@ if mariadb_auth_migrate_url:
 from common.database.base_mariadb import MariaBase
 
 from services.user.models import User, UserSetting
+from services.recipe.models.recipe_model import Recipe, Material, RecipeRating
 
 target_metadata = MariaBase.metadata
 
