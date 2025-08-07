@@ -1,15 +1,25 @@
 """
 통합 주문 조회/상세/통계 API 라우터 (콕, HomeShopping 모두 지원)
 """
-from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, status
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta
 from typing import List
 
-from services.order.schemas.order_schema import OrderRead, OrderCountResponse
+from services.order.schemas.order_schema import (
+    OrderRead, 
+    OrderCountResponse, 
+    KokOrderStatusUpdate, 
+    KokOrderStatusResponse
+)
 from services.order.models.order_model import Order
-from services.order.crud.order_crud import get_order_by_id
+from services.order.crud.order_crud import (
+    get_order_by_id, 
+    update_kok_order_status, 
+    get_kok_order_with_status, 
+    get_kok_order_status_history
+)
 from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
 from common.log_utils import send_user_log
@@ -130,3 +140,98 @@ async def read_order(
         )
 
     return order
+
+# ================================
+# 콕 주문 상태 관리 API
+# ================================
+
+@router.patch("/kok/{kok_order_id}/status", response_model=KokOrderStatusResponse)
+async def update_kok_order_status_api(
+    kok_order_id: int,
+    status_update: KokOrderStatusUpdate,
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db),
+    user=Depends(get_current_user)
+):
+    """
+    콕 주문 상태 업데이트
+    """
+    try:
+        # 상태 업데이트
+        updated_order = await update_kok_order_status(
+            db, 
+            kok_order_id, 
+            status_update.new_status_code, 
+            status_update.changed_by or user.user_id
+        )
+        
+        # 업데이트된 주문과 상태 정보 조회
+        order_with_status = await get_kok_order_with_status(db, kok_order_id)
+        if not order_with_status:
+            raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+        
+        kok_order, current_status = order_with_status
+        
+        # 상태 변경 이력 조회
+        status_history = await get_kok_order_status_history(db, kok_order_id)
+        
+        # 상태 변경 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log,
+                user_id=user.user_id,
+                event_type="kok_order_status_update",
+                event_data={
+                    "kok_order_id": kok_order_id,
+                    "new_status": status_update.new_status_code,
+                    "changed_by": status_update.changed_by or user.user_id
+                }
+            )
+        
+        return KokOrderStatusResponse(
+            kok_order_id=kok_order_id,
+            current_status=current_status,
+            status_history=status_history
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/kok/{kok_order_id}/status", response_model=KokOrderStatusResponse)
+async def get_kok_order_status(
+    kok_order_id: int,
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db),
+    user=Depends(get_current_user)
+):
+    """
+    콕 주문 현재 상태 및 변경 이력 조회
+    """
+    # 주문과 현재 상태 조회
+    order_with_status = await get_kok_order_with_status(db, kok_order_id)
+    if not order_with_status:
+        raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+    
+    kok_order, current_status = order_with_status
+    
+    # 사용자 권한 확인 (주문자만 조회 가능)
+    if kok_order.order.user_id != user.user_id:
+        raise HTTPException(status_code=403, detail="해당 주문에 대한 권한이 없습니다.")
+    
+    # 상태 변경 이력 조회
+    status_history = await get_kok_order_status_history(db, kok_order_id)
+    
+    # 상태 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log,
+            user_id=user.user_id,
+            event_type="kok_order_status_view",
+            event_data={"kok_order_id": kok_order_id}
+        )
+    
+    return KokOrderStatusResponse(
+        kok_order_id=kok_order_id,
+        current_status=current_status,
+        status_history=status_history
+    )
