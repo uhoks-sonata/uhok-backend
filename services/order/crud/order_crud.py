@@ -1,7 +1,7 @@
 """
 ORDERS + 서비스별 주문 상세를 트랜잭션으로 한 번에 생성/조회 (HomeShopping 명칭 통일)
 """
-from sqlalchemy import select
+from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime
 from services.order.models.order_model import Order, KokOrder, HomeShoppingOrder, StatusMaster, KokOrderStatusHistory
@@ -13,6 +13,18 @@ async def get_status_by_code(db: AsyncSession, status_code: str) -> StatusMaster
     """
     result = await db.execute(
         select(StatusMaster).where(StatusMaster.status_code == status_code)
+    )
+    return result.scalars().first()
+
+async def get_current_status(db: AsyncSession, kok_order_id: int) -> KokOrderStatusHistory:
+    """
+    주문의 현재 상태 조회 (가장 최근 이력)
+    """
+    result = await db.execute(
+        select(KokOrderStatusHistory)
+        .where(KokOrderStatusHistory.kok_order_id == kok_order_id)
+        .order_by(desc(KokOrderStatusHistory.changed_at))
+        .limit(1)
     )
     return result.scalars().first()
 
@@ -60,13 +72,12 @@ async def create_kok_order(
         kok_price_id=kok_price_id,
         kok_product_id=kok_product_id,
         quantity=quantity,
-        order_price=order_price,
-        current_status_id=payment_completed_status.status_id
+        order_price=order_price
     )
     db.add(new_kok_order)
     await db.flush()  # kok_order_id 생성
 
-    # 4-3. 상태 변경 이력 생성
+    # 4-3. 상태 변경 이력 생성 (초기 상태)
     status_history = KokOrderStatusHistory(
         kok_order_id=new_kok_order.kok_order_id,
         status_id=payment_completed_status.status_id,
@@ -85,7 +96,7 @@ async def update_kok_order_status(
         changed_by: int = None
 ) -> KokOrder:
     """
-    콕 주문 상태 업데이트
+    콕 주문 상태 업데이트 (INSERT만 사용)
     """
     # 1. 새로운 상태 조회
     new_status = await get_status_by_code(db, new_status_code)
@@ -100,10 +111,7 @@ async def update_kok_order_status(
     if not kok_order:
         raise Exception("해당 주문을 찾을 수 없습니다")
 
-    # 3. 상태 업데이트
-    kok_order.current_status_id = new_status.status_id
-
-    # 4. 상태 변경 이력 생성
+    # 3. 상태 변경 이력 생성 (UPDATE 없이 INSERT만)
     status_history = KokOrderStatusHistory(
         kok_order_id=kok_order_id,
         status_id=new_status.status_id,
@@ -115,16 +123,31 @@ async def update_kok_order_status(
     await db.refresh(kok_order)
     return kok_order
 
-async def get_kok_order_with_status(db: AsyncSession, kok_order_id: int):
+async def get_kok_order_with_current_status(db: AsyncSession, kok_order_id: int):
     """
-    콕 주문과 현재 상태 정보를 함께 조회
+    콕 주문과 현재 상태 정보를 함께 조회 (가장 최근 이력 사용)
     """
+    # 주문 조회
     result = await db.execute(
-        select(KokOrder, StatusMaster)
-        .join(StatusMaster, KokOrder.current_status_id == StatusMaster.status_id)
-        .where(KokOrder.kok_order_id == kok_order_id)
+        select(KokOrder).where(KokOrder.kok_order_id == kok_order_id)
     )
-    return result.first()
+    kok_order = result.scalars().first()
+    
+    if not kok_order:
+        return None
+    
+    # 현재 상태 조회 (가장 최근 이력)
+    current_status_history = await get_current_status(db, kok_order_id)
+    
+    if current_status_history:
+        # 상태 정보 조회
+        status_result = await db.execute(
+            select(StatusMaster).where(StatusMaster.status_id == current_status_history.status_id)
+        )
+        current_status = status_result.scalars().first()
+        return kok_order, current_status, current_status_history
+    
+    return kok_order, None, None
 
 async def get_kok_order_status_history(db: AsyncSession, kok_order_id: int):
     """
@@ -134,7 +157,7 @@ async def get_kok_order_status_history(db: AsyncSession, kok_order_id: int):
         select(KokOrderStatusHistory, StatusMaster)
         .join(StatusMaster, KokOrderStatusHistory.status_id == StatusMaster.status_id)
         .where(KokOrderStatusHistory.kok_order_id == kok_order_id)
-        .order_by(KokOrderStatusHistory.changed_at.desc())
+        .order_by(desc(KokOrderStatusHistory.changed_at))
     )
     return result.all()
 

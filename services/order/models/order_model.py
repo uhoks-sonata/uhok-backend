@@ -43,10 +43,8 @@ class KokOrder(Base):
     kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("FCT_KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=False)
     quantity = Column("QUANTITY", Integer, nullable=False)
     order_price = Column("ORDER_PRICE", Integer, nullable=True)
-    current_status_id = Column("CURRENT_STATUS_ID", Integer, ForeignKey("STATUS_MASTER.STATUS_ID"), nullable=False)
 
     order = relationship("Order", back_populates="kok_order")
-    current_status = relationship("StatusMaster")
     status_history = relationship("KokOrderStatusHistory", back_populates="kok_order")
 
 class KokOrderStatusHistory(Base):

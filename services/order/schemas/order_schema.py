@@ -28,7 +28,6 @@ class KokOrderSchema(BaseModel):
     kok_product_id: int
     quantity: int
     order_price: Optional[int]
-    current_status: Optional[StatusMasterSchema] = None
 
 class HomeShoppingOrderSchema(BaseModel):
     homeshopping_order_id: int
@@ -69,6 +68,14 @@ class KokOrderStatusResponse(BaseModel):
     kok_order_id: int
     current_status: StatusMasterSchema
     status_history: List[KokOrderStatusHistorySchema] = []
+    
+    class Config:
+        from_attributes = True
+
+class KokOrderWithStatusResponse(BaseModel):
+    """콕 주문과 현재 상태를 함께 응답"""
+    kok_order: KokOrderSchema
+    current_status: Optional[StatusMasterSchema] = None
     
     class Config:
         from_attributes = True
