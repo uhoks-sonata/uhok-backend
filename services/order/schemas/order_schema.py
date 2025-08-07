@@ -92,3 +92,24 @@ class KokOrderWithStatusResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+class KokNotificationSchema(BaseModel):
+    """콕 알림 스키마"""
+    notification_id: int
+    user_id: int
+    kok_order_id: int
+    status_id: int
+    title: str
+    message: str
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class KokNotificationListResponse(BaseModel):
+    """콕 알림 목록 응답"""
+    notifications: List[KokNotificationSchema] = []
+    total_count: int = 0
+    
+    class Config:
+        from_attributes = True

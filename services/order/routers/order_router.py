@@ -12,7 +12,9 @@ from services.order.schemas.order_schema import (
     OrderCountResponse, 
     KokOrderStatusUpdate, 
     KokOrderStatusResponse,
-    KokOrderWithStatusResponse
+    KokOrderWithStatusResponse,
+    KokNotificationSchema,
+    KokNotificationListResponse
 )
 from services.order.models.order_model import Order
 from services.order.crud.order_crud import (
@@ -20,7 +22,8 @@ from services.order.crud.order_crud import (
     update_kok_order_status, 
     get_kok_order_with_current_status, 
     get_kok_order_status_history,
-    start_auto_status_update
+    start_auto_status_update,
+    get_kok_order_notifications_history
 )
 from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
@@ -375,3 +378,59 @@ async def start_auto_status_update_api(
         )
     
     return {"message": f"주문 {kok_order_id}의 자동 상태 업데이트가 시작되었습니다."}
+
+# ================================
+# 알림 관리 API
+# ================================
+
+# @router.patch("/kok/notifications/{notification_id}/read")
+# async def mark_notification_as_read_api(
+#     notification_id: int,
+#     user: User = Depends(get_current_user),
+#     db: AsyncSession = Depends(get_maria_service_db)
+# ):
+#     """
+#     알림 읽음 처리
+#     """
+#     from services.order.crud.order_crud import mark_notification_as_read
+#     
+#     success = await mark_notification_as_read(db, notification_id, user.user_id)
+#     
+#     if not success:
+#         raise HTTPException(status_code=404, detail="알림을 찾을 수 없습니다")
+#     
+#     return {"message": "알림이 읽음 처리되었습니다"}
+
+@router.get("/kok/notifications/history", response_model=KokNotificationListResponse)
+async def get_kok_order_notifications_history_api(
+    limit: int = Query(20, description="조회 개수"),
+    offset: int = Query(0, description="시작 위치"),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db),
+    user=Depends(get_current_user)
+):
+    """
+    콕 상품 주문 내역 현황 알림 조회
+    주문완료, 배송출발, 배송완료 알림만 조회
+    """
+    notifications, total_count = await get_kok_order_notifications_history(
+        db, user.user_id, limit, offset
+    )
+    
+    # 콕 주문 현황 알림 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log,
+            user_id=user.user_id,
+            event_type="kok_order_notifications_history_view",
+            event_data={
+                "limit": limit,
+                "offset": offset,
+                "notification_count": len(notifications)
+            }
+        )
+    
+    return KokNotificationListResponse(
+        notifications=notifications,
+        total_count=total_count
+    )

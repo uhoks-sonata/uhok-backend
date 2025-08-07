@@ -33,10 +33,6 @@ from services.kok.schemas.kok_schema import (
     KokDiscountedProductsResponse,
     KokTopSellingProductsResponse,
     KokStoreBestProductsResponse,
-<<<<<<< HEAD
-=======
-    KokUnpurchasedResponse,
->>>>>>> kangminhyeok
     
     # 찜 관련 스키마
     KokLikesToggleRequest,
@@ -55,10 +51,7 @@ from services.kok.schemas.kok_schema import (
     KokSearchResponse,
     KokSearchHistoryResponse,
     KokSearchHistoryCreate,
-    KokSearchHistoryDeleteResponse,
-    
-    # 알림 관련 스키마
-    KokNotificationResponse
+    KokSearchHistoryDeleteResponse
 )
 
 from services.kok.crud.kok_crud import (
@@ -93,10 +86,7 @@ from services.kok.crud.kok_crud import (
     search_kok_products,
     get_kok_search_history,
     add_kok_search_history,
-    delete_kok_search_history,
-    
-    # 알림 관련 CRUD
-    get_kok_notifications
+    delete_kok_search_history
 )
 
 from common.database.mariadb_service import get_maria_service_db
@@ -317,7 +307,7 @@ async def get_product_detail(
 # 주문 관련 API
 # ================================
 
-@router.post("/orders", response_model=OrderRead, status_code=status.HTTP_201_CREATED)
+@router.post("/orders/create", response_model=OrderRead, status_code=status.HTTP_201_CREATED)
 async def create_kok_order_api(
     order_data: KokOrderCreate,
     background_tasks: BackgroundTasks = None,
@@ -674,37 +664,4 @@ async def delete_cart_item(
         return KokCartDeleteResponse(message="장바구니에서 상품이 삭제되었습니다.")
     else:
         raise HTTPException(status_code=404, detail="장바구니 항목을 찾을 수 없습니다.")
-
-# ================================
-# 알림 관련 API
-# ================================
-
-@router.get("/notifications/history", response_model=KokNotificationResponse)
-async def get_notifications_history(
-    limit: int = Query(50, ge=1, le=100, description="조회할 알림 개수"),
-    current_user: User = Depends(get_current_user),
-    background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    사용자의 콕 상품 주문 내역 현황 알림 조회
-    - 주문완료, 배송출발, 배송완료 등의 알림을 조회
-    """
-    notifications = await get_kok_notifications(db, current_user.user_id, limit)
     
-    # 알림 내역 조회 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="notifications_history_view", 
-            event_data={
-                "limit": limit,
-                "notification_count": len(notifications)
-            }
-        )
-    
-    return KokNotificationResponse(
-        notifications=notifications,
-        total=len(notifications)
-    )

@@ -3,35 +3,61 @@ ORDERS + 서비스별 주문 상세를 트랜잭션으로 한 번에 생성/조�
 """
 import asyncio
 from datetime import datetime, timedelta
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from services.order.models.order_model import Order, KokOrder, StatusMaster, KokOrderStatusHistory
+from services.order.models.order_model import (
+    Order, KokOrder, StatusMaster, KokOrderStatusHistory
+)
 # from services.order.models.order_model import HomeShoppingOrder
-from services.kok.models.kok_model import KokPriceInfo
+from services.kok.models.kok_model import KokPriceInfo, KokNotification
 from common.database.mariadb_auth import get_maria_auth_db
+from typing import List
+
+# 상태 코드 상수 정의
+STATUS_CODES = {
+    "PAYMENT_COMPLETED": "결제완료",
+    "PREPARING": "상품준비중",
+    "SHIPPING": "배송중",
+    "DELIVERED": "배송완료",
+    "CANCELLED": "주문취소",
+    "REFUND_REQUESTED": "환불요청",
+    "REFUND_COMPLETED": "환불완료"
+}
+
+# 알림 제목 매핑
+NOTIFICATION_TITLES = {
+    "PAYMENT_COMPLETED": "주문 완료",
+    "PREPARING": "상품 준비 시작",
+    "SHIPPING": "배송 시작",
+    "DELIVERED": "배송 완료",
+    "CANCELLED": "주문 취소",
+    "REFUND_REQUESTED": "환불 요청",
+    "REFUND_COMPLETED": "환불 완료"
+}
+
+# 알림 메시지 매핑
+NOTIFICATION_MESSAGES = {
+    "PAYMENT_COMPLETED": "주문이 성공적으로 완료되었습니다.",
+    "PREPARING": "상품 준비를 시작합니다.",
+    "SHIPPING": "상품이 배송을 시작합니다.",
+    "DELIVERED": "상품이 배송 완료되었습니다.",
+    "CANCELLED": "주문이 취소되었습니다.",
+    "REFUND_REQUESTED": "환불이 요청되었습니다.",
+    "REFUND_COMPLETED": "환불이 완료되었습니다."
+}
 
 async def initialize_status_master(db: AsyncSession):
     """
     STATUS_MASTER 테이블에 기본 상태 코드들을 초기화
     """
-    status_codes = [
-        {"status_code": "PAYMENT_COMPLETED", "status_name": "결제완료"},
-        {"status_code": "PREPARING", "status_name": "상품준비중"},
-        {"status_code": "SHIPPING", "status_name": "배송중"},
-        {"status_code": "DELIVERED", "status_name": "배송완료"},
-        {"status_code": "CANCELLED", "status_name": "주문취소"},
-        {"status_code": "REFUND_REQUESTED", "status_name": "환불요청"},
-        {"status_code": "REFUND_COMPLETED", "status_name": "환불완료"}
-    ]
-    
-    for status_data in status_codes:
+    for status_code, status_name in STATUS_CODES.items():
         # 기존 상태 코드 확인
-        existing = await get_status_by_code(db, status_data["status_code"])
+        existing = await get_status_by_code(db, status_code)
         if not existing:
             # 새 상태 코드 추가
             new_status = StatusMaster(
-                status_code=status_data["status_code"],
-                status_name=status_data["status_name"]
+                status_code=status_code,
+                status_name=status_name
             )
             db.add(new_status)
     
@@ -86,6 +112,7 @@ async def create_kok_order(
     콕 상품 주문 생성 및 할인 가격 반영
     - kok_price_id로 할인 가격 조회 후 quantity 곱해서 order_price 자동계산
     - 기본 상태는 'PAYMENT_COMPLETED'로 설정
+    - 주문 생성 시 초기 알림도 생성
     """
     try:
         # 0. 사용자 ID 유효성 검증
@@ -137,6 +164,14 @@ async def create_kok_order(
         )
         db.add(status_history)
 
+        # 4-4. 초기 알림 생성
+        await create_notification_for_status_change(
+            db=db,
+            kok_order_id=new_kok_order.kok_order_id,
+            status_id=payment_completed_status.status_id,
+            user_id=user_id
+        )
+
         await db.commit()
         await db.refresh(new_order)
         return new_order
@@ -146,6 +181,40 @@ async def create_kok_order(
         print(f"주문 생성 실패: {str(e)}")
         raise e
 
+async def create_notification_for_status_change(
+    db: AsyncSession, 
+    kok_order_id: int, 
+    status_id: int, 
+    user_id: int
+):
+    """
+    주문 상태 변경 시 알림 생성
+    """
+    # 상태 정보 조회
+    status_result = await db.execute(
+        select(StatusMaster).where(StatusMaster.status_id == status_id)
+    )
+    status = status_result.scalars().first()
+    
+    if not status:
+        return
+    
+    # 알림 제목과 메시지 생성
+    title = NOTIFICATION_TITLES.get(status.status_code, "주문 상태 변경")
+    message = NOTIFICATION_MESSAGES.get(status.status_code, f"주문 상태가 '{status.status_name}'로 변경되었습니다.")
+    
+    # 알림 생성
+    notification = KokNotification(
+        user_id=user_id,
+        kok_order_id=kok_order_id,
+        status_id=status_id,
+        title=title,
+        message=message
+    )
+    
+    db.add(notification)
+    await db.commit()
+
 async def update_kok_order_status(
         db: AsyncSession,
         kok_order_id: int,
@@ -153,7 +222,7 @@ async def update_kok_order_status(
         changed_by: int = None
 ) -> KokOrder:
     """
-    콕 주문 상태 업데이트 (INSERT만 사용)
+    콕 주문 상태 업데이트 (INSERT만 사용) + 알림 생성
     """
     # 1. 새로운 상태 조회
     new_status = await get_status_by_code(db, new_status_code)
@@ -168,13 +237,29 @@ async def update_kok_order_status(
     if not kok_order:
         raise Exception("해당 주문을 찾을 수 없습니다")
 
-    # 3. 상태 변경 이력 생성 (UPDATE 없이 INSERT만)
+    # 3. 주문자 ID 조회
+    order_result = await db.execute(
+        select(Order).where(Order.order_id == kok_order.order_id)
+    )
+    order = order_result.scalars().first()
+    if not order:
+        raise Exception("주문 정보를 찾을 수 없습니다")
+
+    # 4. 상태 변경 이력 생성 (UPDATE 없이 INSERT만)
     status_history = KokOrderStatusHistory(
         kok_order_id=kok_order_id,
         status_id=new_status.status_id,
         changed_by=changed_by
     )
     db.add(status_history)
+
+    # 5. 알림 생성
+    await create_notification_for_status_change(
+        db=db,
+        kok_order_id=kok_order_id,
+        status_id=new_status.status_id,
+        user_id=order.user_id
+    )
 
     await db.commit()
     await db.refresh(kok_order)
@@ -242,9 +327,13 @@ async def auto_update_order_status(kok_order_id: int, db: AsyncSession):
     
     for i, status_code in enumerate(status_sequence):
         try:
-            # 5초 대기 (첫 번째 상태는 이미 설정되어 있으므로 건너뜀)
-            if i > 0:
-                await asyncio.sleep(5)
+            # 첫 번째 상태(PAYMENT_COMPLETED)는 이미 설정되어 있으므로 건너뜀
+            if i == 0:
+                print(f"주문 {kok_order_id} 상태가 '{status_code}'로 이미 설정되어 있습니다.")
+                continue
+                
+            # 5초 대기
+            await asyncio.sleep(5)
             
             # 상태 업데이트
             await update_kok_order_status(
@@ -318,3 +407,39 @@ async def get_order_by_id(db: AsyncSession, order_id: int) -> dict:
         "kok_order": kok_order,
         "homeshopping_order": None
     }
+
+async def get_kok_order_notifications_history(
+    db: AsyncSession, 
+    user_id: int, 
+    limit: int = 20, 
+    offset: int = 0
+) -> tuple[List[KokNotification], int]:
+    """
+    사용자의 콕 상품 주문 내역 현황 알림 조회
+    주문완료, 배송출발, 배송완료 알림만 조회
+    """
+    # 주문 현황 관련 상태 코드들
+    order_status_codes = ["PAYMENT_COMPLETED", "SHIPPING", "DELIVERED"]
+    
+    # 전체 개수 조회
+    count_result = await db.execute(
+        select(func.count(KokNotification.notification_id))
+        .join(StatusMaster, KokNotification.status_id == StatusMaster.status_id)
+        .where(KokNotification.user_id == user_id)
+        .where(StatusMaster.status_code.in_(order_status_codes))
+    )
+    total_count = count_result.scalar()
+    
+    # 알림 목록 조회 (주문 현황 관련 알림만)
+    result = await db.execute(
+        select(KokNotification)
+        .join(StatusMaster, KokNotification.status_id == StatusMaster.status_id)
+        .where(KokNotification.user_id == user_id)
+        .where(StatusMaster.status_code.in_(order_status_codes))
+        .order_by(desc(KokNotification.created_at))
+        .limit(limit)
+        .offset(offset)
+    )
+    notifications = result.scalars().all()
+    
+    return notifications, total_count

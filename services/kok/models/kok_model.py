@@ -229,7 +229,6 @@ class KokCart(MariaBase):
     )
 
 
-
 class KokNotification(MariaBase):
     """
     KOK_NOTIFICATION 테이블의 ORM 모델
@@ -248,6 +247,3 @@ class KokNotification(MariaBase):
     # user = relationship('User', backref='notifications')  # User 모델이 별도 서비스에 있을 경우
     # kok_order = relationship('KokOrder', backref='notifications')  # KokOrder 모델이 별도 서비스에 있을 경우
     # status = relationship('StatusMaster', backref='notifications')  # StatusMaster 모델이 별도 서비스에 있을 경우
-
-
-
