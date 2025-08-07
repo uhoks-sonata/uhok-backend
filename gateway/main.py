@@ -16,7 +16,7 @@ from services.recipe.routers.recipe_router import router as recipe_router
 from services.kok.routers.kok_router import router as kok_router
 from services.order.routers.order_router import router as order_router
 from services.log.routers.log_router import router as log_router
-from services.home_shopping.routers.home_shopping_router import router as home_shopping_router
+# from services.home_shopping.routers.home_shopping_router import router as home_shopping_router
 
 # TODO: 다른 서비스(router) import 추가 (recommend 등)
 
@@ -42,7 +42,7 @@ app.include_router(recipe_router)
 app.include_router(kok_router)
 app.include_router(order_router)
 app.include_router(log_router)
-app.include_router(home_shopping_router)
+# app.include_router(home_shopping_router)
 
 
 # TODO: 다른 서비스 라우터도 아래와 같이 추가

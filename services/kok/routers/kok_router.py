@@ -11,8 +11,12 @@ from datetime import datetime
 from common.dependencies import get_current_user
 from services.user.models.user_model import User
 from services.order.schemas.order_schema import KokOrderCreate, OrderRead
-from services.order.crud.order_crud import create_kok_order
-
+from services.order.crud.order_crud import (
+    create_kok_order, 
+    validate_user_exists, 
+    initialize_status_master, 
+    start_auto_status_update
+)
 from services.kok.schemas.kok_schema import (
     # 제품 관련 스키마
     KokProductDetailResponse,
@@ -41,8 +45,6 @@ from services.kok.schemas.kok_schema import (
     KokStoreBestProduct,
     KokStoreBestProductsResponse,
     KokUnpurchasedResponse,
-    
-    
     
     # 찜 관련 스키마
     KokLikesToggleRequest,
@@ -84,8 +86,6 @@ from services.kok.crud.kok_crud import (
     get_kok_store_best_items,
     get_kok_unpurchased,
     
-    
-    
     # 찜 관련 CRUD
     toggle_kok_likes,
     get_kok_liked_products,
@@ -105,6 +105,7 @@ from services.kok.crud.kok_crud import (
 
 from common.database.mariadb_service import get_maria_service_db
 from common.log_utils import send_user_log
+import asyncio
 
 router = APIRouter(prefix="/api/kok", tags=["kok"])
 
@@ -316,10 +317,6 @@ async def get_product_detail(
     
     return product
 
-
-
-
-
 # ================================
 # 주문 관련 API
 # ================================
@@ -327,32 +324,61 @@ async def get_product_detail(
 @router.post("/orders", response_model=OrderRead, status_code=status.HTTP_201_CREATED)
 async def create_kok_order_api(
     order_data: KokOrderCreate,
-    current_user: User = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_maria_service_db)
+    db: AsyncSession = Depends(get_maria_service_db),
+    user=Depends(get_current_user)
 ):
     """
-    주문 생성
+    콕 상품 주문 생성 API
     """
+    # 사용자 ID 유효성 검증
+    if not await validate_user_exists(user.user_id, db):
+        raise HTTPException(status_code=400, detail="유효하지 않은 사용자 ID입니다")
+    
+    # 상태 마스터 초기화
+    await initialize_status_master(db)
+    
+    # 주문 생성
     order = await create_kok_order(
-        db, 
-        current_user.user_id, 
+        db,
+        user.user_id,
         order_data.kok_price_id,
         order_data.kok_product_id,
         order_data.quantity
     )
     
+    # kok_order 정보 명시적으로 로드
+    from sqlalchemy import select
+    from services.order.models.order_model import KokOrder
+    
+    kok_result = await db.execute(
+        select(KokOrder).where(KokOrder.order_id == order.order_id)
+    )
+    kok_order = kok_result.scalars().first()
+    
+    # Order 객체에 kok_order 정보 설정
+    order.kok_order = kok_order
+    
     # 주문 생성 로그 기록
     if background_tasks:
         background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="order_create", 
+            send_user_log,
+            user_id=user.user_id,
+            event_type="kok_order_create",
             event_data={
                 "order_id": order.order_id,
+                "kok_order_id": kok_order.kok_order_id,
                 "kok_price_id": order_data.kok_price_id,
-                "service_type": "kok"
+                "kok_product_id": order_data.kok_product_id,
+                "quantity": order_data.quantity
             }
+        )
+        
+        # 자동 상태 업데이트 시작 (백그라운드에서 실행)
+        background_tasks.add_task(
+            start_auto_status_update,
+            kok_order_id=kok_order.kok_order_id,
+            db_session_generator=get_maria_service_db()
         )
     
     return order

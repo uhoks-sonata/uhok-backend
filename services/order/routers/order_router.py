@@ -19,7 +19,8 @@ from services.order.crud.order_crud import (
     get_order_by_id, 
     update_kok_order_status, 
     get_kok_order_with_current_status, 
-    get_kok_order_status_history
+    get_kok_order_status_history,
+    start_auto_status_update
 )
 from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
@@ -38,16 +39,37 @@ async def list_orders(
     """
     내 주문 리스트 (공통+서비스별 상세 포함)
     """
-    from services.order.models.order_model import Order
-    from sqlalchemy.future import select
+    from services.order.models.order_model import Order, KokOrder
+    # from services.order.models.order_model import HomeShoppingOrder
 
+    # 주문 기본 정보 조회
     result = await db.execute(
         select(Order)
-        .where(Order.user_id == user.user_id) # type: ignore
+        .where(Order.user_id == user.user_id)
         .order_by(Order.order_time.desc())
         .limit(limit)
     )
     orders = result.scalars().all()
+    
+    # 각 주문에 대한 상세 정보 조회
+    order_list = []
+    for order in orders:
+        # 콕 주문 정보 조회
+        kok_result = await db.execute(
+            select(KokOrder).where(KokOrder.order_id == order.order_id)
+        )
+        kok_order = kok_result.scalars().first()
+        
+        # OrderRead 형태로 변환
+        order_data = {
+            "order_id": order.order_id,
+            "user_id": order.user_id,
+            "order_time": order.order_time,
+            "cancel_time": order.cancel_time,
+            "kok_order": kok_order,
+            "homeshopping_order": None
+        }
+        order_list.append(order_data)
     
     # 주문 목록 조회 로그 기록
     if background_tasks:
@@ -55,10 +77,10 @@ async def list_orders(
             send_user_log, 
             user_id=user.user_id, 
             event_type="order_list_view", 
-            event_data={"limit": limit, "order_count": len(orders)}
+            event_data={"limit": limit, "order_count": len(order_list)}
         )
     
-    return orders
+    return order_list
 
 
 @router.get("/count", response_model=OrderCountResponse)
@@ -96,14 +118,38 @@ async def recent_orders(
     """
     최근 N일간 주문 내역 리스트 조회
     """
+    from services.order.models.order_model import Order, KokOrder
+    # from services.order.models.order_model import HomeShoppingOrder
     since = datetime.now() - timedelta(days=days)
+    
+    # 주문 기본 정보 조회
     result = await db.execute(
         select(Order)
-        .where(Order.user_id == user.user_id) # type: ignore
+        .where(Order.user_id == user.user_id)
         .where(Order.order_time >= since)
         .order_by(desc(Order.order_time))
     )
     orders = result.scalars().all()
+    
+    # 각 주문에 대한 상세 정보 조회
+    order_list = []
+    for order in orders:
+        # 콕 주문 정보 조회
+        kok_result = await db.execute(
+            select(KokOrder).where(KokOrder.order_id == order.order_id)
+        )
+        kok_order = kok_result.scalars().first()
+        
+        # OrderRead 형태로 변환
+        order_data = {
+            "order_id": order.order_id,
+            "user_id": order.user_id,
+            "order_time": order.order_time,
+            "cancel_time": order.cancel_time,
+            "kok_order": kok_order,
+            "homeshopping_order": None
+        }
+        order_list.append(order_data)
     
     # 최근 주문 조회 로그 기록
     if background_tasks:
@@ -111,10 +157,10 @@ async def recent_orders(
             send_user_log, 
             user_id=user.user_id, 
             event_type="recent_orders_view", 
-            event_data={"days": days, "order_count": len(orders)}
+            event_data={"days": days, "order_count": len(order_list)}
         )
     
-    return orders
+    return order_list
 
 
 @router.get("/{order_id}", response_model=OrderRead)
@@ -127,8 +173,8 @@ async def read_order(
     """
     단일 주문 조회 (공통+콕+HomeShopping 상세 포함)
     """
-    order = await get_order_by_id(db, order_id)
-    if not order or order.user_id != user.user_id:
+    order_data = await get_order_by_id(db, order_id)
+    if not order_data or order_data["user_id"] != user.user_id:
         raise HTTPException(status_code=404, detail="주문 내역이 없습니다.")
 
     # 주문 상세 조회 로그 기록
@@ -140,7 +186,7 @@ async def read_order(
             event_data={"order_id": order_id}
         )
 
-    return order
+    return order_data
 
 # ================================
 # 콕 주문 상태 관리 API
@@ -158,6 +204,21 @@ async def update_kok_order_status_api(
     콕 주문 상태 업데이트 (INSERT만 사용)
     """
     try:
+        # 사용자 권한 확인 - order 정보 명시적으로 로드
+        kok_order_result = await db.execute(
+            select(KokOrder).where(KokOrder.kok_order_id == kok_order_id)
+        )
+        kok_order = kok_order_result.scalars().first()
+        if not kok_order:
+            raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+        
+        order_result = await db.execute(
+            select(Order).where(Order.order_id == kok_order.order_id)
+        )
+        order = order_result.scalars().first()
+        if not order or order.user_id != user.user_id:
+            raise HTTPException(status_code=403, detail="해당 주문에 대한 권한이 없습니다.")
+        
         # 상태 업데이트 (INSERT만 사용)
         updated_order = await update_kok_order_status(
             db, 
@@ -215,8 +276,12 @@ async def get_kok_order_status(
     
     kok_order, current_status, current_status_history = order_with_status
     
-    # 사용자 권한 확인 (주문자만 조회 가능)
-    if kok_order.order.user_id != user.user_id:
+    # 사용자 권한 확인 (주문자만 조회 가능) - order 정보 명시적으로 로드
+    order_result = await db.execute(
+        select(Order).where(Order.order_id == kok_order.order_id)
+    )
+    order = order_result.scalars().first()
+    if not order or order.user_id != user.user_id:
         raise HTTPException(status_code=403, detail="해당 주문에 대한 권한이 없습니다.")
     
     # 상태 변경 이력 조회
@@ -254,8 +319,12 @@ async def get_kok_order_with_status(
     
     kok_order, current_status, _ = order_with_status
     
-    # 사용자 권한 확인
-    if kok_order.order.user_id != user.user_id:
+    # 사용자 권한 확인 - order 정보 명시적으로 로드
+    order_result = await db.execute(
+        select(Order).where(Order.order_id == kok_order.order_id)
+    )
+    order = order_result.scalars().first()
+    if not order or order.user_id != user.user_id:
         raise HTTPException(status_code=403, detail="해당 주문에 대한 권한이 없습니다.")
     
     # 주문과 상태 함께 조회 로그 기록
@@ -271,3 +340,38 @@ async def get_kok_order_with_status(
         kok_order=kok_order,
         current_status=current_status
     )
+
+@router.post("/kok/{kok_order_id}/auto-update", status_code=status.HTTP_200_OK)
+async def start_auto_status_update_api(
+    kok_order_id: int,
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db),
+    user=Depends(get_current_user)
+):
+    """
+    특정 주문의 자동 상태 업데이트 시작 (테스트용)
+    """
+    # 사용자 권한 확인
+    kok_order_result = await db.execute(
+        select(KokOrder).where(KokOrder.kok_order_id == kok_order_id)
+    )
+    kok_order = kok_order_result.scalars().first()
+    if not kok_order:
+        raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+    
+    order_result = await db.execute(
+        select(Order).where(Order.order_id == kok_order.order_id)
+    )
+    order = order_result.scalars().first()
+    if not order or order.user_id != user.user_id:
+        raise HTTPException(status_code=403, detail="해당 주문에 대한 권한이 없습니다.")
+    
+    # 자동 상태 업데이트 시작
+    if background_tasks:
+        background_tasks.add_task(
+            start_auto_status_update,
+            kok_order_id=kok_order_id,
+            db_session_generator=get_maria_service_db()
+        )
+    
+    return {"message": f"주문 {kok_order_id}의 자동 상태 업데이트가 시작되었습니다."}
