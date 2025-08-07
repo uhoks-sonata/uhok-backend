@@ -4,8 +4,7 @@
 from sqlalchemy import Column, Integer, DateTime, ForeignKey, String, BigInteger
 from sqlalchemy.orm import relationship
 from datetime import datetime
-
-from services.kok.models.kok_model import KokProductInfo  # 반드시 임포트
+from common.database.base_mariadb import MariaBase
 
 from common.database.base_mariadb import MariaBase
 
@@ -26,12 +25,12 @@ class Order(MariaBase):
     __tablename__ = "ORDERS"
 
     order_id = Column("ORDER_ID", Integer, primary_key=True, autoincrement=True)
-    user_id = Column("USER_ID", Integer, nullable=False)
+    user_id = Column("USER_ID", Integer, nullable=False)  # 논리적 FK: AUTH_DB.USERS.USER_ID
     order_time = Column("ORDER_TIME", DateTime, nullable=False)
     cancel_time = Column("CANCEL_TIME", DateTime, nullable=True)
 
-    kok_order = relationship("KokOrder", uselist=False, back_populates="order")
-    homeshopping_order = relationship("HomeShoppingOrder", uselist=False, back_populates="order")
+    kok_order = relationship("KokOrder", uselist=False, back_populates="order", lazy="noload")
+    # homeshopping_order = relationship("HomeShoppingOrder", uselist=False, back_populates="order", lazy="noload")
 
 class KokOrder(MariaBase):
     """
@@ -46,8 +45,8 @@ class KokOrder(MariaBase):
     quantity = Column("QUANTITY", Integer, nullable=False)
     order_price = Column("ORDER_PRICE", Integer, nullable=True)
 
-    order = relationship("Order", back_populates="kok_order")
-    status_history = relationship("KokOrderStatusHistory", back_populates="kok_order")
+    order = relationship("Order", back_populates="kok_order", lazy="noload")
+    status_history = relationship("KokOrderStatusHistory", back_populates="kok_order", lazy="noload")
 
 class KokOrderStatusHistory(MariaBase):
     """
@@ -61,17 +60,17 @@ class KokOrderStatusHistory(MariaBase):
     changed_at = Column("CHANGED_AT", DateTime, nullable=False, default=datetime.now)
     changed_by = Column("CHANGED_BY", Integer, nullable=True)
 
-    kok_order = relationship("KokOrder", back_populates="status_history")
-    status = relationship("StatusMaster")
+    kok_order = relationship("KokOrder", back_populates="status_history", lazy="noload")
+    status = relationship("StatusMaster", lazy="noload")
 
-class HomeShoppingOrder(MariaBase):
-    """
-    HOMESHOPPING_ORDERS 테이블 (HomeShopping 주문 상세)
-    """
-    __tablename__ = "HOMESHOPPING_ORDERS"
-
-    homeshopping_order_id = Column("HOMESHOPPING_ORDER_ID", Integer, primary_key=True, autoincrement=True)
-    live_id = Column("LIVE_ID", Integer, ForeignKey("LIVE.LIVE_ID"), nullable=False)
-    order_id = Column("ORDER_ID", Integer, ForeignKey("ORDERS.ORDER_ID"), nullable=False, unique=True)
-
-    order = relationship("Order", back_populates="homeshopping_order")
+# class HomeShoppingOrder(MariaBase):
+#     """
+#     HOMESHOPPING_ORDERS 테이블 (홈쇼핑 주문 상세)
+#     """
+#     __tablename__ = "HOMESHOPPING_ORDERS"
+# 
+#     homeshopping_order_id = Column("HOMESHOPPING_ORDER_ID", Integer, primary_key=True, autoincrement=True)
+#     order_id = Column("ORDER_ID", Integer, ForeignKey("ORDERS.ORDER_ID"), nullable=False)
+#     live_id = Column("LIVE_ID", Integer, nullable=False)
+# 
+#     order = relationship("Order", back_populates="homeshopping_order", lazy="noload")

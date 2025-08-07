@@ -1,8 +1,8 @@
 """
 주문 공통/서비스별 Pydantic 스키마 정의 (HomeShopping 명칭 통일)
 """
-from pydantic import BaseModel
-from typing import Optional, List
+from pydantic import BaseModel, field_validator
+from typing import Optional, List, Any
 from datetime import datetime
 
 class StatusMasterSchema(BaseModel):
@@ -19,8 +19,8 @@ class KokOrderCreate(BaseModel):
     kok_product_id: int
     quantity: int = 1
 
-class HomeShoppingOrderCreate(BaseModel):
-    live_id: int
+# class HomeShoppingOrderCreate(BaseModel):
+#     live_id: int
 
 class KokOrderSchema(BaseModel):
     kok_order_id: int
@@ -28,10 +28,16 @@ class KokOrderSchema(BaseModel):
     kok_product_id: int
     quantity: int
     order_price: Optional[int]
+    
+    class Config:
+        from_attributes = True
 
-class HomeShoppingOrderSchema(BaseModel):
-    homeshopping_order_id: int
-    live_id: int
+# class HomeShoppingOrderSchema(BaseModel):
+#     homeshopping_order_id: int
+#     live_id: int
+#     
+#     class Config:
+#         from_attributes = True
 
 class KokOrderStatusHistorySchema(BaseModel):
     """콕 주문 상태 변경 이력 스키마"""
@@ -49,8 +55,15 @@ class OrderRead(BaseModel):
     user_id: int
     order_time: datetime
     cancel_time: Optional[datetime]
-    kok_order: Optional[KokOrderSchema]
-    homeshopping_order: Optional[HomeShoppingOrderSchema]
+    kok_order: Optional[KokOrderSchema] = None
+    # homeshopping_order: Optional[HomeShoppingOrderSchema] = None
+    
+    @field_validator('kok_order', mode='before')
+    @classmethod
+    def validate_relationships(cls, v):
+        if v is None:
+            return None
+        return v
     
     class Config:
         from_attributes = True
@@ -66,7 +79,7 @@ class KokOrderStatusUpdate(BaseModel):
 class KokOrderStatusResponse(BaseModel):
     """콕 주문 상태 응답"""
     kok_order_id: int
-    current_status: StatusMasterSchema
+    current_status: Optional[StatusMasterSchema] = None
     status_history: List[KokOrderStatusHistorySchema] = []
     
     class Config:
