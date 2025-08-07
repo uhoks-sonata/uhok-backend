@@ -6,6 +6,8 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 from common.database.base_mariadb import MariaBase
 
+from common.database.base_mariadb import MariaBase
+
 class StatusMaster(MariaBase):
     """
     STATUS_MASTER 테이블 (상태 코드 마스터)
@@ -23,7 +25,11 @@ class Order(MariaBase):
     __tablename__ = "ORDERS"
 
     order_id = Column("ORDER_ID", Integer, primary_key=True, autoincrement=True)
+<<<<<<< HEAD
     user_id = Column("USER_ID", Integer, nullable=False)  # 논리적 FK: AUTH_DB.USERS.USER_ID
+=======
+    user_id = Column("USER_ID", Integer, nullable=False)
+>>>>>>> 05c77e84026e594c25c2e6ebdad8de6584982942
     order_time = Column("ORDER_TIME", DateTime, nullable=False)
     cancel_time = Column("CANCEL_TIME", DateTime, nullable=True)
 
@@ -61,6 +67,7 @@ class KokOrderStatusHistory(MariaBase):
     kok_order = relationship("KokOrder", back_populates="status_history", lazy="noload")
     status = relationship("StatusMaster", lazy="noload")
 
+<<<<<<< HEAD
 # class HomeShoppingOrder(MariaBase):
 #     """
 #     HOMESHOPPING_ORDERS 테이블 (홈쇼핑 주문 상세)
@@ -72,3 +79,16 @@ class KokOrderStatusHistory(MariaBase):
 #     live_id = Column("LIVE_ID", Integer, nullable=False)
 # 
 #     order = relationship("Order", back_populates="homeshopping_order", lazy="noload")
+=======
+class HomeShoppingOrder(MariaBase):
+    """
+    HOMESHOPPING_ORDERS 테이블 (HomeShopping 주문 상세)
+    """
+    __tablename__ = "HOMESHOPPING_ORDERS"
+
+    homeshopping_order_id = Column("HOMESHOPPING_ORDER_ID", Integer, primary_key=True, autoincrement=True)
+    live_id = Column("LIVE_ID", Integer, ForeignKey("LIVE.LIVE_ID"), nullable=False)
+    order_id = Column("ORDER_ID", Integer, ForeignKey("ORDERS.ORDER_ID"), nullable=False, unique=True)
+
+    order = relationship("Order", back_populates="homeshopping_order")
+>>>>>>> 05c77e84026e594c25c2e6ebdad8de6584982942
