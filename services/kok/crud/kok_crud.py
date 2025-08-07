@@ -923,3 +923,37 @@ async def delete_kok_search_history(
         return True
     
     return False
+
+async def get_kok_notifications(
+    db: AsyncSession,
+    user_id: int,
+    limit: int = 50
+) -> List[dict]:
+    """
+    사용자의 콕 알림 내역을 조회
+    - 주문완료, 배송출발, 배송완료 등의 알림을 조회
+    """
+    from services.kok.models.kok_model import KokNotification
+    
+    stmt = (
+        select(KokNotification)
+        .where(KokNotification.user_id == user_id)
+        .order_by(KokNotification.created_at.desc())
+        .limit(limit)
+    )
+    
+    result = await db.execute(stmt)
+    notifications = result.scalars().all()
+    
+    return [
+        {
+            "notification_id": notification.notification_id,
+            "user_id": notification.user_id,
+            "kok_order_id": notification.kok_order_id,
+            "status_id": notification.status_id,
+            "title": notification.title,
+            "message": notification.message,
+            "created_at": notification.created_at.strftime("%Y-%m-%d %H:%M:%S") if notification.created_at else None
+        }
+        for notification in notifications
+    ]
