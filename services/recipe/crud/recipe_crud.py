@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
 from typing import List, Optional, Dict, Tuple
 import pandas as pd
+import copy
 
 from services.recipe.models.recipe_model import Recipe, Material, RecipeRating
 from services.recommend.recommend_service import _get_recipe_recommendations
@@ -48,6 +49,7 @@ async def recommend_recipes_by_ingredients(
     재료명, 분량, 단위 기반 레시피 추천 (matched_ingredient_count 포함)
     - 소진횟수 파라미터 없이 동작
     - 페이지네이션(page, size)과 전체 개수(total) 반환
+    - 순차적 재고 소진 알고리즘 적용
     """
     # 1. 입력 재료 중 하나 이상을 포함하는 레시피 후보 전체 추출(인기순)
     stmt = (
@@ -86,35 +88,128 @@ async def recommend_recipes_by_ingredients(
         start, end = (page-1)*size, (page-1)*size + size
         return filtered[start:end], total
 
-    # 5. amount/unit 모두 있으면, 입력한 분량/단위만큼의 재료가 레시피 요구량보다 크거나 같은 경우만 반환
-    usable_total = {
-        (ingredients[i], units[i]): float(amounts[i])
-        for i in range(len(ingredients))
-    }
-    filtered = []
-    for recipe in candidate_recipes:
-        mats = recipe_materials_map[recipe.recipe_id]
-        ok = True
-        for m in mats:
-            key = (m.material_name, m.measure_unit)
-            if key in usable_total:
-                try:
-                    recipe_required = float(m.measure_amount) if m.measure_amount else 0
-                except Exception:
-                    recipe_required = 0
-                if recipe_required > usable_total[key]:
-                    ok = False
-                    break
-        if ok:
-            filtered.append({
-                **recipe.__dict__,
-                "recipe_url": get_recipe_url(recipe.recipe_id),
-                "matched_ingredient_count": get_matched_count(recipe.recipe_id),
+    # 5. amount/unit 모두 있으면, 순차적 재고 소진 알고리즘 적용
+    # 5-1. 초기 재고 설정
+    initial_ingredients = []
+    for i in range(len(ingredients)):
+        try:
+            amount = float(amounts[i]) if amounts[i] else 0
+        except (ValueError, TypeError):
+            amount = 0
+        initial_ingredients.append({
+            'name': ingredients[i],
+            'amount': amount,
+            'unit': units[i] if units[i] else ''
+        })
+
+    # 5-2. 레시피 재료 맵을 알고리즘에 맞는 형태로 변환
+    recipe_material_map = {}
+    for recipe_id, materials in recipe_materials_map.items():
+        recipe_material_map[recipe_id] = []
+        for mat in materials:
+            try:
+                amt = float(mat.measure_amount) if mat.measure_amount else 0
+            except (ValueError, TypeError):
+                amt = 0
+            recipe_material_map[recipe_id].append({
+                'mat': mat.material_name,
+                'amt': amt,
+                'unit': mat.measure_unit if mat.measure_unit else ''
             })
-        if len(filtered) >= (page * size):  # 성능 최적화: 필요한 개수만 필터링
-            break
+
+    # 5-3. 레시피 정보를 DataFrame 형태로 변환
+    recipe_df = []
+    for recipe in candidate_recipes:
+        recipe_dict = {
+            'RECIPE_ID': recipe.recipe_id,
+            'COOKING_NAME': recipe.cooking_name,
+            'COOKING_TIME': recipe.cooking_time,
+            'DIFFICULTY': recipe.difficulty,
+            'SCRAP_COUNT': recipe.scrap_count,
+            'RECIPE_URL': get_recipe_url(recipe.recipe_id),
+            'MATCHED_INGREDIENT_COUNT': get_matched_count(recipe.recipe_id)
+        }
+        recipe_df.append(recipe_dict)
+
+    # 5-4. 순차적 재고 소진 알고리즘 실행
+    recommended, remaining_stock = recommend_sequentially_for_inventory(
+        initial_ingredients, 
+        recipe_material_map, 
+        recipe_df
+    )
+
+    # 5-5. 페이지네이션 적용
     start, end = (page-1)*size, (page-1)*size + size
-    return filtered[start:end], len(filtered)
+    paginated_recommended = recommended[start:end]
+    
+    return paginated_recommended, len(recommended)
+
+
+def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_map, recipe_df):
+    """
+    순차적 재고 소진 알고리즘
+    - 주어진 재료로 만들 수 있는 레시피를 순차적으로 추천
+    - 각 레시피를 만들 때마다 재료를 소진시킴
+    """
+    remaining_stock = {
+        ing['name']: {'amount': ing['amount'], 'unit': ing['unit']}
+        for ing in initial_ingredients
+    }
+
+    recommended = []
+    used_recipe_ids = set()
+
+    while True:
+        current_ingredients = [k for k, v in remaining_stock.items() if v['amount'] > 1e-3]
+        if not current_ingredients:
+            break
+
+        best_recipe = None
+        best_usage = {}
+        max_used = 0
+
+        for rid, materials in recipe_material_map.items():
+            if rid in used_recipe_ids:
+                continue
+
+            temp_stock = copy.deepcopy(remaining_stock)
+            used_ingredients = {}
+
+            for m in materials:
+                mat = m['mat']
+                req_amt = m['amt']
+                req_unit = m['unit']
+
+                if (
+                    mat in temp_stock and
+                    req_amt is not None and
+                    req_unit is not None and
+                    temp_stock[mat]['amount'] > 1e-3 and
+                    temp_stock[mat]['unit'].lower() == req_unit.lower()
+                ):
+                    used_amt = min(req_amt, temp_stock[mat]['amount'])
+                    if used_amt > 1e-3:
+                        temp_stock[mat]['amount'] -= used_amt
+                        used_ingredients[mat] = {'amount': used_amt, 'unit': req_unit}
+
+            if used_ingredients and len(used_ingredients) > max_used:
+                best_recipe = rid
+                best_usage = used_ingredients
+                max_used = len(used_ingredients)
+
+        if not best_recipe:
+            break
+
+        for mat, detail in best_usage.items():
+            remaining_stock[mat]['amount'] -= detail['amount']
+
+        recipe_info = next((r for r in recipe_df if r['RECIPE_ID'] == best_recipe), None)
+        if recipe_info:
+            recipe_info['used_ingredients'] = best_usage
+            recommended.append(recipe_info)
+            used_recipe_ids.add(best_recipe)
+
+    return recommended, remaining_stock
 
 
 async def search_recipes_by_keyword(
