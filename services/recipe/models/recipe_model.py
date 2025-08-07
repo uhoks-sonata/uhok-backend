@@ -3,10 +3,11 @@
 - 변수는 소문자, DB 컬럼명은 대문자로 명시적 매핑
 """
 
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, BigInteger, Text
 from sqlalchemy.orm import relationship
 
 from common.database.base_mariadb import MariaBase
+from common.database.base_postgres import PostgresBase
 
 class Recipe(MariaBase):
     """
@@ -79,3 +80,16 @@ class RecipeRating(MariaBase):
 #     recipe_id = Column("RECIPE_ID", Integer, ForeignKey("FCT_RECIPE.RECIPE_ID"), nullable=False)
 #     user_id = Column("USER_ID", Integer, nullable=False)
 #     comment = Column("COMMENT", String(1000), nullable=False)
+
+
+class RecipeVector(PostgresBase):
+    """
+    RECIPE_VECTOR_TABLE 테이블의 ORM 모델
+    PostgreSQL의 벡터 검색을 위한 테이블
+    변수명은 소문자, DB 컬럼은 대문자로 매핑
+    """
+    __tablename__ = "RECIPE_VECTOR_TABLE"
+
+    vector_id = Column("VECTOR_ID", Integer, primary_key=True, autoincrement=True, comment='벡터 고유 ID')
+    vector_name = Column("VECTOR_NAME", Text, nullable=True, comment='벡터 이름')
+    recipe_id = Column("RECIPE_ID", BigInteger, nullable=True, comment='레시피 고유 ID')

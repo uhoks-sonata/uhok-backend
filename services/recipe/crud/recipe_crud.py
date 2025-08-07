@@ -11,7 +11,7 @@ import pandas as pd
 import copy
 
 from services.recipe.models.recipe_model import Recipe, Material, RecipeRating
-from services.recommend.recommend_service import _get_recipe_recommendations
+from common.database.mariadb_service import get_maria_service_db
 
 def get_recipe_url(recipe_id: int) -> str:
     """
@@ -221,40 +221,36 @@ async def search_recipes_by_keyword(
     size: int = 5
 ) -> Tuple[List[dict], int]:
     """
-    [PostgreSQL REC_DB] 레시피명(키워드) 기반 유사 레시피 추천 (페이지네이션 지원)
+    [MariaDB 키워드 검색] 레시피명(키워드) 기반 레시피 검색 (페이지네이션 지원)
+    - 키워드가 포함된 레시피를 검색하여 반환
     """
-    # 1. 추천DB에서 전체 벡터 정보 불러오기 (Postgres 전용 테이블)
-    from sqlalchemy import text
-    result = await db.execute(
-        text("SELECT RECIPE_ID, COOKING_NAME, VECTOR_NAME FROM REC_RECIPE WHERE VECTOR_NAME IS NOT NULL")
-    )
-    rows = result.fetchall()
-    df = pd.DataFrame(rows, columns=["RECIPE_ID", "COOKING_NAME", "VECTOR_NAME"])
-
-    # 2. 유사도 기반 추천
-    sim_df = await _get_recipe_recommendations(df, keyword, top_k=1000)
-    similar_ids = sim_df["RECIPE_ID"].astype(int).tolist()
-    if not similar_ids:
-        return [], 0
-
-    # 3. 상세 조회 (PostgreSQL의 REC_RECIPE, 혹은 정규화된 테이블 사용)
-    stmt = text(f"SELECT * FROM REC_RECIPE WHERE RECIPE_ID = ANY(:ids)")
-    result = await db.execute(stmt, {"ids": similar_ids})
-    recipes = result.fetchall()
-    recipe_map = {r[0]: dict(zip(result.keys(), r)) for r in recipes}
-
-    # 4. 추천 순서/페이지네이션 적용
-    result_list = [
-        {
-            **recipe_map[recipe_id],
-            "recipe_url": get_recipe_url(recipe_id)
-        }
-        for recipe_id in similar_ids if recipe_id in recipe_map
-    ]
-    total = len(result_list)
-    start, end = (page-1)*size, (page-1)*size + size
-    paginated = result_list[start:end]
-    return paginated, total
+    # MariaDB에서 키워드 검색으로 레시피 조회
+    # MariaDB 세션 생성
+    maria_db = await anext(get_maria_service_db())
+    try:
+        # 키워드가 포함된 레시피 검색
+        stmt = (
+            select(Recipe)
+            .where(Recipe.cooking_name.contains(keyword) | Recipe.recipe_title.contains(keyword))
+            .order_by(desc(Recipe.scrap_count))
+        )
+        result = await maria_db.execute(stmt)
+        recipes = result.scalars().all()
+        
+        # 결과 구성
+        result_list = []
+        for recipe in recipes:
+            result_list.append({
+                **recipe.__dict__,
+                "recipe_url": get_recipe_url(recipe.recipe_id)
+            })
+        
+        total = len(result_list)
+        start, end = (page-1)*size, (page-1)*size + size
+        paginated = result_list[start:end]
+        return paginated, total
+    finally:
+        await maria_db.close()
 
 
 async def get_recipe_rating(db: AsyncSession, recipe_id: int) -> float:

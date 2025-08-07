@@ -23,7 +23,7 @@ from services.kok.schemas.kok_schema import (
     KokProductInfoResponse,
     KokProductTabsResponse,
     
-    # 리뷰 관련 스키마
+    # 리뷰 관련 스키마      
     KokReviewResponse,
     
     # 상품 상세정보 스키마
@@ -33,10 +33,7 @@ from services.kok.schemas.kok_schema import (
     KokDiscountedProductsResponse,
     KokTopSellingProductsResponse,
     KokStoreBestProductsResponse,
-<<<<<<< HEAD
-=======
     KokUnpurchasedResponse,
->>>>>>> kangminhyeok
     
     # 찜 관련 스키마
     KokLikesToggleRequest,
