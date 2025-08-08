@@ -140,7 +140,7 @@ async def get_kok_discounted_products(
         .join(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
         .where(KokPriceInfo.kok_discount_rate > 0)
         .order_by(KokPriceInfo.kok_discount_rate.desc())
-        .limit(10)
+        .limit(20)
     )
     results = (await db.execute(stmt)).all()
     
