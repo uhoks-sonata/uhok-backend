@@ -18,21 +18,27 @@ from services.order.crud.order_crud import (
     start_auto_status_update
 )
 from services.kok.schemas.kok_schema import (
-    # 제품 관련 스키마
+    KokCartAddRequest,
+    KokCartAddResponse,
+    KokCartUpdateResponse,
+    KokCartDeleteResponse,
+    KokCartOrderRequest,
+    KokCartOrderResponse,
+    KokCartRecipeRecommendRequest,
+    KokCartRecipeRecommendResponse,
+    
+    # 검색 관련 스키마
+    KokSearchResponse,
     KokProductDetailResponse,
-    KokProductInfoResponse,
-    KokProductTabsResponse,
     
-    # 리뷰 관련 스키마      
-    KokReviewResponse,
-    
-    # 상품 상세정보 스키마
-    KokProductDetailsResponse,
-    
-    # 메인화면 상품 리스트 스키마
+    # 상품 관련 스키마
     KokDiscountedProductsResponse,
     KokTopSellingProductsResponse,
     KokStoreBestProductsResponse,
+    KokProductInfoResponse,
+    KokProductTabsResponse,
+    KokReviewResponse,
+    KokProductDetailsResponse,
     
     # 찜 관련 스키마
     KokLikesToggleRequest,
@@ -41,46 +47,31 @@ from services.kok.schemas.kok_schema import (
     
     # 장바구니 관련 스키마
     KokCartItemsResponse,
-    KokCartAddRequest,
-    KokCartAddResponse,
-    KokCartUpdateRequest,
-    KokCartUpdateResponse,
-    KokCartDeleteResponse,
     
-    # 검색 관련 스키마
-    KokSearchResponse,
+    # 검색 이력 관련 스키마
     KokSearchHistoryResponse,
     KokSearchHistoryCreate,
     KokSearchHistoryDeleteResponse
 )
 
 from services.kok.crud.kok_crud import (
-    # 제품 관련 CRUD
     get_kok_product_detail,
-    get_kok_product_list,
-    get_kok_product_by_id,
+    get_kok_product_details,
     get_kok_product_info,
     get_kok_product_tabs,
-    get_kok_product_details,
-    
-    # 리뷰 관련 CRUD
     get_kok_review_data,
-    
-    # 메인화면 상품 리스트 CRUD
     get_kok_discounted_products,
     get_kok_top_selling_products,
     get_kok_store_best_items,
-    get_kok_unpurchased,
-    
-    # 찜 관련 CRUD
     toggle_kok_likes,
     get_kok_liked_products,
-    
-    # 장바구니 관련 CRUD
     get_kok_cart_items,
+    get_kok_cart_item,
     add_kok_cart,
     update_kok_cart_quantity,
     delete_kok_cart_item,
+    create_multiple_kok_orders_from_ids,
+    get_ingredients_from_selected_cart_items,
     
     # 검색 관련 CRUD
     search_kok_products,
@@ -166,8 +157,33 @@ async def get_store_best_items(
     return {"products": products}
 
 # ================================
-# 상품 상세 설명
+# 상품 정보 관련 API
 # ================================
+
+@router.get("/product/{product_id}/basic-info", response_model=KokProductInfoResponse)
+async def get_product_basic_info(
+        product_id: int,
+        current_user: User = Depends(get_current_user),
+        background_tasks: BackgroundTasks = None,
+        db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    상품 기본 정보 조회
+    """
+    product = await get_kok_product_info(db, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
+    
+    # 상품 기본 정보 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="product_basic_info_view", 
+            event_data={"product_id": product_id}
+        )
+    
+    return product
 
 @router.get("/product/{product_id}/tabs", response_model=KokProductTabsResponse)
 async def get_product_tabs(
@@ -177,7 +193,7 @@ async def get_product_tabs(
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    상품 설명 탭 정보 조회
+    상품 설명 탭 정보 조회 (상품설명 이미지들)
     """
     images = await get_kok_product_tabs(db, product_id)
     if images is None:
@@ -223,15 +239,15 @@ async def get_product_reviews(
     
     return review_data
 
-@router.get("/product/{product_id}/details", response_model=KokProductDetailsResponse)
-async def get_product_details(
+@router.get("/product/{product_id}/seller-details", response_model=KokProductDetailsResponse)
+async def get_product_seller_details(
         product_id: int,
         current_user: User = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    상품 상세 정보 조회
+    상품의 판매자 정보 및 상세정보 조회 (이미지, 리뷰 제외)
     """
     product_details = await get_kok_product_details(db, product_id)
     if not product_details:
@@ -242,51 +258,21 @@ async def get_product_details(
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="product_details_view", 
+            event_type="product_seller_details_view", 
             event_data={"product_id": product_id}
         )
     
     return product_details
 
-
-# ================================
-# 제품 상세 정보
-# ================================
-
-@router.get("/product/{product_id}/info", response_model=KokProductInfoResponse)
-async def get_product_info(
+@router.get("/product/{product_id}/full-detail", response_model=KokProductDetailResponse)
+async def get_product_full_detail(
         product_id: int,
         current_user: User = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    상품 기본 정보 조회
-    """
-    product = await get_kok_product_info(db, product_id)
-    if not product:
-        raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
-    
-    # 상품 기본 정보 조회 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="product_info_view", 
-            event_data={"product_id": product_id}
-        )
-    
-    return product
-
-@router.get("/product/{product_id}", response_model=KokProductDetailResponse)
-async def get_product_detail(
-        product_id: int,
-        current_user: User = Depends(get_current_user),
-        background_tasks: BackgroundTasks = None,
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    제품 상세 정보 조회
+    상품의 전체 상세 정보 조회 (이미지, 리뷰, 가격 정보 등 모든 정보 포함)
     """
     product = await get_kok_product_detail(db, product_id)
     if not product:
@@ -297,7 +283,7 @@ async def get_product_detail(
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="product_view", 
+            event_type="product_full_detail_view", 
             event_data={"product_id": product_id, "kok_product_name": product.get("kok_product_name", "")}
         )
     
@@ -581,61 +567,81 @@ async def add_cart_item(
     db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    장바구니에 상품 추가
+    장바구니에 상품 추가 (수량은 1개로 고정)
     """
-    result = await add_kok_cart(db, current_user.user_id, cart_data.kok_product_id, cart_data.kok_quantity)
-    
-    # 장바구니 추가 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="cart_add", 
-            event_data={
-                "product_id": cart_data.kok_product_id,
-                "quantity": cart_data.kok_quantity,
-                "cart_id": result["kok_cart_id"]
-            }
+    try:
+        # 수량을 1개로 고정
+        result = await add_kok_cart(db, current_user.user_id, cart_data.kok_product_id, 1)
+        
+        # 장바구니 추가 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="cart_add", 
+                event_data={
+                    "product_id": cart_data.kok_product_id,
+                    "quantity": 1,  # 수량을 1로 고정
+                    "cart_id": result["kok_cart_id"]
+                }
+            )
+        
+        return KokCartAddResponse(
+            kok_cart_id=result["kok_cart_id"],
+            message=result["message"]
         )
-    
-    return KokCartAddResponse(
-        kok_cart_id=result["kok_cart_id"],
-        message=result["message"]
-    )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="장바구니 추가 중 오류가 발생했습니다.")
 
-@router.patch("/carts/{cart_item_id}", response_model=KokCartUpdateResponse)
-async def update_cart_quantity(
+
+
+@router.post("/carts/{cart_item_id}/quantity-toggle", response_model=KokCartUpdateResponse)
+async def toggle_cart_quantity(
     cart_item_id: int,
-    update_data: KokCartUpdateRequest,
+    quantity: int,
     current_user: User = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    장바구니 상품 수량 변경
+    장바구니 상품 수량 토글 (1-10 사이의 수량으로 설정)
     """
     try:
-        result = await update_kok_cart_quantity(db, current_user.user_id, cart_item_id, update_data.kok_quantity)
+        # 수량 유효성 검사 (1-10 사이)
+        if quantity < 1 or quantity > 10:
+            raise HTTPException(status_code=400, detail="수량은 1-10 사이여야 합니다.")
         
-        # 장바구니 수량 변경 로그 기록
+        # 현재 수량을 조회
+        current_cart = await get_kok_cart_item(db, current_user.user_id, cart_item_id)
+        if not current_cart:
+            raise HTTPException(status_code=404, detail="장바구니 항목을 찾을 수 없습니다.")
+        
+        result = await update_kok_cart_quantity(db, current_user.user_id, cart_item_id, quantity)
+        
+        # 장바구니 수량 토글 로그 기록
         if background_tasks:
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
-                event_type="cart_update", 
+                event_type="cart_quantity_toggle", 
                 event_data={
                     "cart_id": cart_item_id,
-                    "quantity": update_data.kok_quantity
+                    "old_quantity": current_cart["kok_quantity"],
+                    "new_quantity": quantity
                 }
             )
         
         return KokCartUpdateResponse(
             kok_cart_id=result["kok_cart_id"],
             kok_quantity=result["kok_quantity"],
-            message=result["message"]
+            message=f"수량이 {quantity}개로 변경되었습니다."
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="수량 토글 중 오류가 발생했습니다.")
 
 @router.delete("/carts/{cart_item_id}", response_model=KokCartDeleteResponse)
 async def delete_cart_item(
@@ -664,4 +670,101 @@ async def delete_cart_item(
         return KokCartDeleteResponse(message="장바구니에서 상품이 삭제되었습니다.")
     else:
         raise HTTPException(status_code=404, detail="장바구니 항목을 찾을 수 없습니다.")
-    
+
+
+
+@router.post("/carts/order", response_model=KokCartOrderResponse, status_code=status.HTTP_201_CREATED)
+async def order_cart_items(
+    order_request: KokCartOrderRequest,
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    프론트엔드에서 전송된 선택된 장바구니 상품들과 수량으로 주문 생성
+    """
+    try:
+        # 여러 상품 주문 생성
+        order_result = await create_multiple_kok_orders_from_ids(
+            db, current_user.user_id, order_request.selected_items
+        )
+        
+        # 주문 생성 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="cart_order_create", 
+                event_data={
+                    "order_id": order_result["order_id"],
+                    "total_amount": order_result["total_amount"],
+                    "order_count": order_result["order_count"],
+                    "selected_items": order_request.selected_items
+                }
+            )
+        
+        return KokCartOrderResponse(
+            order_id=order_result["order_id"],
+            total_amount=order_result["total_amount"],
+            order_count=order_result["order_count"],
+            message=order_result["message"]
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="주문 생성 중 오류가 발생했습니다.")
+
+@router.post("/carts/recipe-recommend", response_model=KokCartRecipeRecommendResponse)
+async def recommend_recipes_from_cart_items(
+    recommend_request: KokCartRecipeRecommendRequest,
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    선택된 장바구니 상품들의 재료로 레시피 추천
+    """
+    try:
+        # 선택된 장바구니 상품들에서 재료명 추출
+        ingredients = await get_ingredients_from_selected_cart_items(
+            db, current_user.user_id, recommend_request.selected_cart_ids
+        )
+        
+        if not ingredients:
+            raise HTTPException(status_code=400, detail="재료를 추출할 수 있는 상품이 없습니다.")
+        
+        # 레시피 추천 서비스 호출
+        from services.recipe.crud.recipe_crud import recommend_recipes_by_ingredients
+        
+        recipes, total = await recommend_recipes_by_ingredients(
+            db, 
+            ingredients, 
+            page=recommend_request.page, 
+            size=recommend_request.size
+        )
+        
+        # 레시피 추천 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="cart_recipe_recommend", 
+                event_data={
+                    "selected_cart_ids": recommend_request.selected_cart_ids,
+                    "ingredients_used": ingredients,
+                    "page": recommend_request.page,
+                    "size": recommend_request.size,
+                    "total_results": total
+                }
+            )
+        
+        return KokCartRecipeRecommendResponse(
+            recipes=recipes,
+            page=recommend_request.page,
+            total=total,
+            ingredients_used=ingredients
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="레시피 추천 중 오류가 발생했습니다.") 

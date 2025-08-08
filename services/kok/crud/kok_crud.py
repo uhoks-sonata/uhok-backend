@@ -140,7 +140,7 @@ async def get_kok_discounted_products(
         .join(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
         .where(KokPriceInfo.kok_discount_rate > 0)
         .order_by(KokPriceInfo.kok_discount_rate.desc())
-        .limit(10)
+        .limit(20)
     )
     results = (await db.execute(stmt)).all()
     
@@ -268,7 +268,7 @@ async def get_kok_store_best_items(
     # 1. 사용자가 구매한 주문에서 price_id를 통해 상품 정보 조회
     stmt = (
         select(KokOrder, KokPriceInfo, KokProductInfo)
-        .join(KokPriceInfo, KokOrder.price_id == KokPriceInfo.kok_price_id)
+        .join(KokPriceInfo, KokOrder.kok_price_id == KokPriceInfo.kok_price_id)
         .join(KokProductInfo, KokPriceInfo.kok_product_id == KokProductInfo.kok_product_id)
         .join(Order, KokOrder.order_id == Order.order_id)
         .where(Order.user_id == user_id)
@@ -388,11 +388,6 @@ async def get_kok_product_info(
         "kok_discounted_price": price.kok_discounted_price if price else product.kok_product_price,
         "kok_review_cnt": product.kok_review_cnt or 0
     }
-
-
-
-
-
 
 async def get_kok_review_data(
         db: AsyncSession,
@@ -643,38 +638,88 @@ async def get_kok_cart_items(
     사용자의 장바구니 상품 목록 조회
     """
     stmt = (
-        select(KokCart, KokProductInfo, KokPriceInfo)
+        select(
+            KokCart.kok_cart_id,
+            KokCart.kok_product_id,
+            KokCart.kok_quantity,
+            KokCart.kok_created_at,
+            KokProductInfo.kok_product_name,
+            KokProductInfo.kok_product_price,
+            KokProductInfo.kok_thumbnail,
+            KokPriceInfo.kok_discount_rate,
+            KokPriceInfo.kok_discounted_price
+        )
         .join(KokProductInfo, KokCart.kok_product_id == KokProductInfo.kok_product_id)
-        .join(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id, isouter=True)
+        .outerjoin(KokPriceInfo, KokCart.kok_product_id == KokPriceInfo.kok_product_id)
         .where(KokCart.user_id == user_id)
         .order_by(KokCart.kok_created_at.desc())
         .limit(limit)
     )
     
-    results = (await db.execute(stmt)).all()
+    result = await db.execute(stmt)
+    rows = result.all()
     
     cart_items = []
-    for cart, product, price in results:
-        # 할인 적용 가격 계산
-        discounted_price = product.kok_product_price
-        discount_rate = 0
-        if price and price.kok_discount_rate and price.kok_discount_rate > 0:
-            discount_rate = price.kok_discount_rate
-            discounted_price = int(product.kok_product_price * (1 - price.kok_discount_rate / 100))
-        
-        cart_items.append({
-            "kok_cart_id": cart.kok_cart_id,
-            "kok_product_id": product.kok_product_id,
-            "kok_product_name": product.kok_product_name,
-            "kok_thumbnail": product.kok_thumbnail,
-            "kok_product_price": product.kok_product_price,
-            "kok_discount_rate": discount_rate,
-            "kok_discounted_price": discounted_price,
-            "kok_store_name": product.kok_store_name,
-            "kok_quantity": cart.kok_quantity,
-        })
+    for row in rows:
+        cart_item = {
+            "kok_cart_id": row.kok_cart_id,
+            "kok_product_id": row.kok_product_id,
+            "kok_product_name": row.kok_product_name,
+            "kok_product_price": row.kok_product_price,
+            "kok_quantity": row.kok_quantity,
+            "kok_product_image": row.kok_thumbnail,
+            "kok_discount_rate": row.kok_discount_rate or 0,
+            "kok_discounted_price": row.kok_discounted_price or row.kok_product_price,
+            "total_price": (row.kok_discounted_price or row.kok_product_price) * row.kok_quantity,
+            "kok_created_at": row.kok_created_at
+        }
+        cart_items.append(cart_item)
     
     return cart_items
+
+async def get_kok_cart_item(
+    db: AsyncSession,
+    user_id: int,
+    cart_item_id: int
+) -> Optional[dict]:
+    """
+    특정 장바구니 항목 조회
+    """
+    stmt = (
+        select(
+            KokCart.kok_cart_id,
+            KokCart.kok_product_id,
+            KokCart.kok_quantity,
+            KokCart.kok_created_at,
+            KokProductInfo.kok_product_name,
+            KokProductInfo.kok_product_price,
+            KokProductInfo.kok_thumbnail,
+            KokPriceInfo.kok_discount_rate,
+            KokPriceInfo.kok_discounted_price
+        )
+        .join(KokProductInfo, KokCart.kok_product_id == KokProductInfo.kok_product_id)
+        .outerjoin(KokPriceInfo, KokCart.kok_product_id == KokPriceInfo.kok_product_id)
+        .where(KokCart.user_id == user_id, KokCart.kok_cart_id == cart_item_id)
+    )
+    
+    result = await db.execute(stmt)
+    row = result.first()
+    
+    if not row:
+        return None
+    
+    return {
+        "kok_cart_id": row.kok_cart_id,
+        "kok_product_id": row.kok_product_id,
+        "kok_product_name": row.kok_product_name,
+        "kok_product_price": row.kok_product_price,
+        "kok_quantity": row.kok_quantity,
+        "kok_product_image": row.kok_thumbnail,
+        "kok_discount_rate": row.kok_discount_rate or 0,
+        "kok_discounted_price": row.kok_discounted_price or row.kok_product_price,
+        "total_price": (row.kok_discounted_price or row.kok_product_price) * row.kok_quantity,
+        "kok_created_at": row.kok_created_at
+    }
 
 # 새로운 장바구니 CRUD 함수들
 async def add_kok_cart(
@@ -686,6 +731,17 @@ async def add_kok_cart(
     """
     장바구니에 상품 추가
     """
+    # 제품 존재 여부 확인
+    product_stmt = (
+        select(KokProductInfo)
+        .where(KokProductInfo.kok_product_id == kok_product_id)
+    )
+    product_result = await db.execute(product_stmt)
+    product = product_result.scalar_one_or_none()
+    
+    if not product:
+        raise ValueError(f"제품 ID {kok_product_id}가 존재하지 않습니다.")
+    
     # 기존 장바구니 항목 확인
     stmt = (
         select(KokCart)
@@ -696,12 +752,10 @@ async def add_kok_cart(
     existing_cart = result.scalar_one_or_none()
     
     if existing_cart:
-        # 이미 장바구니에 있는 경우 수량 증가
-        existing_cart.kok_quantity += kok_quantity
-        await db.commit()
+        # 이미 장바구니에 있는 경우 수량 증가하지 않고 메시지만 반환
         return {
             "kok_cart_id": existing_cart.kok_cart_id,
-            "message": f"장바구니에 추가되었습니다. (수량: {existing_cart.kok_quantity})"
+            "message": "이미 장바구니에 있습니다."
         }
     else:
         # 새로운 상품 추가
@@ -755,6 +809,7 @@ async def update_kok_cart_quantity(
         "message": f"수량이 {kok_quantity}개로 변경되었습니다."
     }
 
+
 async def delete_kok_cart_item(
     db: AsyncSession,
     user_id: int,
@@ -779,6 +834,8 @@ async def delete_kok_cart_item(
     await db.delete(cart_item)
     await db.commit()
     return True
+
+
 
 # -----------------------------
 # 검색 관련 CRUD 함수
@@ -957,3 +1014,171 @@ async def get_kok_notifications(
         }
         for notification in notifications
     ]
+
+
+
+async def create_multiple_kok_orders_from_ids(
+    db: AsyncSession,
+    user_id: int,
+    selected_items: List[dict]  # [{"cart_id": 1, "quantity": 2}, {"cart_id": 3, "quantity": 1}]
+) -> dict:
+    """
+    선택된 장바구니 상품들로 여러 주문 생성 (동일한 주문 ID)
+    프론트엔드에서 전송한 수량을 사용
+    """
+    if not selected_items:
+        raise ValueError("선택된 상품이 없습니다.")
+
+    from services.order.crud.order_crud import create_kok_order, initialize_status_master
+    from services.order.models.order_model import Order, KokOrder
+    from datetime import datetime
+
+    # 상태 마스터 초기화
+    await initialize_status_master(db)
+
+    # 주문 생성
+    order_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+    # 메인 주문 생성
+    main_order = Order(
+        user_id=user_id,
+        order_time=order_time,
+        total_amount=0,  # 나중에 계산
+        status_id=1  # 주문완료 상태
+    )
+
+    db.add(main_order)
+    await db.commit()
+    await db.refresh(main_order)
+
+    # 선택된 상품들의 cart_id 추출
+    selected_cart_ids = [item["cart_id"] for item in selected_items]
+    
+    # 선택된 장바구니 항목들과 상품 정보 조회
+    stmt = (
+        select(KokCart, KokProductInfo, KokPriceInfo)
+        .join(KokProductInfo, KokCart.kok_product_id == KokProductInfo.kok_product_id)
+        .join(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id, isouter=True)
+        .where(KokCart.kok_cart_id.in_(selected_cart_ids))
+        .where(KokCart.user_id == user_id)
+    )
+
+    results = (await db.execute(stmt)).all()
+
+    if not results:
+        raise ValueError("선택된 상품을 찾을 수 없습니다.")
+
+    # 각 상품에 대해 KokOrder 생성
+    kok_orders = []
+    total_amount = 0
+
+    for cart, product, price in results:
+        if not price:
+            continue
+        
+        # 프론트엔드에서 전송한 수량 찾기
+        frontend_quantity = None
+        for item in selected_items:
+            if item["cart_id"] == cart.kok_cart_id:
+                frontend_quantity = item["quantity"]
+                break
+        
+        if frontend_quantity is None:
+            continue
+            
+        kok_order = KokOrder(
+            order_id=main_order.order_id,
+            kok_price_id=price.kok_price_id,
+            kok_product_id=product.kok_product_id,
+            quantity=frontend_quantity  # 프론트엔드에서 전송한 수량 사용
+        )
+        
+        db.add(kok_order)
+        kok_orders.append(kok_order)
+        
+        # 총 금액 계산
+        discounted_price = product.kok_product_price
+        if price.kok_discount_rate and price.kok_discount_rate > 0:
+            discounted_price = int(product.kok_product_price * (1 - price.kok_discount_rate / 100))
+        
+        item_total = discounted_price * frontend_quantity  # 프론트엔드 수량 사용
+        total_amount += item_total
+    
+    # 주문 총 금액 업데이트
+    main_order.total_amount = total_amount
+    await db.commit()
+    
+    # 장바구니에서 선택된 상품들 삭제
+    cart_items_to_delete = (await db.execute(
+        select(KokCart).where(KokCart.kok_cart_id.in_(selected_cart_ids))
+    )).scalars().all()
+    
+    for cart_item in cart_items_to_delete:
+        await db.delete(cart_item)
+    
+    await db.commit()
+    
+    return {
+        "order_id": main_order.order_id,
+        "total_amount": total_amount,
+        "order_count": len(kok_orders),
+        "message": f"{len(kok_orders)}개의 상품이 주문되었습니다."
+    }
+
+async def get_ingredients_from_selected_cart_items(
+    db: AsyncSession,
+    user_id: int,
+    selected_cart_ids: List[int]
+) -> List[str]:
+    """
+    선택된 장바구니 상품들의 재료명 추출 (레시피 추천용)
+    """
+    if not selected_cart_ids:
+        return []
+    
+    # 선택된 장바구니 항목들과 상품 정보 조회
+    stmt = (
+        select(KokCart, KokProductInfo)
+        .join(KokProductInfo, KokCart.kok_product_id == KokProductInfo.kok_product_id)
+        .where(KokCart.kok_cart_id.in_(selected_cart_ids))
+        .where(KokCart.user_id == user_id)
+    )
+    
+    results = (await db.execute(stmt)).all()
+    
+    if not results:
+        return []
+    
+    # 상품명에서 재료명 추출 (간단한 키워드 매칭)
+    ingredients = []
+    ingredient_keywords = [
+        "쌀", "밥", "김치", "된장", "고추장", "간장", "식용유", "참기름", "들기름",
+        "소고기", "돼지고기", "닭고기", "양고기", "오리고기", "계란", "달걀",
+        "양파", "마늘", "대파", "쪽파", "당근", "감자", "고구마", "애호박", "오이",
+        "상추", "깻잎", "시금치", "부추", "미나리", "고사리", "콩나물", "숙주나물",
+        "버섯", "표고버섯", "느타리버섯", "팽이버섯", "양송이버섯",
+        "고등어", "삼치", "갈치", "조기", "굴", "새우", "오징어", "문어", "낙지",
+        "두부", "순두부", "콩", "팥", "녹두", "깨", "들깨",
+        "사과", "배", "복숭아", "포도", "딸기", "바나나", "오렌지", "레몬", "라임",
+        "고추", "피망", "파프리카", "토마토", "가지", "무", "배추", "양배추", "브로콜리",
+        "우유", "치즈", "요거트", "버터", "생크림", "휘핑크림",
+        "밀가루", "전분", "빵가루", "빵", "토스트", "샌드위치",
+        "설탕", "소금", "후추", "고춧가루", "카레가루", "카레", "커리",
+        "물", "물엿", "올리고당", "꿀", "잼", "쨈", "잼", "쨈"
+    ]
+    
+    for cart, product in results:
+        product_name = product.kok_product_name.lower()
+        
+        # 키워드 매칭으로 재료명 추출
+        for keyword in ingredient_keywords:
+            if keyword in product_name:
+                if keyword not in ingredients:
+                    ingredients.append(keyword)
+                break
+        
+        # 상품명이 재료명과 유사한 경우 직접 추가
+        if len(product_name) <= 10 and not any(keyword in product_name for keyword in ingredients):
+            ingredients.append(product_name)
+    
+    return ingredients

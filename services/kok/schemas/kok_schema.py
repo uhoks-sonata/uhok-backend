@@ -368,24 +368,23 @@ class KokCart(BaseModel):
     kok_product_id: int
     kok_quantity: int
     kok_created_at: Optional[str] = None
+    kok_is_selected: bool = True  # 선택 여부 (기본값: 선택됨)
     
     class Config:
         from_attributes = True
 
 # 새로운 장바구니 스키마들
 class KokCartAddRequest(BaseModel):
-    """장바구니 추가 요청"""
+    """장바구니 추가 요청 (수량은 1개로 고정)"""
     kok_product_id: int
-    kok_quantity: int = 1
+    kok_quantity: int = Field(1, description="수량 (항상 1개로 고정됨)")
 
 class KokCartAddResponse(BaseModel):
     """장바구니 추가 응답"""
     kok_cart_id: int
     message: str
 
-class KokCartUpdateRequest(BaseModel):
-    """장바구니 수량 변경 요청"""
-    kok_quantity: int = Field(..., ge=1, description="변경할 수량")
+
 
 class KokCartUpdateResponse(BaseModel):
     """장바구니 수량 변경 응답"""
@@ -409,6 +408,7 @@ class KokCartItem(BaseModel):
     kok_discounted_price: Optional[int] = None
     kok_store_name: Optional[str] = None
     kok_quantity: int
+    kok_is_selected: bool = True
     
     class Config:
         from_attributes = True
@@ -416,6 +416,37 @@ class KokCartItem(BaseModel):
 class KokCartItemsResponse(BaseModel):
     """장바구니 상품 목록 응답"""
     cart_items: List[KokCartItem] = Field(default_factory=list)
+
+# 새로운 주문 관련 스키마
+class KokCartOrderItem(BaseModel):
+    """주문할 장바구니 상품 정보"""
+    cart_id: int = Field(..., description="장바구니 항목 ID")
+    quantity: int = Field(..., ge=1, description="주문할 수량")
+
+class KokCartOrderRequest(BaseModel):
+    """장바구니에서 선택된 상품들 주문 요청"""
+    selected_items: List[KokCartOrderItem] = Field(..., description="선택된 장바구니 상품들과 수량 목록")
+
+class KokCartOrderResponse(BaseModel):
+    """장바구니에서 선택된 상품들 주문 응답"""
+    order_id: int
+    total_amount: int
+    order_count: int
+    message: str
+
+# 레시피 추천 관련 스키마
+class KokCartRecipeRecommendRequest(BaseModel):
+    """장바구니에서 선택된 상품들로 레시피 추천 요청"""
+    selected_cart_ids: List[int] = Field(..., description="선택된 장바구니 항목 ID 목록")
+    page: int = Field(1, ge=1, description="페이지 번호 (1부터 시작)")
+    size: int = Field(5, ge=1, le=50, description="페이지당 결과 개수")
+
+class KokCartRecipeRecommendResponse(BaseModel):
+    """장바구니에서 선택된 상품들로 레시피 추천 응답"""
+    recipes: List[dict] = Field(default_factory=list, description="추천 레시피 목록")
+    page: int = Field(..., description="현재 페이지")
+    total: int = Field(..., description="전체 결과 개수")
+    ingredients_used: List[str] = Field(default_factory=list, description="사용된 재료 목록")
 
 # -----------------------------
 # 검색 관련 스키마
