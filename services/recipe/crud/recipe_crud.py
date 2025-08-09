@@ -149,11 +149,11 @@ async def recommend_recipes_by_ingredients(
 
 
 def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_map, recipe_df):
-    """
-    순차적 재고 소진 알고리즘
-    - 주어진 재료로 만들 수 있는 레시피를 순차적으로 추천
-    - 각 레시피를 만들 때마다 재료를 소진시킴
-    """
+    def _norm(u):
+        return (u or "").strip().lower()
+
+    recipe_df['RECIPE_ID'] = recipe_df['RECIPE_ID'].astype(int)
+
     remaining_stock = {
         ing['name']: {'amount': ing['amount'], 'unit': ing['unit']}
         for ing in initial_ingredients
@@ -172,6 +172,7 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
         max_used = 0
 
         for rid, materials in recipe_material_map.items():
+            rid = int(rid)
             if rid in used_recipe_ids:
                 continue
 
@@ -186,9 +187,12 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
                 if (
                     mat in temp_stock and
                     req_amt is not None and
-                    req_unit is not None and
                     temp_stock[mat]['amount'] > 1e-3 and
-                    temp_stock[mat]['unit'].lower() == req_unit.lower()
+                    (
+                        not temp_stock[mat].get('unit') or
+                        not req_unit or
+                        _norm(temp_stock[mat]['unit']) == _norm(req_unit)
+                    )
                 ):
                     used_amt = min(req_amt, temp_stock[mat]['amount'])
                     if used_amt > 1e-3:
@@ -205,6 +209,11 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
 
         for mat, detail in best_usage.items():
             remaining_stock[mat]['amount'] -= detail['amount']
+
+        row = recipe_df[recipe_df['RECIPE_ID'] == best_recipe]
+        if row.empty:
+            used_recipe_ids.add(best_recipe)
+            continue
 
         recipe_info = recipe_df[recipe_df['RECIPE_ID'] == best_recipe].iloc[0].to_dict()
         recipe_info['used_ingredients'] = best_usage

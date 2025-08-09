@@ -132,7 +132,10 @@ async def get_recipe(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="recipe_detail_view", 
-            event_data={"recipe_id": recipe_id, "recipe_name": result.recipe_name}
+            event_data={
+                "recipe_id": recipe_id,
+                "recipe_name": result.get("cooking_name") or result.get("recipe_title")
+            }
         )
     
     return result
