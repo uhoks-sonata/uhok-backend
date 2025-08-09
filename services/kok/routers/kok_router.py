@@ -639,17 +639,10 @@ async def order_from_selected_carts(
             event_type="cart_order_create",
             event_data=result,
         )
-        # 테스트용: 5초 간격 자동 상태 업데이트 트리거
-        from services.order.crud.order_crud import start_auto_status_update
-        for kok_order_id in result.get("kok_order_ids", []):
-            background_tasks.add_task(
-                start_auto_status_update,
-                kok_order_id=kok_order_id,
-                db_session_generator=get_maria_service_db(),
-            )
 
     return KokCartOrderResponse(
         order_id=result["order_id"],
         order_count=result["order_count"],
         message=result["message"],
     )
+    

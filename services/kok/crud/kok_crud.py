@@ -832,10 +832,10 @@ async def create_orders_from_selected_carts(
     if not rows:
         raise ValueError("선택된 장바구니 항목을 찾을 수 없습니다.")
 
-    # 상태 존재 확인(결제완료)
-    payment_completed_status = await get_status_by_code(db, "PAYMENT_COMPLETED")
-    if not payment_completed_status:
-        raise ValueError("결제완료 상태 코드를 찾을 수 없습니다.")
+    # 초기 상태: 결제요청
+    payment_requested_status = await get_status_by_code(db, "PAYMENT_REQUESTED")
+    if not payment_requested_status:
+        raise ValueError("결제 요청 상태 코드를 찾을 수 없습니다.")
 
     total_created = 0
     created_kok_order_ids: List[int] = []
@@ -861,20 +861,20 @@ async def create_orders_from_selected_carts(
         await db.flush()
         total_created += 1
 
-        # 상태 이력 기록
+        # 상태 이력 기록 (결제요청)
         from services.order.models.order_model import KokOrderStatusHistory
         status_history = KokOrderStatusHistory(
             kok_order_id=new_kok_order.kok_order_id,
-            status_id=payment_completed_status.status_id,
+            status_id=payment_requested_status.status_id,
             changed_by=user_id,
         )
         db.add(status_history)
 
-        # 초기 알림 생성
+        # 초기 알림 생성 (결제요청)
         await create_notification_for_status_change(
             db=db,
             kok_order_id=new_kok_order.kok_order_id,
-            status_id=payment_completed_status.status_id,
+            status_id=payment_requested_status.status_id,
             user_id=user_id,
         )
 
