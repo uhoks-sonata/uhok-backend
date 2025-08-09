@@ -41,6 +41,8 @@ from services.kok.schemas.kok_schema import (
     
     # 장바구니 관련 스키마
     KokCartItemsResponse,
+    KokCartOrderRequest,
+    KokCartOrderResponse,
     KokCartAddRequest,
     KokCartAddResponse,
     KokCartUpdateRequest,
@@ -78,6 +80,7 @@ from services.kok.crud.kok_crud import (
     
     # 장바구니 관련 CRUD
     get_kok_cart_items,
+    create_orders_from_selected_carts,
     add_kok_cart,
     update_kok_cart_quantity,
     delete_kok_cart_item,
@@ -306,71 +309,6 @@ async def get_product_detail(
     
     return product
 
-# ================================
-# 주문 관련 API
-# ================================
-
-@router.post("/orders/create", response_model=OrderRead, status_code=status.HTTP_201_CREATED)
-async def create_kok_order_api(
-    order_data: KokOrderCreate,
-    background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_maria_service_db),
-    user=Depends(get_current_user)
-):
-    """
-    콕 상품 주문 생성 API
-    """
-    # 사용자 ID 유효성 검증
-    if not await validate_user_exists(user.user_id, db):
-        raise HTTPException(status_code=400, detail="유효하지 않은 사용자 ID입니다")
-    
-    # 상태 마스터 초기화
-    await initialize_status_master(db)
-    
-    # 주문 생성
-    order = await create_kok_order(
-        db,
-        user.user_id,
-        order_data.kok_price_id,
-        order_data.kok_product_id,
-        order_data.quantity
-    )
-    
-    # kok_order 정보 명시적으로 로드
-    from sqlalchemy import select
-    from services.order.models.order_model import KokOrder
-    
-    kok_result = await db.execute(
-        select(KokOrder).where(KokOrder.order_id == order.order_id)
-    )
-    kok_order = kok_result.scalars().first()
-    
-    # Order 객체에 kok_order 정보 설정
-    order.kok_order = kok_order
-    
-    # 주문 생성 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log,
-            user_id=user.user_id,
-            event_type="kok_order_create",
-            event_data={
-                "order_id": order.order_id,
-                "kok_order_id": kok_order.kok_order_id,
-                "kok_price_id": order_data.kok_price_id,
-                "kok_product_id": order_data.kok_product_id,
-                "quantity": order_data.quantity
-            }
-        )
-        
-        # 자동 상태 업데이트 시작 (백그라운드에서 실행)
-        background_tasks.add_task(
-            start_auto_status_update,
-            kok_order_id=kok_order.kok_order_id,
-            db_session_generator=get_maria_service_db()
-        )
-    
-    return order
 
 # ================================
 # 검색 관련 API
@@ -560,7 +498,13 @@ async def add_cart_item(
     """
     장바구니에 상품 추가
     """
-    result = await add_kok_cart(db, current_user.user_id, cart_data.kok_product_id, cart_data.kok_quantity)
+    result = await add_kok_cart(
+        db,
+        current_user.user_id,
+        cart_data.kok_product_id,
+        cart_data.kok_quantity,
+        cart_data.recipe_id,
+    )
     
     # 장바구니 추가 로그 기록
     if background_tasks:
@@ -571,7 +515,8 @@ async def add_cart_item(
             event_data={
                 "product_id": cart_data.kok_product_id,
                 "quantity": cart_data.kok_quantity,
-                "cart_id": result["kok_cart_id"]
+                "cart_id": result["kok_cart_id"],
+                "recipe_id": cart_data.recipe_id
             }
         )
     
@@ -666,3 +611,45 @@ async def delete_cart_item(
     else:
         raise HTTPException(status_code=404, detail="장바구니 항목을 찾을 수 없습니다.")
     
+
+# ================================
+# 주문 관련 API
+# ================================
+
+# 단일 상품 주문 API는 사용하지 않습니다. (멀티 카트 주문 API 사용)
+
+@router.post("/carts/order", response_model=KokCartOrderResponse, status_code=status.HTTP_201_CREATED)
+async def order_from_selected_carts(
+    request: KokCartOrderRequest,
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db),
+):
+    if not request.selected_items:
+        raise HTTPException(status_code=400, detail="선택된 항목이 없습니다.")
+
+    result = await create_orders_from_selected_carts(
+        db, current_user.user_id, [i.model_dump() for i in request.selected_items]
+    )
+
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log,
+            user_id=current_user.user_id,
+            event_type="cart_order_create",
+            event_data=result,
+        )
+        # 테스트용: 5초 간격 자동 상태 업데이트 트리거
+        from services.order.crud.order_crud import start_auto_status_update
+        for kok_order_id in result.get("kok_order_ids", []):
+            background_tasks.add_task(
+                start_auto_status_update,
+                kok_order_id=kok_order_id,
+                db_session_generator=get_maria_service_db(),
+            )
+
+    return KokCartOrderResponse(
+        order_id=result["order_id"],
+        order_count=result["order_count"],
+        message=result["message"],
+    )

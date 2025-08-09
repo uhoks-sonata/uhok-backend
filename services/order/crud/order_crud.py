@@ -106,7 +106,8 @@ async def create_kok_order(
         user_id: int,
         kok_price_id: int,
         kok_product_id: int,
-        quantity: int = 1
+        quantity: int = 1,
+        recipe_id: int | None = None
 ) -> Order:
     """
     콕 상품 주문 생성 및 할인 가격 반영
@@ -151,7 +152,8 @@ async def create_kok_order(
             kok_price_id=kok_price_id,
             kok_product_id=kok_product_id,
             quantity=quantity,
-            order_price=order_price
+            order_price=order_price,
+            recipe_id=recipe_id
         )
         db.add(new_kok_order)
         await db.flush()  # kok_order_id 생성

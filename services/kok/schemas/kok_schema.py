@@ -377,6 +377,7 @@ class KokCartAddRequest(BaseModel):
     """장바구니 추가 요청"""
     kok_product_id: int
     kok_quantity: int = Field(1, ge=1, description="추가할 수량")
+    recipe_id: Optional[int] = Field(None, description="레시피ID (레시피 상세에서 유입된 경우)")
 
 class KokCartAddResponse(BaseModel):
     """장바구니 추가 응답"""
@@ -402,6 +403,7 @@ class KokCartItem(BaseModel):
     """장바구니 상품 정보"""
     kok_cart_id: int
     kok_product_id: int
+    recipe_id: Optional[int] = None
     kok_product_name: Optional[str] = None
     kok_thumbnail: Optional[str] = None
     kok_product_price: Optional[int] = None
@@ -416,6 +418,22 @@ class KokCartItem(BaseModel):
 class KokCartItemsResponse(BaseModel):
     """장바구니 상품 목록 응답"""
     cart_items: List[KokCartItem] = Field(default_factory=list)
+
+# -----------------------------
+# 장바구니 선택 주문 스키마
+# -----------------------------
+
+class KokCartOrderItem(BaseModel):
+    cart_id: int = Field(..., description="장바구니 ID")
+    quantity: int = Field(..., ge=1, description="주문 수량")
+
+class KokCartOrderRequest(BaseModel):
+    selected_items: List[KokCartOrderItem]
+
+class KokCartOrderResponse(BaseModel):
+    order_id: int
+    order_count: int
+    message: str
 
 # -----------------------------
 # 검색 관련 스키마

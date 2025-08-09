@@ -18,6 +18,7 @@ class KokOrderCreate(BaseModel):
     kok_price_id: int
     kok_product_id: int
     quantity: int = 1
+    recipe_id: Optional[int] = None
 
 # class HomeShoppingOrderCreate(BaseModel):
 #     live_id: int
@@ -28,6 +29,7 @@ class KokOrderSchema(BaseModel):
     kok_product_id: int
     quantity: int
     order_price: Optional[int]
+    recipe_id: Optional[int] = None
     
     class Config:
         from_attributes = True
