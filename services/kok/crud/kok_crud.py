@@ -19,7 +19,7 @@ from services.kok.models.kok_model import (
 
 from services.order.models.order_model import KokOrder, Order
 
-async def get_kok_product_detail(
+async def get_kok_product_full_detail(
         db: AsyncSession,
         product_id: int
 ) -> Optional[dict]:
@@ -67,6 +67,59 @@ async def get_kok_product_detail(
     }
 
 
+async def get_kok_product_seller_details(
+        db: AsyncSession,
+        product_id: int
+) -> Optional[dict]:
+    """
+    상품의 상세정보를 반환
+    - KOK_PRODUCT_INFO 테이블에서 판매자 정보
+    - KOK_DETAIL_INFO 테이블에서 상세정보 목록
+    """
+    # 1. KOK_PRODUCT_INFO 테이블에서 판매자 정보 조회
+    product_stmt = (
+        select(KokProductInfo).where(KokProductInfo.kok_product_id == product_id)
+    )
+    product_result = await db.execute(product_stmt)
+    product = product_result.scalar_one_or_none()
+    
+    if not product:
+        return None
+    
+    # 2. KOK_DETAIL_INFO 테이블에서 상세정보 목록 조회
+    detail_stmt = (
+        select(KokDetailInfo)
+        .where(KokDetailInfo.kok_product_id == product_id)
+        .order_by(KokDetailInfo.kok_detail_col_id)
+    )
+    detail_result = await db.execute(detail_stmt)
+    detail_infos = detail_result.scalars().all()
+    
+    # 3. 응답 데이터 구성
+    seller_info = {
+        "kok_co_ceo": product.kok_co_ceo,
+        "kok_co_reg_no": product.kok_co_reg_no,
+        "kok_co_ec_reg": product.kok_co_ec_reg,
+        "kok_tell": product.kok_tell,
+        "kok_ver_item": product.kok_ver_item,
+        "kok_ver_date": product.kok_ver_date,
+        "kok_co_addr": product.kok_co_addr,
+        "kok_return_addr": product.kok_return_addr,
+    }
+    
+    detail_info_list = [
+        {
+            "kok_detail_col": detail.kok_detail_col,
+            "kok_detail_val": detail.kok_detail_val,
+        }
+        for detail in detail_infos
+    ]
+    
+    return {
+        "seller_info": seller_info,
+        "detail_info": detail_info_list
+    }
+    
 async def get_kok_product_list(
         db: AsyncSession,
         page: int = 1,
@@ -389,11 +442,6 @@ async def get_kok_product_info(
         "kok_review_cnt": product.kok_review_cnt or 0
     }
 
-
-
-
-
-
 async def get_kok_review_data(
         db: AsyncSession,
         product_id: int
@@ -495,59 +543,6 @@ async def get_kok_products_by_ingredient(
         }
         for p, price in results
     ]
-
-async def get_kok_product_details(
-        db: AsyncSession,
-        product_id: int
-) -> Optional[dict]:
-    """
-    상품의 상세정보를 반환
-    - KOK_PRODUCT_INFO 테이블에서 판매자 정보
-    - KOK_DETAIL_INFO 테이블에서 상세정보 목록
-    """
-    # 1. KOK_PRODUCT_INFO 테이블에서 판매자 정보 조회
-    product_stmt = (
-        select(KokProductInfo).where(KokProductInfo.kok_product_id == product_id)
-    )
-    product_result = await db.execute(product_stmt)
-    product = product_result.scalar_one_or_none()
-    
-    if not product:
-        return None
-    
-    # 2. KOK_DETAIL_INFO 테이블에서 상세정보 목록 조회
-    detail_stmt = (
-        select(KokDetailInfo)
-        .where(KokDetailInfo.kok_product_id == product_id)
-        .order_by(KokDetailInfo.kok_detail_col_id)
-    )
-    detail_result = await db.execute(detail_stmt)
-    detail_infos = detail_result.scalars().all()
-    
-    # 3. 응답 데이터 구성
-    seller_info = {
-        "kok_co_ceo": product.kok_co_ceo,
-        "kok_co_reg_no": product.kok_co_reg_no,
-        "kok_co_ec_reg": product.kok_co_ec_reg,
-        "kok_tell": product.kok_tell,
-        "kok_ver_item": product.kok_ver_item,
-        "kok_ver_date": product.kok_ver_date,
-        "kok_co_addr": product.kok_co_addr,
-        "kok_return_addr": product.kok_return_addr,
-    }
-    
-    detail_info_list = [
-        {
-            "kok_detail_col": detail.kok_detail_col,
-            "kok_detail_val": detail.kok_detail_val,
-        }
-        for detail in detail_infos
-    ]
-    
-    return {
-        "seller_info": seller_info,
-        "detail_info": detail_info_list
-    }
 
 # -----------------------------
 # 찜 관련 CRUD 함수
