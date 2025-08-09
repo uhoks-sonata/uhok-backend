@@ -550,32 +550,6 @@ async def get_liked_products(
 # 장바구니 관련 API
 # ================================
 
-@router.get("/carts", response_model=KokCartItemsResponse)
-async def get_cart_items(
-    limit: int = Query(100, ge=1, le=200, description="조회할 장바구니 상품 개수"),
-    current_user: User = Depends(get_current_user),
-    background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    장바구니 상품 목록 조회
-    """
-    cart_items = await get_kok_cart_items(db, current_user.user_id, limit)
-    
-    # 장바구니 상품 목록 조회 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="cart_items_view", 
-            event_data={
-                "limit": limit,
-                "item_count": len(cart_items)
-            }
-        )
-    
-    return {"cart_items": cart_items}
-
 @router.post("/carts", response_model=KokCartAddResponse, status_code=status.HTTP_201_CREATED)
 async def add_cart_item(
     cart_data: KokCartAddRequest,
@@ -605,6 +579,32 @@ async def add_cart_item(
         kok_cart_id=result["kok_cart_id"],
         message=result["message"]
     )
+    
+@router.get("/carts", response_model=KokCartItemsResponse)
+async def get_cart_items(
+    limit: int = Query(50, ge=1, le=200, description="조회할 장바구니 상품 개수"),
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    장바구니 상품 목록 조회
+    """
+    cart_items = await get_kok_cart_items(db, current_user.user_id, limit)
+    
+    # 장바구니 상품 목록 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="cart_items_view", 
+            event_data={
+                "limit": limit,
+                "item_count": len(cart_items)
+            }
+        )
+    
+    return {"cart_items": cart_items}
 
 @router.patch("/carts/{cart_id}", response_model=KokCartUpdateResponse)
 async def update_cart_quantity(

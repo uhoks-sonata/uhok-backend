@@ -699,12 +699,10 @@ async def add_kok_cart(
     existing_cart = result.scalar_one_or_none()
     
     if existing_cart:
-        # 이미 장바구니에 있는 경우 수량 증가
-        existing_cart.kok_quantity += kok_quantity
-        await db.commit()
+        # 이미 장바구니에 있는 경우 추가하지 않음
         return {
             "kok_cart_id": existing_cart.kok_cart_id,
-            "message": f"장바구니에 추가되었습니다. (수량: {existing_cart.kok_quantity})"
+            "message": "이미 장바구니에 있습니다."
         }
     else:
         # 새로운 상품 추가

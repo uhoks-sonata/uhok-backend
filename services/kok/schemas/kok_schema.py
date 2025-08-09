@@ -376,7 +376,7 @@ class KokCart(BaseModel):
 class KokCartAddRequest(BaseModel):
     """장바구니 추가 요청"""
     kok_product_id: int
-    kok_quantity: int = 1
+    kok_quantity: int = Field(1, ge=1, description="추가할 수량")
 
 class KokCartAddResponse(BaseModel):
     """장바구니 추가 응답"""
