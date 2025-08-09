@@ -22,7 +22,7 @@ from services.recipe.crud.recipe_crud import (
 )
 from services.kok.crud.kok_crud import get_kok_products_by_ingredient
 from common.database.mariadb_service import get_maria_service_db
-from common.database.postgres_recommend import get_postgres_recommend_db
+# from common.database.postgres_recommend import get_postgres_recommend_db
 from common.dependencies import get_current_user
 from common.log_utils import send_user_log
 
@@ -76,11 +76,15 @@ async def by_ingredients(
     }
 
 
+# 하이브리드 검색 엔드포인트 제거됨
+
+
 @router.get("/search")
 async def search_recipe(
-    recipe: str = Query(..., description="레시피명(키워드)"),
+    recipe: str = Query(..., description="레시피명 또는 식재료 키워드"),
     page: int = Query(1, ge=1, description="페이지 번호 (1부터 시작)"),
     size: int = Query(5, ge=1, le=50, description="페이지당 결과 개수"),
+    method: str = Query("recipe", pattern="^(recipe|ingredient)$", description="검색 방식: recipe|ingredient"),
     current_user = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
@@ -90,7 +94,7 @@ async def search_recipe(
     - 모델에서 유사 recipe_id 추천받아 상세조회 및 결과 반환
     - 응답: recipes(추천 목록), page(현재 페이지), total(전체 결과 개수)
     """
-    recipes, total = await search_recipes_by_keyword(db, recipe, page=page, size=size)
+    recipes, total = await search_recipes_by_keyword(db, recipe, page=page, size=size, method=method)
     
     # 레시피 키워드 검색 로그 기록
     if background_tasks:
@@ -102,6 +106,7 @@ async def search_recipe(
                 "keyword": recipe,
                 "page": page,
                 "size": size,
+                "method": method,
                 "total_results": total
             }
         )
