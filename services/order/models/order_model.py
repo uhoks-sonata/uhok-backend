@@ -44,6 +44,7 @@ class KokOrder(MariaBase):
     kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("FCT_KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=False)
     quantity = Column("QUANTITY", Integer, nullable=False)
     order_price = Column("ORDER_PRICE", Integer, nullable=True)
+    recipe_id = Column("RECIPE_ID", Integer, ForeignKey("FCT_RECIPE.RECIPE_ID", onupdate="RESTRICT", ondelete="RESTRICT"), nullable=True)
 
     order = relationship("Order", back_populates="kok_order", lazy="noload")
     status_history = relationship("KokOrderStatusHistory", back_populates="kok_order", lazy="noload")
