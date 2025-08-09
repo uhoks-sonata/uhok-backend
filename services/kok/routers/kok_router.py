@@ -56,12 +56,12 @@ from services.kok.schemas.kok_schema import (
 
 from services.kok.crud.kok_crud import (
     # 제품 관련 CRUD
-    get_kok_product_detail,
+    get_kok_product_full_detail,
     get_kok_product_list,
     get_kok_product_by_id,
     get_kok_product_info,
     get_kok_product_tabs,
-    get_kok_product_details,
+    get_kok_product_seller_details,
     
     # 리뷰 관련 CRUD
     get_kok_review_data,
@@ -223,36 +223,6 @@ async def get_product_reviews(
     
     return review_data
 
-@router.get("/product/{product_id}/details", response_model=KokProductDetailsResponse)
-async def get_product_details(
-        product_id: int,
-        current_user: User = Depends(get_current_user),
-        background_tasks: BackgroundTasks = None,
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    상품 상세 정보 조회
-    """
-    product_details = await get_kok_product_details(db, product_id)
-    if not product_details:
-        raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
-    
-    # 상품 상세 정보 조회 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="product_details_view", 
-            event_data={"product_id": product_id}
-        )
-    
-    return product_details
-
-
-# ================================
-# 제품 상세 정보
-# ================================
-
 @router.get("/product/{product_id}/info", response_model=KokProductInfoResponse)
 async def get_product_info(
         product_id: int,
@@ -278,6 +248,35 @@ async def get_product_info(
     
     return product
 
+# ================================
+# 제품 상세 정보
+# ================================
+
+@router.get("/product/{product_id}/details", response_model=KokProductDetailsResponse)
+async def get_product_details(
+        product_id: int,
+        current_user: User = Depends(get_current_user),
+        background_tasks: BackgroundTasks = None,
+        db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    상품 상세 정보 조회
+    """
+    product_details = await get_kok_product_seller_details(db, product_id)
+    if not product_details:
+        raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
+    
+    # 상품 상세 정보 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="product_details_view", 
+            event_data={"product_id": product_id}
+        )
+    
+    return product_details
+
 @router.get("/product/{product_id}", response_model=KokProductDetailResponse)
 async def get_product_detail(
         product_id: int,
@@ -288,7 +287,7 @@ async def get_product_detail(
     """
     제품 상세 정보 조회
     """
-    product = await get_kok_product_detail(db, product_id)
+    product = await get_kok_product_full_detail(db, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
     
