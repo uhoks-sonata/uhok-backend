@@ -18,12 +18,12 @@ from services.order.schemas.order_schema import (
 )
 from services.order.models.order_model import Order, KokOrder
 from services.order.crud.order_crud import (
-    get_order_by_id, 
-    update_kok_order_status, 
-    get_kok_order_with_current_status, 
+    get_order_by_id,
+    update_kok_order_status,
+    get_kok_order_with_current_status,
     get_kok_order_status_history,
     start_auto_status_update,
-    get_kok_order_notifications_history
+    get_kok_order_notifications_history,
 )
 from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
@@ -42,7 +42,6 @@ async def list_orders(
     """
     내 주문 리스트 (공통+서비스별 상세 포함)
     """
-    from services.order.models.order_model import Order, KokOrder
     # from services.order.models.order_model import HomeShoppingOrder
 
     # 주문 기본 정보 조회
@@ -61,7 +60,7 @@ async def list_orders(
         kok_result = await db.execute(
             select(KokOrder).where(KokOrder.order_id == order.order_id)
         )
-        kok_order = kok_result.scalars().first()
+        kok_orders = kok_result.scalars().all()
         
         # OrderRead 형태로 변환
         order_data = {
@@ -69,7 +68,7 @@ async def list_orders(
             "user_id": order.user_id,
             "order_time": order.order_time,
             "cancel_time": order.cancel_time,
-            "kok_order": kok_order,
+            "kok_orders": kok_orders,
             "homeshopping_order": None
         }
         order_list.append(order_data)
@@ -141,7 +140,7 @@ async def recent_orders(
         kok_result = await db.execute(
             select(KokOrder).where(KokOrder.order_id == order.order_id)
         )
-        kok_order = kok_result.scalars().first()
+        kok_orders = kok_result.scalars().all()
         
         # OrderRead 형태로 변환
         order_data = {
@@ -149,7 +148,7 @@ async def recent_orders(
             "user_id": order.user_id,
             "order_time": order.order_time,
             "cancel_time": order.cancel_time,
-            "kok_order": kok_order,
+            "kok_orders": kok_orders,
             "homeshopping_order": None
         }
         order_list.append(order_data)
@@ -382,6 +381,94 @@ async def start_auto_status_update_api(
 # ================================
 # 알림 관리 API
 # ================================
+
+# 결제 확인(테스트/웹훅용): PAYMENT_REQUESTED -> PAYMENT_COMPLETED
+# - 결제 모듈/PG사 콜백과 연동할 때 주문 단건 기준으로 호출하는 API입니다.
+@router.post("/kok/{kok_order_id}/payment/confirm")
+async def confirm_payment(
+    kok_order_id: int,
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db),
+    user=Depends(get_current_user)
+):
+    """
+    결제확인(단건)
+    - 현재 상태가 PAYMENT_REQUESTED인 해당 `kok_order_id`의 주문을 PAYMENT_COMPLETED로 변경
+    - 권한: 주문자 본인만 가능
+    - 부가효과: 상태 변경 이력/알림 기록
+    """
+    # 권한 확인
+    kok_order_result = await db.execute(
+        select(KokOrder).where(KokOrder.kok_order_id == kok_order_id)
+    )
+    kok_order = kok_order_result.scalars().first()
+    if not kok_order:
+        raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+
+    order_result = await db.execute(select(Order).where(Order.order_id == kok_order.order_id))
+    order = order_result.scalars().first()
+    if not order or order.user_id != user.user_id:
+        raise HTTPException(status_code=403, detail="해당 주문에 대한 권한이 없습니다.")
+
+    from services.order.crud.order_crud import update_kok_order_status
+    try:
+        await update_kok_order_status(db, kok_order_id, "PAYMENT_COMPLETED", user.user_id)
+
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log,
+                user_id=user.user_id,
+                event_type="payment_confirm",
+                event_data={"kok_order_id": kok_order_id},
+            )
+
+        return {"message": "결제가 완료되어 상태가 변경되었습니다.", "kok_order_id": kok_order_id}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# 결제완료 콜백(주문 단위): 해당 order_id의 모든 KokOrder를 PAYMENT_COMPLETED로 변경
+# - 여러 상품을 한 번에 결제한 경우 한 번의 콜백으로 전체 업데이트할 때 사용합니다.
+@router.post("/{order_id}/payment/confirm")
+async def confirm_payment_by_order(
+    order_id: int,
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db),
+    user=Depends(get_current_user),
+):
+    """
+    결제확인(주문 단위)
+    - 주어진 `order_id`에 속한 모든 KokOrder를 PAYMENT_COMPLETED로 변경
+    - 권한: 주문자 본인만 가능
+    - 부가효과: 각 주문 항목에 대한 상태 변경 이력/알림 기록
+    """
+    # 권한 확인
+    order_result = await db.execute(select(Order).where(Order.order_id == order_id))
+    order = order_result.scalars().first()
+    if not order or order.user_id != user.user_id:
+        raise HTTPException(status_code=403, detail="해당 주문에 대한 권한이 없습니다.")
+
+    from services.order.crud.order_crud import update_kok_order_status
+
+    kok_result = await db.execute(select(KokOrder).where(KokOrder.order_id == order_id))
+    kok_orders = kok_result.scalars().all()
+    if not kok_orders:
+        raise HTTPException(status_code=404, detail="해당 주문의 KokOrder가 없습니다.")
+
+    try:
+        for ko in kok_orders:
+            await update_kok_order_status(db, ko.kok_order_id, "PAYMENT_COMPLETED", user.user_id)
+
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log,
+                user_id=user.user_id,
+                event_type="payment_confirm_order",
+                event_data={"order_id": order_id, "kok_order_count": len(kok_orders)},
+            )
+
+        return {"message": "결제가 완료되어 모든 KokOrder 상태가 변경되었습니다.", "order_id": order_id}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # @router.patch("/kok/notifications/{notification_id}/read")
 # async def mark_notification_as_read_api(

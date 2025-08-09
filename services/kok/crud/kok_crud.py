@@ -18,6 +18,7 @@ from services.kok.models.kok_model import (
 )
 
 from services.order.models.order_model import KokOrder, Order
+from services.recipe.models.recipe_model import Recipe
 
 async def get_kok_product_full_detail(
         db: AsyncSession,
@@ -182,18 +183,22 @@ async def get_kok_product_list(
 # -----------------------------
 
 async def get_kok_discounted_products(
-        db: AsyncSession
+        db: AsyncSession,
+        page: int = 1,
+        size: int = 20
 ) -> List[dict]:
     """
     할인 특가 상품 목록 조회 (할인율 높은 순으로 정렬)
     """
     # KokProductInfo와 KokPriceInfo를 JOIN해서 할인율 정보 가져오기
+    offset = (page - 1) * size
     stmt = (
         select(KokProductInfo, KokPriceInfo)
         .join(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
         .where(KokPriceInfo.kok_discount_rate > 0)
         .order_by(KokPriceInfo.kok_discount_rate.desc())
-        .limit(20)
+        .offset(offset)
+        .limit(size)
     )
     results = (await db.execute(stmt)).all()
     
@@ -216,18 +221,22 @@ async def get_kok_discounted_products(
     return discounted_products
 
 async def get_kok_top_selling_products(
-        db: AsyncSession
+        db: AsyncSession,
+        page: int = 1,
+        size: int = 20
 ) -> List[dict]:
     """
     판매율 높은 상품 목록 조회 (리뷰 개수 많은 순으로 정렬, 20개 반환)
     """
     # KokProductInfo와 KokPriceInfo를 LEFT JOIN해서 할인율 정보 가져오기
+    offset = (page - 1) * size
     stmt = (
         select(KokProductInfo, KokPriceInfo)
         .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
         .where(KokProductInfo.kok_review_cnt > 0)
         .order_by(KokProductInfo.kok_review_cnt.desc())
-        .limit(20)
+        .offset(offset)
+        .limit(size)
     )
     results = (await db.execute(stmt)).all()
     
@@ -632,7 +641,7 @@ async def get_kok_liked_products(
 async def get_kok_cart_items(
     db: AsyncSession,
     user_id: int,
-    limit: int = 100
+    limit: int = 50
 ) -> List[dict]:
     """
     사용자의 장바구니 상품 목록 조회
@@ -660,6 +669,7 @@ async def get_kok_cart_items(
         cart_items.append({
             "kok_cart_id": cart.kok_cart_id,
             "kok_product_id": product.kok_product_id,
+            "recipe_id": cart.recipe_id,
             "kok_product_name": product.kok_product_name,
             "kok_thumbnail": product.kok_thumbnail,
             "kok_product_price": product.kok_product_price,
@@ -676,7 +686,8 @@ async def add_kok_cart(
     db: AsyncSession,
     user_id: int,
     kok_product_id: int,
-    kok_quantity: int = 1
+    kok_quantity: int = 1,
+    recipe_id: Optional[int] = None
 ) -> dict:
     """
     장바구니에 상품 추가
@@ -691,23 +702,31 @@ async def add_kok_cart(
     existing_cart = result.scalar_one_or_none()
     
     if existing_cart:
-        # 이미 장바구니에 있는 경우 수량 증가
-        existing_cart.kok_quantity += kok_quantity
-        await db.commit()
+        # 이미 장바구니에 있는 경우 추가하지 않음
         return {
             "kok_cart_id": existing_cart.kok_cart_id,
-            "message": f"장바구니에 추가되었습니다. (수량: {existing_cart.kok_quantity})"
+            "message": "이미 장바구니에 있습니다."
         }
     else:
         # 새로운 상품 추가
         from datetime import datetime
         created_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         
+        # 레시피 FK 유효성 검증: 0, 음수, 존재하지 않으면 None 처리
+        valid_recipe_id: Optional[int] = None
+        if recipe_id and recipe_id > 0:
+            recipe_exists = (
+                await db.execute(select(Recipe.recipe_id).where(Recipe.recipe_id == recipe_id))
+            ).scalar_one_or_none()
+            if recipe_exists:
+                valid_recipe_id = recipe_id
+
         new_cart = KokCart(
             user_id=user_id,
             kok_product_id=kok_product_id,
             kok_quantity=kok_quantity,
-            kok_created_at=created_at
+            kok_created_at=created_at,
+            recipe_id=valid_recipe_id
         )
         
         db.add(new_cart)
@@ -774,6 +793,106 @@ async def delete_kok_cart_item(
     await db.delete(cart_item)
     await db.commit()
     return True
+
+
+async def create_orders_from_selected_carts(
+    db: AsyncSession,
+    user_id: int,
+    selected_items: List[dict],  # [{"cart_id": int, "quantity": int}]
+) -> dict:
+    """
+    장바구니에서 선택된 항목들로 한 번에 주문 생성
+    - 각 선택 항목에 대해 kok_price_id를 조회하여 KokOrder를 생성
+    - KokCart.recipe_id가 있으면 KokOrder.recipe_id로 전달
+    - 처리 후 선택된 장바구니 항목 삭제
+    """
+    if not selected_items:
+        raise ValueError("선택된 항목이 없습니다.")
+
+    # 상위 주문 생성
+    from services.order.models.order_model import Order, KokOrder
+    from services.order.crud.order_crud import get_status_by_code, create_notification_for_status_change
+    from datetime import datetime
+
+    main_order = Order(user_id=user_id, order_time=datetime.now())
+    db.add(main_order)
+    await db.flush()
+
+    # 필요한 데이터 일괄 조회
+    cart_ids = [item["cart_id"] for item in selected_items]
+
+    stmt = (
+        select(KokCart, KokProductInfo, KokPriceInfo)
+        .join(KokProductInfo, KokCart.kok_product_id == KokProductInfo.kok_product_id)
+        .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
+        .where(KokCart.kok_cart_id.in_(cart_ids))
+        .where(KokCart.user_id == user_id)
+    )
+    rows = (await db.execute(stmt)).all()
+    if not rows:
+        raise ValueError("선택된 장바구니 항목을 찾을 수 없습니다.")
+
+    # 초기 상태: 결제요청
+    payment_requested_status = await get_status_by_code(db, "PAYMENT_REQUESTED")
+    if not payment_requested_status:
+        raise ValueError("결제 요청 상태 코드를 찾을 수 없습니다.")
+
+    total_created = 0
+    created_kok_order_ids: List[int] = []
+    for cart, product, price in rows:
+        # 선택 항목의 수량 찾기
+        quantity = next((i["quantity"] for i in selected_items if i["cart_id"] == cart.kok_cart_id), None)
+        if quantity is None:
+            continue
+        if not price:
+            continue
+
+        # 주문 항목 생성
+        new_kok_order = KokOrder(
+            order_id=main_order.order_id,
+            kok_price_id=price.kok_price_id,
+            kok_product_id=product.kok_product_id,
+            quantity=quantity,
+            order_price=(price.kok_discounted_price or product.kok_product_price) * quantity,
+            recipe_id=cart.recipe_id,
+        )
+        db.add(new_kok_order)
+        # kok_order_id 확보
+        await db.flush()
+        total_created += 1
+
+        # 상태 이력 기록 (결제요청)
+        from services.order.models.order_model import KokOrderStatusHistory
+        status_history = KokOrderStatusHistory(
+            kok_order_id=new_kok_order.kok_order_id,
+            status_id=payment_requested_status.status_id,
+            changed_by=user_id,
+        )
+        db.add(status_history)
+
+        # 초기 알림 생성 (결제요청)
+        await create_notification_for_status_change(
+            db=db,
+            kok_order_id=new_kok_order.kok_order_id,
+            status_id=payment_requested_status.status_id,
+            user_id=user_id,
+        )
+
+        created_kok_order_ids.append(new_kok_order.kok_order_id)
+
+    await db.flush()
+
+    # 선택된 장바구니 삭제
+    from sqlalchemy import delete
+    await db.execute(delete(KokCart).where(KokCart.kok_cart_id.in_(cart_ids)))
+    await db.commit()
+
+    return {
+        "order_id": main_order.order_id,
+        "order_count": total_created,
+        "message": f"{total_created}개의 상품이 주문되었습니다.",
+        "kok_order_ids": created_kok_order_ids,
+    }
 
 # -----------------------------
 # 검색 관련 CRUD 함수

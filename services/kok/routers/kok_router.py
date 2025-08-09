@@ -41,6 +41,8 @@ from services.kok.schemas.kok_schema import (
     
     # 장바구니 관련 스키마
     KokCartItemsResponse,
+    KokCartOrderRequest,
+    KokCartOrderResponse,
     KokCartAddRequest,
     KokCartAddResponse,
     KokCartUpdateRequest,
@@ -78,6 +80,7 @@ from services.kok.crud.kok_crud import (
     
     # 장바구니 관련 CRUD
     get_kok_cart_items,
+    create_orders_from_selected_carts,
     add_kok_cart,
     update_kok_cart_quantity,
     delete_kok_cart_item,
@@ -101,6 +104,8 @@ router = APIRouter(prefix="/api/kok", tags=["kok"])
 
 @router.get("/discounted", response_model=KokDiscountedProductsResponse)
 async def get_discounted_products(
+        page: int = Query(1, ge=1, description="페이지 번호"),
+        size: int = Query(20, ge=1, le=100, description="페이지 크기"),
         current_user: User = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
@@ -108,7 +113,7 @@ async def get_discounted_products(
     """
     할인 특가 상품 리스트 조회
     """
-    products = await get_kok_discounted_products(db)
+    products = await get_kok_discounted_products(db, page=page, size=size)
     
     # 할인 상품 목록 조회 로그 기록
     if background_tasks:
@@ -123,6 +128,8 @@ async def get_discounted_products(
 
 @router.get("/top-selling", response_model=KokTopSellingProductsResponse)
 async def get_top_selling_products(
+        page: int = Query(1, ge=1, description="페이지 번호"),
+        size: int = Query(20, ge=1, le=100, description="페이지 크기"),
         current_user: User = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
@@ -130,7 +137,7 @@ async def get_top_selling_products(
     """
     판매율 높은 상품 리스트 조회
     """
-    products = await get_kok_top_selling_products(db)
+    products = await get_kok_top_selling_products(db, page=page, size=size)
     
     # 인기 상품 목록 조회 로그 기록
     if background_tasks:
@@ -302,71 +309,6 @@ async def get_product_detail(
     
     return product
 
-# ================================
-# 주문 관련 API
-# ================================
-
-@router.post("/orders/create", response_model=OrderRead, status_code=status.HTTP_201_CREATED)
-async def create_kok_order_api(
-    order_data: KokOrderCreate,
-    background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_maria_service_db),
-    user=Depends(get_current_user)
-):
-    """
-    콕 상품 주문 생성 API
-    """
-    # 사용자 ID 유효성 검증
-    if not await validate_user_exists(user.user_id, db):
-        raise HTTPException(status_code=400, detail="유효하지 않은 사용자 ID입니다")
-    
-    # 상태 마스터 초기화
-    await initialize_status_master(db)
-    
-    # 주문 생성
-    order = await create_kok_order(
-        db,
-        user.user_id,
-        order_data.kok_price_id,
-        order_data.kok_product_id,
-        order_data.quantity
-    )
-    
-    # kok_order 정보 명시적으로 로드
-    from sqlalchemy import select
-    from services.order.models.order_model import KokOrder
-    
-    kok_result = await db.execute(
-        select(KokOrder).where(KokOrder.order_id == order.order_id)
-    )
-    kok_order = kok_result.scalars().first()
-    
-    # Order 객체에 kok_order 정보 설정
-    order.kok_order = kok_order
-    
-    # 주문 생성 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log,
-            user_id=user.user_id,
-            event_type="kok_order_create",
-            event_data={
-                "order_id": order.order_id,
-                "kok_order_id": kok_order.kok_order_id,
-                "kok_price_id": order_data.kok_price_id,
-                "kok_product_id": order_data.kok_product_id,
-                "quantity": order_data.quantity
-            }
-        )
-        
-        # 자동 상태 업데이트 시작 (백그라운드에서 실행)
-        background_tasks.add_task(
-            start_auto_status_update,
-            kok_order_id=kok_order.kok_order_id,
-            db_session_generator=get_maria_service_db()
-        )
-    
-    return order
 
 # ================================
 # 검색 관련 API
@@ -546,9 +488,46 @@ async def get_liked_products(
 # 장바구니 관련 API
 # ================================
 
+@router.post("/carts", response_model=KokCartAddResponse, status_code=status.HTTP_201_CREATED)
+async def add_cart_item(
+    cart_data: KokCartAddRequest,
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    장바구니에 상품 추가
+    """
+    result = await add_kok_cart(
+        db,
+        current_user.user_id,
+        cart_data.kok_product_id,
+        cart_data.kok_quantity,
+        cart_data.recipe_id,
+    )
+    
+    # 장바구니 추가 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="cart_add", 
+            event_data={
+                "product_id": cart_data.kok_product_id,
+                "quantity": cart_data.kok_quantity,
+                "cart_id": result["kok_cart_id"],
+                "recipe_id": cart_data.recipe_id
+            }
+        )
+    
+    return KokCartAddResponse(
+        kok_cart_id=result["kok_cart_id"],
+        message=result["message"]
+    )
+    
 @router.get("/carts", response_model=KokCartItemsResponse)
 async def get_cart_items(
-    limit: int = Query(100, ge=1, le=200, description="조회할 장바구니 상품 개수"),
+    limit: int = Query(50, ge=1, le=200, description="조회할 장바구니 상품 개수"),
     current_user: User = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
@@ -572,39 +551,9 @@ async def get_cart_items(
     
     return {"cart_items": cart_items}
 
-@router.post("/carts", response_model=KokCartAddResponse, status_code=status.HTTP_201_CREATED)
-async def add_cart_item(
-    cart_data: KokCartAddRequest,
-    current_user: User = Depends(get_current_user),
-    background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    장바구니에 상품 추가
-    """
-    result = await add_kok_cart(db, current_user.user_id, cart_data.kok_product_id, cart_data.kok_quantity)
-    
-    # 장바구니 추가 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="cart_add", 
-            event_data={
-                "product_id": cart_data.kok_product_id,
-                "quantity": cart_data.kok_quantity,
-                "cart_id": result["kok_cart_id"]
-            }
-        )
-    
-    return KokCartAddResponse(
-        kok_cart_id=result["kok_cart_id"],
-        message=result["message"]
-    )
-
-@router.patch("/carts/{cart_item_id}", response_model=KokCartUpdateResponse)
+@router.patch("/carts/{cart_id}", response_model=KokCartUpdateResponse)
 async def update_cart_quantity(
-    cart_item_id: int,
+    cart_id: int,
     update_data: KokCartUpdateRequest,
     current_user: User = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
@@ -614,7 +563,7 @@ async def update_cart_quantity(
     장바구니 상품 수량 변경
     """
     try:
-        result = await update_kok_cart_quantity(db, current_user.user_id, cart_item_id, update_data.kok_quantity)
+        result = await update_kok_cart_quantity(db, current_user.user_id, cart_id, update_data.kok_quantity)
         
         # 장바구니 수량 변경 로그 기록
         if background_tasks:
@@ -623,7 +572,7 @@ async def update_cart_quantity(
                 user_id=current_user.user_id, 
                 event_type="cart_update", 
                 event_data={
-                    "cart_id": cart_item_id,
+                    "cart_id": cart_id,
                     "quantity": update_data.kok_quantity
                 }
             )
@@ -636,9 +585,9 @@ async def update_cart_quantity(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-@router.delete("/carts/{cart_item_id}", response_model=KokCartDeleteResponse)
+@router.delete("/carts/{cart_id}", response_model=KokCartDeleteResponse)
 async def delete_cart_item(
-    cart_item_id: int,
+    cart_id: int,
     current_user: User = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
@@ -646,7 +595,7 @@ async def delete_cart_item(
     """
     장바구니에서 상품 삭제
     """
-    deleted = await delete_kok_cart_item(db, current_user.user_id, cart_item_id)
+    deleted = await delete_kok_cart_item(db, current_user.user_id, cart_id)
     
     if deleted:
         # 장바구니 삭제 로그 기록
@@ -655,12 +604,45 @@ async def delete_cart_item(
                 send_user_log, 
                 user_id=current_user.user_id, 
                 event_type="cart_delete", 
-                event_data={
-                    "cart_id": cart_item_id
-                }
+                event_data={"cart_id": cart_id}
             )
         
         return KokCartDeleteResponse(message="장바구니에서 상품이 삭제되었습니다.")
     else:
         raise HTTPException(status_code=404, detail="장바구니 항목을 찾을 수 없습니다.")
+    
+
+# ================================
+# 주문 관련 API
+# ================================
+
+# 단일 상품 주문 API는 사용하지 않습니다. (멀티 카트 주문 API 사용)
+
+@router.post("/carts/order", response_model=KokCartOrderResponse, status_code=status.HTTP_201_CREATED)
+async def order_from_selected_carts(
+    request: KokCartOrderRequest,
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db),
+):
+    if not request.selected_items:
+        raise HTTPException(status_code=400, detail="선택된 항목이 없습니다.")
+
+    result = await create_orders_from_selected_carts(
+        db, current_user.user_id, [i.model_dump() for i in request.selected_items]
+    )
+
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log,
+            user_id=current_user.user_id,
+            event_type="cart_order_create",
+            event_data=result,
+        )
+
+    return KokCartOrderResponse(
+        order_id=result["order_id"],
+        order_count=result["order_count"],
+        message=result["message"],
+    )
     

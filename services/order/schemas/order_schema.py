@@ -18,6 +18,7 @@ class KokOrderCreate(BaseModel):
     kok_price_id: int
     kok_product_id: int
     quantity: int = 1
+    recipe_id: Optional[int] = None
 
 # class HomeShoppingOrderCreate(BaseModel):
 #     live_id: int
@@ -28,6 +29,7 @@ class KokOrderSchema(BaseModel):
     kok_product_id: int
     quantity: int
     order_price: Optional[int]
+    recipe_id: Optional[int] = None
     
     class Config:
         from_attributes = True
@@ -55,15 +57,10 @@ class OrderRead(BaseModel):
     user_id: int
     order_time: datetime
     cancel_time: Optional[datetime]
-    kok_order: Optional[KokOrderSchema] = None
+    kok_orders: List[KokOrderSchema] = []
     # homeshopping_order: Optional[HomeShoppingOrderSchema] = None
     
-    @field_validator('kok_order', mode='before')
-    @classmethod
-    def validate_relationships(cls, v):
-        if v is None:
-            return None
-        return v
+    # kok_orders는 빈 리스트 허용
     
     class Config:
         from_attributes = True

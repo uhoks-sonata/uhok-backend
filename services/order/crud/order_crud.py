@@ -15,6 +15,7 @@ from typing import List
 
 # 상태 코드 상수 정의
 STATUS_CODES = {
+    "PAYMENT_REQUESTED": "결제 요청",
     "PAYMENT_COMPLETED": "결제완료",
     "PREPARING": "상품준비중",
     "SHIPPING": "배송중",
@@ -26,6 +27,7 @@ STATUS_CODES = {
 
 # 알림 제목 매핑
 NOTIFICATION_TITLES = {
+    "PAYMENT_REQUESTED": "결제 요청",
     "PAYMENT_COMPLETED": "주문 완료",
     "PREPARING": "상품 준비 시작",
     "SHIPPING": "배송 시작",
@@ -37,6 +39,7 @@ NOTIFICATION_TITLES = {
 
 # 알림 메시지 매핑
 NOTIFICATION_MESSAGES = {
+    "PAYMENT_REQUESTED": "결제가 요청되었습니다.",
     "PAYMENT_COMPLETED": "주문이 성공적으로 완료되었습니다.",
     "PREPARING": "상품 준비를 시작합니다.",
     "SHIPPING": "상품이 배송을 시작합니다.",
@@ -106,7 +109,8 @@ async def create_kok_order(
         user_id: int,
         kok_price_id: int,
         kok_product_id: int,
-        quantity: int = 1
+        quantity: int = 1,
+        recipe_id: int | None = None
 ) -> Order:
     """
     콕 상품 주문 생성 및 할인 가격 반영
@@ -151,7 +155,8 @@ async def create_kok_order(
             kok_price_id=kok_price_id,
             kok_product_id=kok_product_id,
             quantity=quantity,
-            order_price=order_price
+            order_price=order_price,
+            recipe_id=recipe_id
         )
         db.add(new_kok_order)
         await db.flush()  # kok_order_id 생성
@@ -316,9 +321,10 @@ async def get_kok_order_status_history(db: AsyncSession, kok_order_id: int):
 async def auto_update_order_status(kok_order_id: int, db: AsyncSession):
     """
     주문 후 자동으로 상태를 업데이트하는 임시 함수
-    PAYMENT_COMPLETED -> PREPARING -> SHIPPING -> DELIVERED 순서로 업데이트
+    PAYMENT_REQUESTED(선택) -> PAYMENT_COMPLETED -> PREPARING -> SHIPPING -> DELIVERED 순서로 업데이트
     """
     status_sequence = [
+        "PAYMENT_REQUESTED",
         "PAYMENT_COMPLETED",
         "PREPARING", 
         "SHIPPING",
@@ -327,7 +333,7 @@ async def auto_update_order_status(kok_order_id: int, db: AsyncSession):
     
     for i, status_code in enumerate(status_sequence):
         try:
-            # 첫 번째 상태(PAYMENT_COMPLETED)는 이미 설정되어 있으므로 건너뜀
+            # 첫 단계는 이미 설정되었을 수 있으므로 건너뜀
             if i == 0:
                 print(f"주문 {kok_order_id} 상태가 '{status_code}'로 이미 설정되어 있습니다.")
                 continue
@@ -396,7 +402,7 @@ async def get_order_by_id(db: AsyncSession, order_id: int) -> dict:
     kok_result = await db.execute(
         select(KokOrder).where(KokOrder.order_id == order.order_id)
     )
-    kok_order = kok_result.scalars().first()
+    kok_orders = kok_result.scalars().all()
     
     # 딕셔너리 형태로 반환
     return {
@@ -404,7 +410,7 @@ async def get_order_by_id(db: AsyncSession, order_id: int) -> dict:
         "user_id": order.user_id,
         "order_time": order.order_time,
         "cancel_time": order.cancel_time,
-        "kok_order": kok_order,
+        "kok_orders": kok_orders,
         "homeshopping_order": None
     }
 
