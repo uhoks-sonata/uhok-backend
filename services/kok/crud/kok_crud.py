@@ -182,18 +182,22 @@ async def get_kok_product_list(
 # -----------------------------
 
 async def get_kok_discounted_products(
-        db: AsyncSession
+        db: AsyncSession,
+        page: int = 1,
+        size: int = 20
 ) -> List[dict]:
     """
     할인 특가 상품 목록 조회 (할인율 높은 순으로 정렬)
     """
     # KokProductInfo와 KokPriceInfo를 JOIN해서 할인율 정보 가져오기
+    offset = (page - 1) * size
     stmt = (
         select(KokProductInfo, KokPriceInfo)
         .join(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
         .where(KokPriceInfo.kok_discount_rate > 0)
         .order_by(KokPriceInfo.kok_discount_rate.desc())
-        .limit(20)
+        .offset(offset)
+        .limit(size)
     )
     results = (await db.execute(stmt)).all()
     
@@ -216,18 +220,22 @@ async def get_kok_discounted_products(
     return discounted_products
 
 async def get_kok_top_selling_products(
-        db: AsyncSession
+        db: AsyncSession,
+        page: int = 1,
+        size: int = 20
 ) -> List[dict]:
     """
     판매율 높은 상품 목록 조회 (리뷰 개수 많은 순으로 정렬, 20개 반환)
     """
     # KokProductInfo와 KokPriceInfo를 LEFT JOIN해서 할인율 정보 가져오기
+    offset = (page - 1) * size
     stmt = (
         select(KokProductInfo, KokPriceInfo)
         .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
         .where(KokProductInfo.kok_review_cnt > 0)
         .order_by(KokProductInfo.kok_review_cnt.desc())
-        .limit(20)
+        .offset(offset)
+        .limit(size)
     )
     results = (await db.execute(stmt)).all()
     

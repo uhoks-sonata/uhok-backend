@@ -101,6 +101,8 @@ router = APIRouter(prefix="/api/kok", tags=["kok"])
 
 @router.get("/discounted", response_model=KokDiscountedProductsResponse)
 async def get_discounted_products(
+        page: int = Query(1, ge=1, description="페이지 번호"),
+        size: int = Query(20, ge=1, le=100, description="페이지 크기"),
         current_user: User = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
@@ -108,7 +110,7 @@ async def get_discounted_products(
     """
     할인 특가 상품 리스트 조회
     """
-    products = await get_kok_discounted_products(db)
+    products = await get_kok_discounted_products(db, page=page, size=size)
     
     # 할인 상품 목록 조회 로그 기록
     if background_tasks:
@@ -123,6 +125,8 @@ async def get_discounted_products(
 
 @router.get("/top-selling", response_model=KokTopSellingProductsResponse)
 async def get_top_selling_products(
+        page: int = Query(1, ge=1, description="페이지 번호"),
+        size: int = Query(20, ge=1, le=100, description="페이지 크기"),
         current_user: User = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
@@ -130,7 +134,7 @@ async def get_top_selling_products(
     """
     판매율 높은 상품 리스트 조회
     """
-    products = await get_kok_top_selling_products(db)
+    products = await get_kok_top_selling_products(db, page=page, size=size)
     
     # 인기 상품 목록 조회 로그 기록
     if background_tasks:
