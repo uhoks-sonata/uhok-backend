@@ -16,7 +16,7 @@ from services.order.schemas.order_schema import (
     KokNotificationSchema,
     KokNotificationListResponse
 )
-from services.order.models.order_model import Order
+from services.order.models.order_model import Order, KokOrder
 from services.order.crud.order_crud import (
     get_order_by_id, 
     update_kok_order_status, 
