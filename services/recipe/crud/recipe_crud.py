@@ -43,7 +43,7 @@ async def recommend_recipes_by_ingredients(
     amounts: Optional[List[str]] = None,
     units: Optional[List[str]] = None,
     page: int = 1,
-    size: int = 5
+    size: int = 3
 ) -> Tuple[List[Dict], int]:
     """
     재료명, 분량, 단위 기반 레시피 추천 (matched_ingredient_count 포함)
@@ -134,21 +134,29 @@ async def recommend_recipes_by_ingredients(
     # DataFrame으로 변환
     recipe_df = pd.DataFrame(recipe_df)
 
-    # 5-4. 순차적 재고 소진 알고리즘 실행
-    recommended, remaining_stock = recommend_sequentially_for_inventory(
-        initial_ingredients, 
-        recipe_material_map, 
-        recipe_df
+    # 5-4. 순차적 재고 소진 알고리즘 실행 (요청 페이지의 끝까지 생성하면 조기 중단)
+    max_results_needed = page * size
+    recommended, remaining_stock, early_stopped = recommend_sequentially_for_inventory(
+        initial_ingredients,
+        recipe_material_map,
+        recipe_df,
+        max_results=max_results_needed
     )
 
     # 5-5. 페이지네이션 적용
     start, end = (page-1)*size, (page-1)*size + size
     paginated_recommended = recommended[start:end]
-    
-    return paginated_recommended, len(recommended)
+
+    # 전체 개수: 조기중단이면 정확한 total 계산이 어려우므로 최소치 + has_more 힌트 반영
+    if early_stopped:
+        # 요청한 페이지 범위까지는 존재하며, 그 이후가 더 있을 가능성을 1 더해 표현
+        approx_total = (page - 1) * size + len(paginated_recommended) + 1
+        return paginated_recommended, approx_total
+    else:
+        return paginated_recommended, len(recommended)
 
 
-def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_map, recipe_df):
+def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_map, recipe_df, max_results: Optional[int] = None):
     def _norm(u):
         return (u or "").strip().lower()
 
@@ -162,6 +170,7 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
     recommended = []
     used_recipe_ids = set()
 
+    early_stopped = False
     while True:
         current_ingredients = [k for k, v in remaining_stock.items() if v['amount'] > 1e-3]
         if not current_ingredients:
@@ -220,44 +229,85 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
         recommended.append(recipe_info)
         used_recipe_ids.add(best_recipe)
 
-    return recommended, remaining_stock
+        # 최대 결과 수에 도달하면 조기 중단
+        if max_results is not None and len(recommended) >= max_results:
+            early_stopped = True
+            break
+
+    return recommended, remaining_stock, early_stopped
 
 
 async def search_recipes_by_keyword(
     db: AsyncSession,
     keyword: str,
     page: int = 1,
-    size: int = 5
+    size: int = 5,
+    method: str = "recipe",
 ) -> Tuple[List[dict], int]:
     """
-    [MariaDB 키워드 검색] 레시피명(키워드) 기반 레시피 검색 (페이지네이션 지원)
-    - 키워드가 포함된 레시피를 검색하여 반환
+    레시피 검색 (페이지네이션)
+    - method == 'recipe': 레시피명(키워드) 부분일치 검색
+    - method == 'ingredient': 식재료명(쉼표 구분) 포함 레시피 검색(모든 재료 포함)
     """
     # MariaDB에서 키워드 검색으로 레시피 조회
     # MariaDB 세션 생성
     maria_db = await anext(get_maria_service_db())
     try:
-        # 키워드가 포함된 레시피 검색
-        stmt = (
-            select(Recipe)
-            .where(Recipe.cooking_name.contains(keyword) | Recipe.recipe_title.contains(keyword))
-            .order_by(desc(Recipe.scrap_count))
-        )
-        result = await maria_db.execute(stmt)
-        recipes = result.scalars().all()
-        
-        # 결과 구성
-        result_list = []
-        for recipe in recipes:
-            result_list.append({
-                **recipe.__dict__,
-                "recipe_url": get_recipe_url(recipe.recipe_id)
-            })
-        
-        total = len(result_list)
-        start, end = (page-1)*size, (page-1)*size + size
-        paginated = result_list[start:end]
-        return paginated, total
+        if method == "ingredient":
+            # 쉼표로 분리된 재료 파싱
+            ingredients = [i.strip() for i in keyword.split(",") if i.strip()]
+            if not ingredients:
+                return [], 0
+
+            # 모든 입력 재료를 포함하는 레시피 추출
+            from sqlalchemy import func as sa_func
+            ids_stmt = (
+                select(Material.recipe_id)
+                .where(Material.material_name.in_(ingredients))
+                .group_by(Material.recipe_id)
+                .having(sa_func.count(sa_func.distinct(Material.material_name)) == len(ingredients))
+            )
+            ids_rows = await maria_db.execute(ids_stmt)
+            recipe_ids = [rid for (rid,) in ids_rows.all()]
+            if not recipe_ids:
+                return [], 0
+
+            # 상세 정보 로드 (정렬은 스크랩수 기준)
+            rec_stmt = (
+                select(Recipe)
+                .where(Recipe.recipe_id.in_(recipe_ids))
+                .order_by(desc(Recipe.scrap_count))
+            )
+            rec_rows = await maria_db.execute(rec_stmt)
+            recipes = rec_rows.scalars().all()
+
+            result_list = [{**r.__dict__, "recipe_url": get_recipe_url(r.recipe_id)} for r in recipes]
+            total = len(result_list)
+            start, end = (page-1)*size, (page-1)*size + size
+            paginated = result_list[start:end]
+            return paginated, total
+        else:
+            # 키워드가 포함된 레시피 검색
+            stmt = (
+                select(Recipe)
+                .where(Recipe.cooking_name.contains(keyword) | Recipe.recipe_title.contains(keyword))
+                .order_by(desc(Recipe.scrap_count))
+            )
+            result = await maria_db.execute(stmt)
+            recipes = result.scalars().all()
+            
+            # 결과 구성
+            result_list = []
+            for recipe in recipes:
+                result_list.append({
+                    **recipe.__dict__,
+                    "recipe_url": get_recipe_url(recipe.recipe_id)
+                })
+            
+            total = len(result_list)
+            start, end = (page-1)*size, (page-1)*size + size
+            paginated = result_list[start:end]
+            return paginated, total
     finally:
         await maria_db.close()
 
