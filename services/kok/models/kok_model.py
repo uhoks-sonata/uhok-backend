@@ -5,6 +5,7 @@
 """
 
 from sqlalchemy import Column, Integer, String, ForeignKey, Float, Text, Boolean, DateTime
+from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from common.database.base_mariadb import MariaBase
@@ -220,6 +221,11 @@ class KokCart(MariaBase):
     kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("FCT_KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=False)  # 제품 ID
     kok_quantity = Column("KOK_QUANTITY", Integer, nullable=False)  # 수량
     kok_created_at = Column("KOK_CREATED_AT", String(20), nullable=True)  # 추가 시간
+    recipe_id = Column("RECIPE_ID", Integer, ForeignKey("FCT_RECIPE.RECIPE_ID", onupdate="RESTRICT", ondelete="RESTRICT"), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("USER_ID", "KOK_PRODUCT_ID", name="UK_KOK_CART_USER_PRODUCT"),
+    )
 
     # 제품 정보와 N:1 관계 설정
     product = relationship(
