@@ -16,14 +16,14 @@ from services.order.schemas.order_schema import (
     KokNotificationSchema,
     KokNotificationListResponse
 )
-from services.order.models.order_model import Order
+from services.order.models.order_model import Order, KokOrder
 from services.order.crud.order_crud import (
-    get_order_by_id, 
-    update_kok_order_status, 
-    get_kok_order_with_current_status, 
+    get_order_by_id,
+    update_kok_order_status,
+    get_kok_order_with_current_status,
     get_kok_order_status_history,
     start_auto_status_update,
-    get_kok_order_notifications_history
+    get_kok_order_notifications_history,
 )
 from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
@@ -42,7 +42,6 @@ async def list_orders(
     """
     내 주문 리스트 (공통+서비스별 상세 포함)
     """
-    from services.order.models.order_model import Order, KokOrder
     # from services.order.models.order_model import HomeShoppingOrder
 
     # 주문 기본 정보 조회
@@ -61,7 +60,7 @@ async def list_orders(
         kok_result = await db.execute(
             select(KokOrder).where(KokOrder.order_id == order.order_id)
         )
-        kok_order = kok_result.scalars().first()
+        kok_orders = kok_result.scalars().all()
         
         # OrderRead 형태로 변환
         order_data = {
@@ -69,7 +68,7 @@ async def list_orders(
             "user_id": order.user_id,
             "order_time": order.order_time,
             "cancel_time": order.cancel_time,
-            "kok_order": kok_order,
+            "kok_orders": kok_orders,
             "homeshopping_order": None
         }
         order_list.append(order_data)
@@ -141,7 +140,7 @@ async def recent_orders(
         kok_result = await db.execute(
             select(KokOrder).where(KokOrder.order_id == order.order_id)
         )
-        kok_order = kok_result.scalars().first()
+        kok_orders = kok_result.scalars().all()
         
         # OrderRead 형태로 변환
         order_data = {
@@ -149,7 +148,7 @@ async def recent_orders(
             "user_id": order.user_id,
             "order_time": order.order_time,
             "cancel_time": order.cancel_time,
-            "kok_order": kok_order,
+            "kok_orders": kok_orders,
             "homeshopping_order": None
         }
         order_list.append(order_data)

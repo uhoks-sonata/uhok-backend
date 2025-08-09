@@ -396,7 +396,7 @@ async def get_order_by_id(db: AsyncSession, order_id: int) -> dict:
     kok_result = await db.execute(
         select(KokOrder).where(KokOrder.order_id == order.order_id)
     )
-    kok_order = kok_result.scalars().first()
+    kok_orders = kok_result.scalars().all()
     
     # 딕셔너리 형태로 반환
     return {
@@ -404,7 +404,7 @@ async def get_order_by_id(db: AsyncSession, order_id: int) -> dict:
         "user_id": order.user_id,
         "order_time": order.order_time,
         "cancel_time": order.cancel_time,
-        "kok_order": kok_order,
+        "kok_orders": kok_orders,
         "homeshopping_order": None
     }
 

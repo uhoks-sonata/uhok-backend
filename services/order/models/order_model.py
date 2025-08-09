@@ -29,7 +29,7 @@ class Order(MariaBase):
     order_time = Column("ORDER_TIME", DateTime, nullable=False)
     cancel_time = Column("CANCEL_TIME", DateTime, nullable=True)
 
-    kok_order = relationship("KokOrder", uselist=False, back_populates="order", lazy="noload")
+    kok_orders = relationship("KokOrder", uselist=True, back_populates="order", lazy="noload")
     # homeshopping_order = relationship("HomeShoppingOrder", uselist=False, back_populates="order", lazy="noload")
 
 class KokOrder(MariaBase):
@@ -46,7 +46,7 @@ class KokOrder(MariaBase):
     order_price = Column("ORDER_PRICE", Integer, nullable=True)
     recipe_id = Column("RECIPE_ID", Integer, ForeignKey("FCT_RECIPE.RECIPE_ID", onupdate="RESTRICT", ondelete="RESTRICT"), nullable=True)
 
-    order = relationship("Order", back_populates="kok_order", lazy="noload")
+    order = relationship("Order", back_populates="kok_orders", lazy="noload")
     status_history = relationship("KokOrderStatusHistory", back_populates="kok_order", lazy="noload")
 
 class KokOrderStatusHistory(MariaBase):
