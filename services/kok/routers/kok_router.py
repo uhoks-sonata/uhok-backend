@@ -606,9 +606,9 @@ async def add_cart_item(
         message=result["message"]
     )
 
-@router.patch("/carts/{cart_item_id}", response_model=KokCartUpdateResponse)
+@router.patch("/carts/{cart_id}", response_model=KokCartUpdateResponse)
 async def update_cart_quantity(
-    cart_item_id: int,
+    cart_id: int,
     update_data: KokCartUpdateRequest,
     current_user: User = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
@@ -618,7 +618,7 @@ async def update_cart_quantity(
     장바구니 상품 수량 변경
     """
     try:
-        result = await update_kok_cart_quantity(db, current_user.user_id, cart_item_id, update_data.kok_quantity)
+        result = await update_kok_cart_quantity(db, current_user.user_id, cart_id, update_data.kok_quantity)
         
         # 장바구니 수량 변경 로그 기록
         if background_tasks:
@@ -627,7 +627,7 @@ async def update_cart_quantity(
                 user_id=current_user.user_id, 
                 event_type="cart_update", 
                 event_data={
-                    "cart_id": cart_item_id,
+                    "cart_id": cart_id,
                     "quantity": update_data.kok_quantity
                 }
             )
@@ -640,9 +640,9 @@ async def update_cart_quantity(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-@router.delete("/carts/{cart_item_id}", response_model=KokCartDeleteResponse)
+@router.delete("/carts/{cart_id}", response_model=KokCartDeleteResponse)
 async def delete_cart_item(
-    cart_item_id: int,
+    cart_id: int,
     current_user: User = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
@@ -650,7 +650,7 @@ async def delete_cart_item(
     """
     장바구니에서 상품 삭제
     """
-    deleted = await delete_kok_cart_item(db, current_user.user_id, cart_item_id)
+    deleted = await delete_kok_cart_item(db, current_user.user_id, cart_id)
     
     if deleted:
         # 장바구니 삭제 로그 기록
@@ -659,9 +659,7 @@ async def delete_cart_item(
                 send_user_log, 
                 user_id=current_user.user_id, 
                 event_type="cart_delete", 
-                event_data={
-                    "cart_id": cart_item_id
-                }
+                event_data={"cart_id": cart_id}
             )
         
         return KokCartDeleteResponse(message="장바구니에서 상품이 삭제되었습니다.")
