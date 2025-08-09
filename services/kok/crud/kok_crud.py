@@ -588,7 +588,7 @@ async def toggle_kok_likes(
 async def get_kok_liked_products(
     db: AsyncSession,
     user_id: int,
-    limit: int = 50
+    limit: int = 20
 ) -> List[dict]:
     """
     사용자가 찜한 상품 목록 조회
