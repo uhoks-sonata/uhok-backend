@@ -101,17 +101,6 @@ async def login(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.get("/info", response_model=UserOut, status_code=status.HTTP_200_OK)
-async def get_user_info(
-    current_user: UserOut = Depends(get_current_user)
-):
-    """
-    로그인한 사용자의 기본 정보를 반환합니다.
-    - JWT 토큰 인증 필요 (헤더: Authorization: Bearer <token>)
-    - 응답: user_id, username, email
-    """
-    return current_user
-
 
 @router.post("/logout", status_code=status.HTTP_200_OK)
 async def logout(
@@ -155,6 +144,18 @@ async def logout(
         )
     
     return {"message": "로그아웃이 완료되었습니다."}
+
+    
+@router.get("/info", response_model=UserOut, status_code=status.HTTP_200_OK)
+async def get_user_info(
+    current_user: UserOut = Depends(get_current_user)
+):
+    """
+    로그인한 사용자의 기본 정보를 반환합니다.
+    - JWT 토큰 인증 필요 (헤더: Authorization: Bearer <token>)
+    - 응답: user_id, username, email
+    """
+    return current_user
 
 
 # @router.post("/logout/all", status_code=status.HTTP_200_OK)
