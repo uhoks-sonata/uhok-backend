@@ -54,15 +54,15 @@
 
 ### JWT Blacklist Table
 ```sql
-CREATE TABLE jwt_blacklist (
-    token_hash VARCHAR(255) PRIMARY KEY,
-    blacklisted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    expires_at DATETIME NOT NULL,
-    user_id VARCHAR(36),
-    metadata TEXT,
-    INDEX ix_jwt_blacklist_token_hash (token_hash),
-    INDEX ix_jwt_blacklist_user_id (user_id),
-    INDEX ix_jwt_blacklist_expires_at (expires_at)
+CREATE TABLE JWT_BLACKLIST (
+    TOKEN_HASH VARCHAR(255) PRIMARY KEY,
+    BLACKLISTED_AT DATETIME DEFAULT CURRENT_TIMESTAMP,
+    EXPIRES_AT DATETIME NOT NULL,
+    USER_ID VARCHAR(36),
+    METADATA TEXT,
+    INDEX ix_JWT_BLACKLIST_TOKEN_HASH (TOKEN_HASH),
+    INDEX ix_JWT_BLACKLIST_USER_ID (USER_ID),
+    INDEX ix_JWT_BLACKLIST_EXPIRES_AT (EXPIRES_AT)
 );
 ```
 

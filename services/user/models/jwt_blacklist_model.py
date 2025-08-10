@@ -9,19 +9,19 @@ from common.database.base_mariadb import MariaBase
 
 
 class JWTBlacklist(MariaBase):
-    __tablename__ = "jwt_blacklist"
+    __tablename__ = "JWT_BLACKLIST"
     
     # JWT 토큰의 해시값 (토큰 자체를 저장하지 않음)
-    token_hash = Column(String(255), primary_key=True, index=True)
+    token_hash = Column("TOKEN_HASH", String(255), primary_key=True, index=True)
     
     # 토큰이 블랙리스트에 추가된 시간
-    blacklisted_at = Column(DateTime(timezone=True), server_default=func.now())
+    blacklisted_at = Column("BLACKLISTED_AT", DateTime(timezone=True), server_default=func.now())
     
     # 토큰 만료 시간 (JWT의 exp 클레임에서 추출)
-    expires_at = Column(DateTime(timezone=True), nullable=False)
+    expires_at = Column("EXPIRES_AT", DateTime(timezone=True), nullable=False)
     
     # 사용자 ID (선택적, 로그 추적용)
-    user_id = Column(String(36), nullable=True, index=True)
+    user_id = Column("USER_ID", String(36), nullable=True, index=True)
     
     # 추가 메타데이터 (선택적)
-    metadata = Column(Text, nullable=True)
+    metadata = Column("METADATA", Text, nullable=True)

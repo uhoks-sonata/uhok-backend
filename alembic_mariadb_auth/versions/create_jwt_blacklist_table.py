@@ -18,24 +18,24 @@ depends_on = None
 
 def upgrade():
     # JWT 블랙리스트 테이블 생성
-    op.create_table('jwt_blacklist',
-        sa.Column('token_hash', sa.String(255), nullable=False),
-        sa.Column('blacklisted_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=True),
-        sa.Column('expires_at', sa.DateTime(timezone=True), nullable=False),
-        sa.Column('user_id', sa.String(36), nullable=True),
-        sa.Column('metadata', sa.Text(), nullable=True),
-        sa.PrimaryKeyConstraint('token_hash')
+    op.create_table('JWT_BLACKLIST',
+        sa.Column('TOKEN_HASH', sa.String(255), nullable=False),
+        sa.Column('BLACKLISTED_AT', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=True),
+        sa.Column('EXPIRES_AT', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('USER_ID', sa.String(36), nullable=True),
+        sa.Column('METADATA', sa.Text(), nullable=True),
+        sa.PrimaryKeyConstraint('TOKEN_HASH')
     )
     
     # 인덱스 생성
-    op.create_index('ix_jwt_blacklist_token_hash', 'jwt_blacklist', ['token_hash'])
-    op.create_index('ix_jwt_blacklist_user_id', 'jwt_blacklist', ['user_id'])
-    op.create_index('ix_jwt_blacklist_expires_at', 'jwt_blacklist', ['expires_at'])
+    op.create_index('ix_JWT_BLACKLIST_TOKEN_HASH', 'JWT_BLACKLIST', ['TOKEN_HASH'])
+    op.create_index('ix_JWT_BLACKLIST_USER_ID', 'JWT_BLACKLIST', ['USER_ID'])
+    op.create_index('ix_JWT_BLACKLIST_EXPIRES_AT', 'JWT_BLACKLIST', ['EXPIRES_AT'])
 
 
 def downgrade():
     # 테이블 삭제
-    op.drop_index('ix_jwt_blacklist_expires_at', table_name='jwt_blacklist')
-    op.drop_index('ix_jwt_blacklist_user_id', table_name='jwt_blacklist')
-    op.drop_index('ix_jwt_blacklist_token_hash', table_name='jwt_blacklist')
-    op.drop_table('jwt_blacklist')
+    op.drop_index('ix_JWT_BLACKLIST_EXPIRES_AT', table_name='JWT_BLACKLIST')
+    op.drop_index('ix_JWT_BLACKLIST_USER_ID', table_name='JWT_BLACKLIST')
+    op.drop_index('ix_JWT_BLACKLIST_TOKEN_HASH', table_name='JWT_BLACKLIST')
+    op.drop_table('JWT_BLACKLIST')
