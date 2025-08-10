@@ -27,9 +27,10 @@ from services.order.crud.order_crud import (
 from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
 from common.log_utils import send_user_log
-
+from common.logger import get_logger
 
 router = APIRouter(prefix="/api/orders", tags=["Orders"])
+logger = get_logger("order_router")
 
 @router.get("/", response_model=List[OrderRead])
 async def list_orders(
@@ -258,6 +259,7 @@ async def update_kok_order_status_api(
         )
         
     except Exception as e:
+        logger.error(f"주문 상태 업데이트 실패: kok_order_id={kok_order_id}, error={str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/kok/{kok_order_id}/status", response_model=KokOrderStatusResponse)
@@ -423,6 +425,7 @@ async def confirm_payment(
 
         return {"message": "결제가 완료되어 상태가 변경되었습니다.", "kok_order_id": kok_order_id}
     except Exception as e:
+        logger.error(f"결제 확인 실패: kok_order_id={kok_order_id}, error={str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
 # 결제완료 콜백(주문 단위): 해당 order_id의 모든 KokOrder를 PAYMENT_COMPLETED로 변경
@@ -467,6 +470,7 @@ async def confirm_payment_by_order(
 
         return {"message": "결제가 완료되어 모든 KokOrder 상태가 변경되었습니다.", "order_id": order_id}
     except Exception as e:
+        logger.error(f"주문 단위 결제 확인 실패: order_id={order_id}, error={str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
 # @router.patch("/kok/notifications/{notification_id}/read")

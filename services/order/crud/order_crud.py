@@ -2,16 +2,19 @@
 ORDERS + 서비스별 주문 상세를 트랜잭션으로 한 번에 생성/조회 (HomeShopping 명칭 통일)
 """
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from services.order.models.order_model import (
     Order, KokOrder, StatusMaster, KokOrderStatusHistory
 )
-# from services.order.models.order_model import HomeShoppingOrder
 from services.kok.models.kok_model import KokPriceInfo, KokNotification
+# from services.order.models.order_model import HomeShoppingOrder
 from common.database.mariadb_auth import get_maria_auth_db
+from common.logger import get_logger
 from typing import List
+
+logger = get_logger("order_crud")
 
 # 상태 코드 상수 정의
 STATUS_CODES = {
@@ -183,7 +186,7 @@ async def create_kok_order(
         
     except Exception as e:
         await db.rollback()
-        print(f"주문 생성 실패: {str(e)}")
+        logger.error(f"주문 생성 실패: {str(e)}")
         raise e
 
 async def create_notification_for_status_change(
@@ -335,7 +338,7 @@ async def auto_update_order_status(kok_order_id: int, db: AsyncSession):
         try:
             # 첫 단계는 이미 설정되었을 수 있으므로 건너뜀
             if i == 0:
-                print(f"주문 {kok_order_id} 상태가 '{status_code}'로 이미 설정되어 있습니다.")
+                logger.info(f"주문 {kok_order_id} 상태가 '{status_code}'로 이미 설정되어 있습니다.")
                 continue
                 
             # 5초 대기
@@ -349,10 +352,10 @@ async def auto_update_order_status(kok_order_id: int, db: AsyncSession):
                 changed_by=1  # 시스템 자동 업데이트
             )
             
-            print(f"주문 {kok_order_id} 상태가 '{status_code}'로 업데이트되었습니다.")
+            logger.info(f"주문 {kok_order_id} 상태가 '{status_code}'로 업데이트되었습니다.")
             
         except Exception as e:
-            print(f"주문 {kok_order_id} 상태 업데이트 실패: {str(e)}")
+            logger.error(f"주문 {kok_order_id} 상태 업데이트 실패: {str(e)}")
             break
 
 async def start_auto_status_update(kok_order_id: int, db_session_generator):
@@ -363,7 +366,7 @@ async def start_auto_status_update(kok_order_id: int, db_session_generator):
         try:
             await auto_update_order_status(kok_order_id, db)
         except Exception as e:
-            print(f"자동 상태 업데이트 중 오류 발생: {str(e)}")
+            logger.error(f"자동 상태 업데이트 중 오류 발생: {str(e)}")
         finally:
             await db.close()
         break  # 한 번만 실행

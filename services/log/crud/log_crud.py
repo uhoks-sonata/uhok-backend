@@ -5,6 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from services.log.models.log_model import UserLog
 from common.errors import BadRequestException, InternalServerErrorException
+from common.logger import get_logger
+
+logger = get_logger("log_crud")
 
 async def create_user_log(db: AsyncSession, log_data: dict) -> UserLog:
     """
@@ -35,9 +38,10 @@ async def create_user_log(db: AsyncSession, log_data: dict) -> UserLog:
         db.add(log)
         await db.commit()
         await db.refresh(log)
+        logger.info(f"User log created successfully: user_id={log_data['user_id']}, event_type={log_data['event_type']}")
         return log
     except Exception as e:
-        print(f"[ERROR] create_user_log: {e}")
+        logger.error(f"Failed to create user log: {e}")
         raise InternalServerErrorException("로그 저장 중 서버 오류가 발생했습니다.")
 
 
@@ -54,7 +58,9 @@ async def get_user_logs(db: AsyncSession, user_id: int, limit: int = 50):
             .order_by(UserLog.created_at.desc())
             .limit(limit)
         )
-        return result.scalars().all()
+        logs = result.scalars().all()
+        logger.info(f"Retrieved {len(logs)} logs for user_id={user_id}")
+        return logs
     except Exception as e:
-        print(f"[ERROR] get_user_logs: {e}")
+        logger.error(f"Failed to get user logs for user_id={user_id}: {e}")
         raise InternalServerErrorException("로그 조회 중 서버 오류가 발생했습니다.")

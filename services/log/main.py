@@ -5,6 +5,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from services.log.routers import log_router
+from common.logger import get_logger
+
+logger = get_logger("log_service")
 
 app = FastAPI(title="Log")
 
@@ -17,3 +20,7 @@ app.add_middleware(
 )
 
 app.include_router(log_router.router)
+
+logger.info("Log Service initialized successfully")
+logger.info("CORS middleware configured for localhost:3001")
+logger.info("Log router included")

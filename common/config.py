@@ -4,6 +4,9 @@ import os
 from pydantic_settings import BaseSettings
 from pydantic import Field
 from functools import lru_cache
+from common.logger import get_logger
+
+logger = get_logger("config")
 
 class Settings(BaseSettings):
     jwt_secret: str = Field(..., env="JWT_SECRET")
@@ -30,4 +33,12 @@ class Settings(BaseSettings):
 
 @lru_cache()
 def get_settings() -> Settings:
-    return Settings()
+    logger.debug("Loading application settings from environment variables")
+    try:
+        settings = Settings()
+        logger.info(f"Settings loaded successfully: app_name={settings.app_name}, debug={settings.debug}")
+        logger.debug(f"Database URLs configured: MariaDB auth, MariaDB service, PostgreSQL recommend, PostgreSQL log")
+        return settings
+    except Exception as e:
+        logger.error(f"Failed to load settings: {str(e)}")
+        raise

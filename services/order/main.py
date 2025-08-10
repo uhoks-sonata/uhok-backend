@@ -4,6 +4,9 @@ order 서비스 단독 실행용 (비동기 엔진 기반)
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from services.order.routers import order_router
+from common.logger import get_logger
+
+logger = get_logger("order_service")
 
 app = FastAPI(title="Order Service")
 
@@ -16,3 +19,7 @@ app.add_middleware(
 )
 
 app.include_router(order_router.router)
+
+logger.info("Order Service initialized successfully")
+logger.info("CORS middleware configured for localhost:3001")
+logger.info("Order router included")

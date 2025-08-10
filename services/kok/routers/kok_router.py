@@ -5,18 +5,9 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
-from datetime import datetime
 
 from common.dependencies import get_current_user
 from services.user.models.user_model import User
-from services.order.schemas.order_schema import KokOrderCreate, OrderRead
-from services.order.crud.order_crud import (
-    create_kok_order, 
-    validate_user_exists, 
-    initialize_status_master, 
-    start_auto_status_update
-)
 from services.kok.schemas.kok_schema import (
     # 제품 관련 스키마
     KokProductDetailResponse,
@@ -61,8 +52,6 @@ from services.kok.schemas.kok_schema import (
 from services.kok.crud.kok_crud import (
     # 제품 관련 CRUD
     get_kok_product_full_detail,
-    get_kok_product_list,
-    get_kok_product_by_id,
     get_kok_product_info,
     get_kok_product_tabs,
     get_kok_product_seller_details,
@@ -74,7 +63,6 @@ from services.kok.crud.kok_crud import (
     get_kok_discounted_products,
     get_kok_top_selling_products,
     get_kok_store_best_items,
-    get_kok_unpurchased,
     
     # 찜 관련 CRUD
     toggle_kok_likes,
@@ -97,9 +85,10 @@ from services.kok.crud.kok_crud import (
 
 from common.database.mariadb_service import get_maria_service_db
 from common.log_utils import send_user_log
-import asyncio
+from common.logger import get_logger
 
 router = APIRouter(prefix="/api/kok", tags=["kok"])
+logger = get_logger("kok_router")
 
 # ================================
 # 메인화면 상품정보
@@ -661,13 +650,18 @@ async def recommend_recipes_from_cart_items(
     선택된 장바구니 상품들의 재료로 레시피 추천
     """
     try:
+        logger.info(f"Recipe recommendation requested: user_id={current_user.user_id}, cart_ids={recommend_request.selected_cart_ids}")
+        
         # 선택된 장바구니 상품들에서 재료명 추출
         ingredients = await get_ingredients_from_selected_cart_items(
             db, current_user.user_id, recommend_request.selected_cart_ids
         )
         
         if not ingredients:
+            logger.warning(f"No ingredients extracted from cart items: user_id={current_user.user_id}, cart_ids={recommend_request.selected_cart_ids}")
             raise HTTPException(status_code=400, detail="재료를 추출할 수 있는 상품이 없습니다.")
+        
+        logger.info(f"Ingredients extracted successfully: {ingredients}")
         
         # 레시피 추천 서비스 호출
         from services.recipe.crud.recipe_crud import recommend_recipes_by_ingredients
@@ -680,6 +674,8 @@ async def recommend_recipes_from_cart_items(
             page=recommend_request.page, 
             size=recommend_request.size
         )
+        
+        logger.info(f"Recipe recommendation completed: {len(recipes)} recipes found, total={total}")
         
         # 레시피 추천 로그 기록
         if background_tasks:
@@ -703,7 +699,9 @@ async def recommend_recipes_from_cart_items(
             ingredients_used=ingredients
         )
     except ValueError as e:
+        logger.warning(f"Recipe recommendation validation error: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.error(f"Recipe recommendation failed: user_id={current_user.user_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail="레시피 추천 중 오류가 발생했습니다.") 
         

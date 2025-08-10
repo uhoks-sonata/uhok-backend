@@ -3,9 +3,11 @@
 """
 import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy import text
 from common.config import get_settings
+from common.logger import get_logger
+
+logger = get_logger("test_db_postgres")
 
 async def test_async_postgres_connection():
     """
@@ -18,9 +20,9 @@ async def test_async_postgres_connection():
         async with engine.connect() as conn:  # type: AsyncConnection
             result = await conn.execute(text("SELECT version();"))
             version = result.scalar_one()
-            print(f"✅ 비동기 DB 연결 성공! PostgreSQL Version: {version}")
+            logger.info(f"✅ 비동기 DB 연결 성공! PostgreSQL Version: {version}")
     except Exception as e:
-        print(f"❌ 비동기 DB 연결 실패: {e}")
+        logger.error(f"❌ 비동기 DB 연결 실패: {e}")
     finally:
         await engine.dispose()
 

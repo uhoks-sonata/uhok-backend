@@ -5,10 +5,12 @@
 import asyncio
 import asyncmy
 from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy import text
 from common.config import get_settings
+from common.logger import get_logger
 import re
+
+logger = get_logger("test_db_connection")
 
 def extract_conn_info(db_url):
     """
@@ -29,7 +31,7 @@ async def test_mariadb_server_connection_async():
     settings = get_settings()
     conn_info = extract_conn_info(settings.mariadb_auth_url)
     if not conn_info:
-        print("❌ DB URL 파싱 실패!")
+        logger.error("❌ DB URL 파싱 실패!")
         return
 
     try:
@@ -40,10 +42,10 @@ async def test_mariadb_server_connection_async():
             password=conn_info['password'],
             # db 파라미터 생략 (DB명 필요 없음!)
         )
-        print(f"✅ 비동기 MariaDB 서버 연결(로그인) 성공! ({conn_info['host']}:{conn_info['port']})")
+        logger.info(f"✅ 비동기 MariaDB 서버 연결(로그인) 성공! ({conn_info['host']}:{conn_info['port']})")
         conn.close()
     except Exception as e:
-        print(f"❌ 비동기 MariaDB 서버 연결 실패: {e}")
+        logger.error(f"❌ 비동기 MariaDB 서버 연결 실패: {e}")
 
 async def test_db_connection_async():
     """
@@ -57,9 +59,9 @@ async def test_db_connection_async():
         async with engine.connect() as conn:  # type: AsyncConnection
             result = await conn.execute(text("SELECT VERSION();"))
             version = result.scalar_one()
-            print(f"✅ 비동기 DB 연결 성공! MariaDB/MySQL Version: {version}")
+            logger.info(f"✅ 비동기 DB 연결 성공! MariaDB/MySQL Version: {version}")
     except Exception as e:
-        print(f"❌ 비동기 DB 연결 실패: {e}")
+        logger.error(f"❌ 비동기 DB 연결 실패: {e}")
     finally:
         await engine.dispose()
 

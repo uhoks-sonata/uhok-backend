@@ -25,8 +25,10 @@ from common.errors import ConflictException, NotAuthenticatedException, InvalidT
 from common.auth.jwt_handler import create_access_token, get_token_expiration, extract_user_id_from_token
 from common.dependencies import get_current_user
 from common.log_utils import send_user_log
+from common.logger import get_logger
 
 router = APIRouter(prefix="/api/user", tags=["user"])
+logger = get_logger("user_router")
 
 
 @router.post("/signup", response_model=UserOut, status_code=status.HTTP_201_CREATED)
@@ -40,20 +42,27 @@ async def signup(
     - 이메일 중복 체크
     - 신규 User row 및 UserSetting row 생성
     """
-    exist_user = await get_user_by_email(db, str(user.email))
-    if exist_user:
-        raise ConflictException("이미 가입된 이메일입니다.")
-    new_user = await create_user(db, str(user.email), user.password, user.username)
-    
-    # 회원가입 로그 기록
-    background_tasks.add_task(
-        send_user_log, 
-        user_id=new_user.user_id, 
-        event_type="user_signup", 
-        event_data={"email": str(user.email), "username": user.username}
-    )
-    
-    return new_user
+    try:
+        exist_user = await get_user_by_email(db, str(user.email))
+        if exist_user:
+            logger.warning(f"Signup attempt with duplicate email: {user.email}")
+            raise ConflictException("이미 가입된 이메일입니다.")
+        
+        new_user = await create_user(db, str(user.email), user.password, user.username)
+        logger.info(f"New user registered successfully: user_id={new_user.user_id}, email={user.email}")
+        
+        # 회원가입 로그 기록
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=new_user.user_id, 
+            event_type="user_signup", 
+            event_data={"email": str(user.email), "username": user.username}
+        )
+        
+        return new_user
+    except Exception as e:
+        logger.error(f"Signup failed for email {user.email}: {str(e)}")
+        raise
 
 
 @router.get("/signup/email/check", response_model=EmailDuplicateCheckResponse)
@@ -64,9 +73,14 @@ async def check_email_duplicate(
     """
     회원가입 - 이메일 중복 여부 확인 API (비동기)
     """
-    is_dup = await get_user_by_email(db, str(email)) is not None
-    msg = "이미 존재하는 아이디입니다." if is_dup else "사용 가능한 아이디입니다."
-    return EmailDuplicateCheckResponse(email=email, is_duplicate=is_dup, message=msg)
+    try:
+        is_dup = await get_user_by_email(db, str(email)) is not None
+        msg = "이미 존재하는 아이디입니다." if is_dup else "사용 가능한 아이디입니다."
+        logger.debug(f"Email duplicate check: {email} - is_duplicate={is_dup}")
+        return EmailDuplicateCheckResponse(email=email, is_duplicate=is_dup, message=msg)
+    except Exception as e:
+        logger.error(f"Email duplicate check failed for {email}: {str(e)}")
+        raise
 
 
 @router.post("/login")
@@ -80,25 +94,31 @@ async def login(
     - username 필드에 email 입력!
     - JWT 액세스 토큰 발급
     """
-    email = form_data.username  # Swagger의 username 필드에 email 입력!
-    password = form_data.password
+    try:
+        email = form_data.username  # Swagger의 username 필드에 email 입력!
+        password = form_data.password
 
-    db_user = await get_user_by_email(db, email)
-    if not db_user or not verify_password(password, db_user.password_hash):
-        raise NotAuthenticatedException()
+        db_user = await get_user_by_email(db, email)
+        if not db_user or not verify_password(password, db_user.password_hash):
+            logger.warning(f"Login failed for email: {email}")
+            raise NotAuthenticatedException()
 
-    access_token = create_access_token({"sub": str(db_user.user_id)})
-    
-    # 로그인 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=db_user.user_id, 
-            event_type="user_login", 
-            event_data={"email": email}
-        )
-    
-    return {"access_token": access_token, "token_type": "bearer"}
+        access_token = create_access_token({"sub": str(db_user.user_id)})
+        logger.info(f"User logged in successfully: user_id={db_user.user_id}, email={email}")
+        
+        # 로그인 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=db_user.user_id, 
+                event_type="user_login", 
+                event_data={"email": email}
+            )
+        
+        return {"access_token": access_token, "token_type": "bearer"}
+    except Exception as e:
+        logger.error(f"Login failed for email {email}: {str(e)}")
+        raise
 
 
 
