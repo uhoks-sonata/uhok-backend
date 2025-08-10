@@ -13,7 +13,6 @@ from services.order.schemas.order_schema import (
     KokOrderStatusUpdate, 
     KokOrderStatusResponse,
     KokOrderWithStatusResponse,
-    KokNotificationSchema,
     KokNotificationListResponse
 )
 from services.order.models.order_model import Order, KokOrder
