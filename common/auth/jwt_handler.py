@@ -29,3 +29,22 @@ def verify_token(token: str):
     except JWTError as e:
         print("[DEBUG] JWTError 발생:", repr(e))
         return None
+
+def get_token_expiration(token: str) -> datetime:
+    """JWT 토큰의 만료 시간을 반환"""
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        exp_timestamp = payload.get("exp")
+        if exp_timestamp:
+            return datetime.fromtimestamp(exp_timestamp)
+        return None
+    except JWTError:
+        return None
+
+def extract_user_id_from_token(token: str) -> str:
+    """JWT 토큰에서 사용자 ID를 추출"""
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        return payload.get("sub")
+    except JWTError:
+        return None

@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from common.auth.jwt_handler import verify_token
 from common.errors import InvalidTokenException, NotFoundException
 from services.user.crud.user_crud import get_user_by_id
+from services.user.crud.jwt_blacklist_crud import is_token_blacklisted
 from common.database.mariadb_auth import get_maria_auth_db
 
 from common.config import get_settings
@@ -24,6 +25,10 @@ async def get_current_user(
     # print(f"[DEBUG] Decoded payload: {payload}")
     if payload is None:
         raise InvalidTokenException()
+
+    # 토큰이 블랙리스트에 있는지 확인
+    if await is_token_blacklisted(db, token):
+        raise InvalidTokenException("로그아웃된 토큰입니다.")
 
     user_id = payload.get("sub")
     user = await  get_user_by_id(db, user_id)
