@@ -48,6 +48,8 @@ from services.kok.schemas.kok_schema import (
     KokCartUpdateRequest,
     KokCartUpdateResponse,
     KokCartDeleteResponse,
+    KokCartRecipeRecommendRequest,
+    KokCartRecipeRecommendResponse,
     
     # 검색 관련 스키마
     KokSearchResponse,
@@ -84,6 +86,7 @@ from services.kok.crud.kok_crud import (
     add_kok_cart,
     update_kok_cart_quantity,
     delete_kok_cart_item,
+    get_ingredients_from_selected_cart_items,
     
     # 검색 관련 CRUD
     search_kok_products,
@@ -646,4 +649,61 @@ async def order_from_selected_carts(
         order_count=result["order_count"],
         message=result["message"],
     )
-    
+
+@router.post("/carts/recipe-recommend", response_model=KokCartRecipeRecommendResponse)
+async def recommend_recipes_from_cart_items(
+    recommend_request: KokCartRecipeRecommendRequest,
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    선택된 장바구니 상품들의 재료로 레시피 추천
+    """
+    try:
+        # 선택된 장바구니 상품들에서 재료명 추출
+        ingredients = await get_ingredients_from_selected_cart_items(
+            db, current_user.user_id, recommend_request.selected_cart_ids
+        )
+        
+        if not ingredients:
+            raise HTTPException(status_code=400, detail="재료를 추출할 수 있는 상품이 없습니다.")
+        
+        # 레시피 추천 서비스 호출
+        from services.recipe.crud.recipe_crud import recommend_recipes_by_ingredients
+        
+        recipes, total = await recommend_recipes_by_ingredients(
+            db, 
+            ingredients, 
+            amounts=None,  # 장바구니 기반 추천에서는 분량 정보 없음
+            units=None,    # 장바구니 기반 추천에서는 단위 정보 없음
+            page=recommend_request.page, 
+            size=recommend_request.size
+        )
+        
+        # 레시피 추천 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="cart_recipe_recommend", 
+                event_data={
+                    "selected_cart_ids": recommend_request.selected_cart_ids,
+                    "ingredients_used": ingredients,
+                    "page": recommend_request.page,
+                    "size": recommend_request.size,
+                    "total_results": total
+                }
+            )
+        
+        return KokCartRecipeRecommendResponse(
+            recipes=recipes,
+            page=recommend_request.page,
+            total=total,
+            ingredients_used=ingredients
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="레시피 추천 중 오류가 발생했습니다.") 
+        

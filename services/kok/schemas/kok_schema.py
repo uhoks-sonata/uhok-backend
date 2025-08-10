@@ -6,7 +6,7 @@
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 # -----------------------------
 # 이미지 정보 스키마
@@ -500,3 +500,20 @@ class KokNotificationResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+# -----------------------------
+# 장바구니 기반 레시피 추천 스키마
+# -----------------------------
+
+class KokCartRecipeRecommendRequest(BaseModel):
+    """장바구니 상품 기반 레시피 추천 요청"""
+    selected_cart_ids: List[int] = Field(..., description="선택된 장바구니 상품 ID 목록")
+    page: int = Field(1, ge=1, description="페이지 번호 (1부터 시작)")
+    size: int = Field(5, ge=1, le=50, description="페이지당 결과 개수")
+
+class KokCartRecipeRecommendResponse(BaseModel):
+    """장바구니 상품 기반 레시피 추천 응답"""
+    recipes: List[Dict] = Field(..., description="추천된 레시피 목록")
+    page: int = Field(..., description="현재 페이지 번호")
+    total: int = Field(..., description="전체 결과 개수")
+    ingredients_used: List[str] = Field(..., description="사용된 재료 목록")

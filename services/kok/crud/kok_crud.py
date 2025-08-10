@@ -1071,3 +1071,64 @@ async def get_kok_notifications(
         }
         for notification in notifications
     ]
+
+async def get_ingredients_from_selected_cart_items(
+    db: AsyncSession,
+    user_id: int,
+    selected_cart_ids: List[int]
+) -> List[str]:
+    """
+    선택된 장바구니 상품들에서 재료명을 추출
+    - 상품명에서 식재료 관련 키워드를 추출하여 반환
+    """
+    if not selected_cart_ids:
+        return []
+    
+    # 선택된 장바구니 상품들의 상품 정보 조회
+    stmt = (
+        select(KokCart, KokProductInfo)
+        .join(KokProductInfo, KokCart.kok_product_id == KokProductInfo.kok_product_id)
+        .where(KokCart.user_id == user_id)
+        .where(KokCart.kok_cart_id.in_(selected_cart_ids))
+    )
+    
+    result = await db.execute(stmt)
+    cart_items = result.all()
+    
+    if not cart_items:
+        return []
+    
+    # 상품명에서 식재료 키워드 추출
+    ingredients = []
+    ingredient_keywords = [
+        # 채소류
+        "감자", "양파", "당근", "양배추", "상추", "시금치", "깻잎", "청경채", "브로콜리", "콜리플라워",
+        "피망", "파프리카", "오이", "가지", "애호박", "고구마", "마늘", "생강", "대파", "쪽파",
+        # 육류
+        "돼지고기", "소고기", "닭고기", "양고기", "오리고기", "삼겹살", "목살", "등심", "안심",
+        # 해산물
+        "새우", "고등어", "연어", "참치", "문어", "오징어", "조개", "홍합", "굴", "전복",
+        # 곡물/견과류
+        "쌀", "보리", "밀", "콩", "팥", "녹두", "땅콩", "호두", "아몬드", "잣",
+        # 계란/유제품
+        "계란", "달걀", "우유", "치즈", "버터", "요거트", "크림",
+        # 기타
+        "고추", "고춧가루", "들기름", "참기름", "식용유", "올리브유", "소금", "설탕", "간장", "된장"
+    ]
+    
+    for cart_item, product in cart_items:
+        product_name = product.kok_product_name.lower() if product.kok_product_name else ""
+        
+        # 상품명에서 식재료 키워드 매칭
+        for keyword in ingredient_keywords:
+            if keyword in product_name:
+                ingredients.append(keyword)
+                break
+        
+        # 키워드 매칭이 안 된 경우 상품명 자체를 재료로 추가 (길이가 적당한 경우)
+        if not any(keyword in product_name for keyword in ingredient_keywords):
+            if 2 <= len(product_name) <= 10:  # 너무 짧거나 긴 이름은 제외
+                ingredients.append(product_name)
+    
+    # 중복 제거 및 반환
+    return list(set(ingredients))
