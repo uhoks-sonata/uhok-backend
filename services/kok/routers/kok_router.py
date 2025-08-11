@@ -107,7 +107,7 @@ async def get_discounted_products(
     """
     logger.info(f"할인 상품 조회 요청: user_id={current_user.user_id}, page={page}, size={size}")
     
-    products = await get_kok_discounted_products(db, current_user.user_id, page=page, size=size)
+    products = await get_kok_discounted_products(db, page=page, size=size)
     
     # 할인 상품 목록 조회 로그 기록
     if background_tasks:
@@ -137,7 +137,7 @@ async def get_top_selling_products(
     """
     logger.info(f"인기 상품 조회 요청: user_id={current_user.user_id}, page={page}, size={size}, sort_by={sort_by}")
     
-    products = await get_kok_top_selling_products(db, current_user.user_id, page=page, size=size, sort_by=sort_by)
+    products = await get_kok_top_selling_products(db, page=page, size=size, sort_by=sort_by)
     
     # 인기 상품 목록 조회 로그 기록
     if background_tasks:
@@ -194,7 +194,9 @@ async def get_product_info(
     """
     상품 기본 정보 조회
     """
-    product = await get_kok_product_info(db, product_id)
+    logger.info(f"상품 기본 정보 조회 요청: user_id={current_user.user_id}, product_id={product_id}")
+    
+    product = await get_kok_product_info(db, product_id, current_user.user_id)
     if not product:
         raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
     
@@ -207,6 +209,7 @@ async def get_product_info(
             event_data={"product_id": product_id}
         )
     
+    logger.info(f"상품 기본 정보 조회 완료: user_id={current_user.user_id}, product_id={product_id}")
     return product
 
 
@@ -340,7 +343,7 @@ async def search_products(
     """
     logger.info(f"상품 검색 요청: user_id={current_user.user_id}, keyword='{keyword}', page={page}, size={size}")
     
-    products, total = await search_kok_products(db, current_user.user_id, keyword, page, size)
+    products, total = await search_kok_products(db, keyword, page, size)
     
     logger.info(f"상품 검색 완료: user_id={current_user.user_id}, keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
     

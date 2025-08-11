@@ -179,6 +179,7 @@ class KokProductInfoResponse(BaseModel):
     kok_discount_rate: int
     kok_discounted_price: int
     kok_review_cnt: int
+    is_liked: Optional[bool] = False
     
     class Config:
         from_attributes = True
@@ -230,7 +231,6 @@ class KokDiscountedProduct(BaseModel):
     kok_store_name: Optional[str] = None
     kok_review_cnt: Optional[int] = None  # 리뷰 개수
     kok_review_score: Optional[float] = None  # 별점 평균
-    is_liked: Optional[bool] = False  # 찜 상태
     
     class Config:
         from_attributes = True
@@ -249,7 +249,6 @@ class KokTopSellingProduct(BaseModel):
     kok_store_name: Optional[str] = None
     kok_review_cnt: Optional[int] = None  # 리뷰 개수
     kok_review_score: Optional[float] = None  # 별점 평균
-    is_liked: Optional[bool] = False  # 찜 상태
     
     class Config:
         from_attributes = True
@@ -272,7 +271,6 @@ class KokStoreBestProduct(BaseModel):
     kok_store_name: Optional[str] = None
     kok_review_cnt: Optional[int] = None  # 리뷰 개수
     kok_review_score: Optional[float] = None  # 별점 평균
-    is_liked: Optional[bool] = False  # 찜 상태
     
     class Config:
         from_attributes = True
@@ -465,7 +463,6 @@ class KokSearchProduct(BaseModel):
     kok_discounted_price: Optional[int] = None
     kok_review_cnt: Optional[int] = None
     kok_review_score: Optional[float] = None
-    is_liked: Optional[bool] = False  # 찜 상태
     
     class Config:
         from_attributes = True
