@@ -10,7 +10,8 @@ from services.recipe.schemas.recipe_schema import (
     RecipeDetailResponse,
     RecipeUrlResponse,
     RecipeRatingCreate,
-    RecipeRatingResponse
+    RecipeRatingResponse,
+    RecipeByIngredientsListResponse
 )
 from services.recipe.crud.recipe_crud import (
     get_recipe_detail,
@@ -31,10 +32,10 @@ logger = get_logger("recipe_router")
 
 router = APIRouter(prefix="/api/recipes", tags=["Recipe"])
 
-@router.get("/by-ingredients")
+@router.get("/by-ingredients", response_model=RecipeByIngredientsListResponse)
 async def by_ingredients(
     ingredient: List[str] = Query(..., min_length=3, description="식재료 리스트 (최소 3개)"),
-    amount: Optional[List[str]] = Query(None, description="각 재료별 분량(옵션)"),
+    amount: Optional[List[float]] = Query(None, description="각 재료별 분량(옵션)"),
     unit: Optional[List[str]] = Query(None, description="각 재료별 단위(옵션)"),
     page: int = Query(1, ge=1, description="페이지 번호 (1부터 시작)"),
     size: int = Query(5, ge=1, le=50, description="페이지당 결과 개수"),

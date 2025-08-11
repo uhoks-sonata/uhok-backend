@@ -65,6 +65,42 @@ class RecipeUrlResponse(BaseModel):
     url: str
 
 # -----------------------------
+# 재료 기반 레시피 추천 응답 스키마
+# -----------------------------
+
+class UsedIngredient(BaseModel):
+    """사용된 재료 정보"""
+    material_name: str
+    measure_amount: Optional[float] = None
+    measure_unit: Optional[str] = None
+
+class RecipeByIngredientsResponse(BaseModel):
+    """재료 기반 레시피 추천 응답"""
+    recipe_id: int
+    recipe_title: Optional[str] = None
+    cooking_name: Optional[str] = None
+    scrap_count: Optional[int] = None
+    cooking_case_name: Optional[str] = None
+    cooking_category_name: Optional[str] = None
+    cooking_introduction: Optional[str] = None
+    number_of_serving: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    recipe_url: Optional[str] = None
+    matched_ingredient_count: int
+    total_ingredients_count: int = Field(..., description="레시피 전체 재료 개수")
+    used_ingredients: List[UsedIngredient] = Field(default_factory=list)
+    
+    class Config:
+        from_attributes = True
+        populate_by_name = True
+
+class RecipeByIngredientsListResponse(BaseModel):
+    """재료 기반 레시피 추천 목록 응답"""
+    recipes: List[RecipeByIngredientsResponse]
+    page: int
+    total: int
+
+# -----------------------------
 # 별점 스키마
 # -----------------------------
 

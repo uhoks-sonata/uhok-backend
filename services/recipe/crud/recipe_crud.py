@@ -49,7 +49,7 @@ async def get_recipe_detail(db: AsyncSession, recipe_id: int) -> Optional[Dict]:
 async def recommend_recipes_by_ingredients(
     db: AsyncSession,
     ingredients: List[str],
-    amounts: Optional[List[str]] = None,
+    amounts: Optional[List[float]] = None,
     units: Optional[List[str]] = None,
     page: int = 1,
     size: int = 10
@@ -99,14 +99,43 @@ async def recommend_recipes_by_ingredients(
             mats = (await db.execute(mats_stmt)).scalars().all()
             recipe_materials_map[recipe.recipe_id] = mats
         
-        filtered = [
-            {
-                **r.__dict__,
+        filtered = []
+        for r in page_recipes:
+            matched_count = len(set(ingredients) & {m.material_name for m in recipe_materials_map.get(r.recipe_id, [])})
+            
+            # 사용된 재료 정보 구성
+            used_ingredients = []
+            for mat in recipe_materials_map.get(r.recipe_id, []):
+                if mat.material_name in ingredients:
+                    # measure_amount를 float로 변환
+                    try:
+                        measure_amount = float(mat.measure_amount) if mat.measure_amount is not None else None
+                    except (ValueError, TypeError):
+                        measure_amount = None
+                    
+                    used_ingredients.append({
+                        "material_name": mat.material_name,
+                        "measure_amount": measure_amount,
+                        "measure_unit": mat.measure_unit
+                    })
+            
+            recipe_dict = {
+                "recipe_id": r.recipe_id,
+                "recipe_title": r.recipe_title,
+                "cooking_name": r.cooking_name,
+                "scrap_count": r.scrap_count,
+                "cooking_case_name": r.cooking_case_name,
+                "cooking_category_name": r.cooking_category_name,
+                "cooking_introduction": r.cooking_introduction,
+                "number_of_serving": r.number_of_serving,
+                "thumbnail_url": r.thumbnail_url,
                 "recipe_url": get_recipe_url(r.recipe_id),
-                "matched_ingredient_count": len(set(ingredients) & {m.material_name for m in recipe_materials_map.get(r.recipe_id, [])}),
+                "matched_ingredient_count": matched_count,
+                "total_ingredients_count": len(recipe_materials_map.get(r.recipe_id, [])),  # 레시피 전체 재료 개수
+                "used_ingredients": used_ingredients
             }
-            for r in page_recipes
-        ]
+            filtered.append(recipe_dict)
+            logger.info(f"레시피 {r.recipe_id} ({r.cooking_name}) 추가됨, matched_count: {matched_count}, used_ingredients: {len(used_ingredients)}개")
         return filtered, total
     
     # 2. amount/unit 모두 있으면, 순차적 재고 소진 알고리즘 적용
@@ -116,7 +145,7 @@ async def recommend_recipes_by_ingredients(
     initial_ingredients = []
     for i in range(len(ingredients)):
         try:
-            amount = float(amounts[i]) if amounts[i] else 0
+            amount = float(amounts[i]) if amounts[i] is not None else 0
         except (ValueError, TypeError):
             amount = 0
         initial_ingredients.append({
@@ -145,7 +174,7 @@ async def recommend_recipes_by_ingredients(
             recipe_material_map[mat.recipe_id] = []
         
         try:
-            amt = float(mat.measure_amount) if mat.measure_amount else 0
+            amt = float(mat.measure_amount) if mat.measure_amount is not None else 0
         except (ValueError, TypeError):
             amt = 0
         
@@ -160,6 +189,7 @@ async def recommend_recipes_by_ingredients(
     for recipe in candidate_recipes:
         recipe_dict = {
             'RECIPE_ID': recipe.recipe_id,
+            'RECIPE_TITLE': recipe.recipe_title,
             'COOKING_NAME': recipe.cooking_name,
             'SCRAP_COUNT': recipe.scrap_count,
             'RECIPE_URL': get_recipe_url(recipe.recipe_id),
@@ -171,8 +201,14 @@ async def recommend_recipes_by_ingredients(
         }
         recipe_df.append(recipe_dict)
     
-    # DataFrame으로 변환
-    recipe_df = pd.DataFrame(recipe_df)
+    # DataFrame으로 변환 (measure_amount가 None인 경우 처리)
+    try:
+        recipe_df = pd.DataFrame(recipe_df)
+        logger.info(f"DataFrame 생성 완료: {len(recipe_df)}행")
+    except Exception as e:
+        logger.error(f"DataFrame 생성 실패: {e}")
+        # 에러 발생 시 빈 DataFrame 반환
+        return [], remaining_stock, False
     
     # 2-5. 순차적 재고 소진 알고리즘 실행 (요청 페이지의 끝까지 생성하면 조기 중단)
     max_results_needed = page * size
@@ -214,7 +250,12 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
         return (u or "").strip().lower()
 
     # RECIPE_ID 컬럼을 int형으로 강제 변환 (정확한 비교를 위해)
-    recipe_df['RECIPE_ID'] = recipe_df['RECIPE_ID'].astype(int)
+    try:
+        recipe_df['RECIPE_ID'] = recipe_df['RECIPE_ID'].astype(int)
+        logger.info("RECIPE_ID 컬럼을 int형으로 변환 완료")
+    except Exception as e:
+        logger.error(f"RECIPE_ID 컬럼 변환 실패: {e}")
+        return [], remaining_stock, False
 
     # 초기 재고를 딕셔너리 형태로 가공: {재료명: {'amount': 수량, 'unit': 단위}}
     remaining_stock = {
@@ -230,7 +271,7 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
     # 가능한 재료가 남아 있는 한 반복
     while True:
         # 현재 재고 중 양이 0.001 이상인 재료 목록
-        current_ingredients = [k for k, v in remaining_stock.items() if v['amount'] > 1e-3]
+        current_ingredients = [k for k, v in remaining_stock.items() if v.get('amount', 0) > 1e-3]
         if not current_ingredients:
             break  # 재료가 다 떨어졌으면 종료
 
@@ -240,7 +281,12 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
 
         # 모든 레시피를 하나씩 탐색
         for rid, materials in recipe_material_map.items():
-            rid = int(rid)
+            try:
+                rid = int(rid)
+            except (ValueError, TypeError) as e:
+                logger.error(f"레시피 ID 변환 실패: {rid}, 에러: {e}")
+                continue
+            
             if rid in used_recipe_ids:
                 continue  # 이미 추천된 레시피는 스킵
 
@@ -253,7 +299,7 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
                 req_amt = m['amt']  # 필요한 양
                 req_unit = m['unit']  # 단위
 
-                # 조건:
+                                # 조건:
                 # - 재고에 그 재료가 있음
                 # - 필요한 양이 명시되어 있음
                 # - 재고 수량이 충분함
@@ -261,15 +307,19 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
                 if (
                     mat in temp_stock and
                     req_amt is not None and
-                    temp_stock[mat]['amount'] > 1e-3 and
+                    temp_stock[mat].get('amount', 0) > 1e-3 and
                     (not temp_stock[mat].get('unit') or not req_unit
                      or _norm(temp_stock[mat]['unit']) == _norm(req_unit))
                 ):
                     # 실제 사용할 양은 현재 재고와 필요량 중 작은 값
-                    used_amt = min(req_amt, temp_stock[mat]['amount'])
-                    if used_amt > 1e-3:
-                        temp_stock[mat]['amount'] -= used_amt  # 재고에서 차감
-                        used_ingredients[mat] = {'amount': used_amt, 'unit': req_unit}
+                    try:
+                        used_amt = min(req_amt, temp_stock[mat]['amount'])
+                        if used_amt > 1e-3:
+                            temp_stock[mat]['amount'] -= used_amt  # 재고에서 차감
+                            used_ingredients[mat] = {'amount': used_amt, 'unit': req_unit}
+                    except (ValueError, TypeError) as e:
+                        logger.error(f"재료 사용량 계산 실패: {mat}, req_amt: {req_amt}, stock: {temp_stock[mat]}, 에러: {e}")
+                        continue
 
             # 현재 레시피가 지금까지 중 가장 많은 재료를 사용했다면 선택
             if used_ingredients and len(used_ingredients) > max_used:
@@ -283,11 +333,21 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
 
         # 선택된 레시피의 재료를 실제 재고에서 차감
         for mat, detail in best_usage.items():
-            remaining_stock[mat]['amount'] -= detail['amount']
+            try:
+                amount_to_subtract = float(detail.get('amount', 0)) if detail.get('amount') is not None else 0
+                remaining_stock[mat]['amount'] -= amount_to_subtract
+            except (ValueError, TypeError) as e:
+                logger.error(f"재료 수량 차감 실패: {mat}, detail: {detail}, 에러: {e}")
+                continue
 
         # 레시피 정보 조회
-        rid_int = int(best_recipe)
-        row = recipe_df[recipe_df['RECIPE_ID'] == best_recipe]
+        try:
+            rid_int = int(best_recipe)
+            row = recipe_df[recipe_df['RECIPE_ID'] == rid_int]
+        except (ValueError, TypeError) as e:
+            logger.error(f"레시피 ID 변환 실패: {best_recipe}, 에러: {e}")
+            used_recipe_ids.add(best_recipe)
+            continue
         if row.empty:
             # 레시피 정보가 없으면 무시하고 다음으로 진행
             used_recipe_ids.add(best_recipe)
@@ -295,10 +355,48 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
 
         # 레시피 정보 딕셔너리로 변환하고 사용된 재료 정보 추가
         recipe_info = row.iloc[0].to_dict()
-        recipe_info['used_ingredients'] = best_usage
+        
+        # Pydantic 스키마에 맞게 필드명 변환
+        total_ingredients = len(recipe_material_map.get(best_recipe, []))
+        logger.info(f"레시피 {best_recipe}의 전체 재료 개수: {total_ingredients}")
+        
+        formatted_recipe = {
+            "recipe_id": recipe_info.get('RECIPE_ID'),
+            "recipe_title": recipe_info.get('RECIPE_TITLE'),
+            "cooking_name": recipe_info.get('COOKING_NAME'),
+            "scrap_count": recipe_info.get('SCRAP_COUNT'),
+            "cooking_case_name": recipe_info.get('COOKING_CASE_NAME'),
+            "cooking_category_name": recipe_info.get('COOKING_CATEGORY_NAME'),
+            "cooking_introduction": recipe_info.get('COOKING_INTRODUCTION'),
+            "number_of_serving": recipe_info.get('NUMBER_OF_SERVING'),
+            "thumbnail_url": recipe_info.get('THUMBNAIL_URL'),
+            "recipe_url": recipe_info.get('RECIPE_URL'),
+            "matched_ingredient_count": len(best_usage),  # 사용된 재료 개수
+            "total_ingredients_count": total_ingredients,  # 레시피 전체 재료 개수
+            "used_ingredients": []
+        }
+        
+        logger.info(f"formatted_recipe 생성 완료: {formatted_recipe}")
+        
+        # 사용된 재료 정보를 API 명세서 형식으로 변환
+        for mat_name, detail in best_usage.items():
+            try:
+                measure_amount = float(detail.get('amount', 0)) if detail.get('amount') is not None else None
+            except (ValueError, TypeError):
+                measure_amount = None
+            
+            formatted_recipe["used_ingredients"].append({
+                "material_name": mat_name,
+                "measure_amount": measure_amount,
+                "measure_unit": detail.get('unit', '')
+            })
+        
+        recipe_info = formatted_recipe
 
         # 최종 추천 목록에 추가
-        recommended.append(recipe_info)
+        logger.info(f"추천 목록에 추가: recipe_id={formatted_recipe['recipe_id']}, total_ingredients_count={formatted_recipe.get('total_ingredients_count')}")
+        logger.info(f"formatted_recipe 전체 내용: {formatted_recipe}")
+        recommended.append(formatted_recipe)  # recipe_info가 아닌 formatted_recipe를 추가
         used_recipe_ids.add(best_recipe)  # 재사용 방지
 
         # 최대 결과 수에 도달하면 조기 중단
