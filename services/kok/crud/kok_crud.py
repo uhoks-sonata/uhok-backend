@@ -197,6 +197,7 @@ async def get_kok_product_seller_details(
     logger.info(f"상품 판매자 정보 조회 완료: product_id={product_id}, 상세정보 수={len(detail_info_list)}")
     return result
     
+
 async def get_kok_product_list(
         db: AsyncSession,
         page: int = 1,
@@ -290,6 +291,7 @@ async def get_kok_product_list(
     
     return product_list, total
 
+
 # -----------------------------
 # 메인화면 상품 리스트 함수
 # -----------------------------
@@ -302,6 +304,8 @@ async def get_kok_discounted_products(
     """
     할인 특가 상품 목록 조회 (할인율 높은 순으로 정렬)
     """
+    logger.info(f"할인 상품 조회 시작: page={page}, size={size}")
+    
     # KokProductInfo와 KokPriceInfo를 JOIN해서 할인율 정보 가져오기
     offset = (page - 1) * size
     stmt = (
@@ -328,9 +332,13 @@ async def get_kok_discounted_products(
             "kok_discounted_price": discounted_price,
             "kok_product_name": product.kok_product_name,
             "kok_store_name": product.kok_store_name,
+            "kok_review_cnt": product.kok_review_cnt,
+            "kok_review_score": product.kok_review_score,
         })
     
+    logger.info(f"할인 상품 조회 완료: page={page}, size={size}, 결과 수={len(discounted_products)}")
     return discounted_products
+
 
 async def get_kok_top_selling_products(
         db: AsyncSession,
@@ -459,6 +467,7 @@ async def get_kok_unpurchased(
         products = (await db.execute(stmt)).scalars().all()
     
     return [product.__dict__ for product in products]
+
 
 async def get_kok_store_best_items(
         db: AsyncSession,
@@ -618,6 +627,7 @@ async def get_kok_product_info(
         "kok_review_cnt": product.kok_review_cnt or 0
     }
 
+
 async def get_kok_review_data(
         db: AsyncSession,
         product_id: int
@@ -683,6 +693,7 @@ async def get_kok_review_data(
         "reviews": review_list
     }
 
+
 async def get_kok_products_by_ingredient(
     db: AsyncSession, 
     ingredient: str, 
@@ -719,6 +730,7 @@ async def get_kok_products_by_ingredient(
         }
         for p, price in results
     ]
+
 
 # -----------------------------
 # 찜 관련 CRUD 함수
@@ -765,6 +777,7 @@ async def toggle_kok_likes(
         logger.info(f"찜 등록 완료: user_id={user_id}, product_id={kok_product_id}")
         return True
 
+
 async def get_kok_liked_products(
     db: AsyncSession,
     user_id: int,
@@ -804,6 +817,7 @@ async def get_kok_liked_products(
         })
     
     return liked_products
+
 
 # -----------------------------
 # 장바구니 관련 CRUD 함수
@@ -851,6 +865,7 @@ async def get_kok_cart_items(
         })
     
     return cart_items
+
 
 # 새로운 장바구니 CRUD 함수들
 async def add_kok_cart(
@@ -913,6 +928,7 @@ async def add_kok_cart(
             "message": "장바구니에 추가되었습니다."
         }
 
+
 async def update_kok_cart_quantity(
     db: AsyncSession,
     user_id: int,
@@ -943,6 +959,7 @@ async def update_kok_cart_quantity(
         "kok_quantity": cart_item.kok_quantity,
         "message": f"수량이 {kok_quantity}개로 변경되었습니다."
     }
+
 
 async def delete_kok_cart_item(
     db: AsyncSession,
@@ -1069,6 +1086,7 @@ async def create_orders_from_selected_carts(
         "kok_order_ids": created_kok_order_ids,
     }
 
+
 # -----------------------------
 # 검색 관련 CRUD 함수
 # -----------------------------
@@ -1135,6 +1153,7 @@ async def search_kok_products(
     logger.info(f"상품 검색 완료: keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
     return products, total
 
+
 async def get_kok_search_history(
     db: AsyncSession,
     user_id: int,
@@ -1195,6 +1214,7 @@ async def add_kok_search_history(
         "kok_searched_at": new_history.kok_searched_at,
     }
 
+
 async def delete_kok_search_history(
     db: AsyncSession,
     user_id: int,
@@ -1222,6 +1242,7 @@ async def delete_kok_search_history(
     
     logger.warning(f"검색 이력을 찾을 수 없음: user_id={user_id}, history_id={kok_history_id}")
     return False
+
 
 async def get_kok_notifications(
     db: AsyncSession,
@@ -1256,6 +1277,7 @@ async def get_kok_notifications(
         }
         for notification in notifications
     ]
+
 
 async def get_ingredients_from_selected_cart_items(
     db: AsyncSession,

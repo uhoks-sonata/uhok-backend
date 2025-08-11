@@ -113,7 +113,6 @@ class KokPriceInfo(BaseModel):
     class Config:
         from_attributes = True
 
-
 # -----------------------------
 # 제품 기본/목록/상세 스키마
 # -----------------------------
@@ -169,7 +168,6 @@ class KokProductDetailResponse(KokProductBase):
     detail_infos: List[KokDetailInfo] = Field(default_factory=list)
     review_examples: List[KokReviewExample] = Field(default_factory=list)
     price_infos: List[KokPriceInfo] = Field(default_factory=list)
-
 
 class KokProductInfoResponse(BaseModel):
     """상품 기본 정보 응답"""
@@ -230,6 +228,8 @@ class KokDiscountedProduct(BaseModel):
     kok_discounted_price: Optional[int] = None
     kok_product_name: Optional[str] = None
     kok_store_name: Optional[str] = None
+    kok_review_cnt: Optional[int] = None  # 리뷰 개수
+    kok_review_score: Optional[float] = None  # 별점 평균
     
     class Config:
         from_attributes = True
@@ -256,8 +256,6 @@ class KokTopSellingProductsResponse(BaseModel):
     """판매율 높은 상품 응답"""
     products: List[KokTopSellingProduct] = Field(default_factory=list)
 
-
-
 class KokUnpurchasedResponse(BaseModel):
     """미구매 상품 응답"""
     products: List[KokProductBase] = Field(default_factory=list)
@@ -279,9 +277,6 @@ class KokStoreBestProduct(BaseModel):
 class KokStoreBestProductsResponse(BaseModel):
     """스토어 베스트 상품 응답"""
     products: List[KokStoreBestProduct] = Field(default_factory=list)
-
-
-
 
 # -----------------------------
 # 상품 상세정보 스키마

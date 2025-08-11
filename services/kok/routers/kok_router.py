@@ -105,6 +105,8 @@ async def get_discounted_products(
     """
     할인 특가 상품 리스트 조회
     """
+    logger.info(f"할인 상품 조회 요청: user_id={current_user.user_id}, page={page}, size={size}")
+    
     products = await get_kok_discounted_products(db, page=page, size=size)
     
     # 할인 상품 목록 조회 로그 기록
@@ -116,7 +118,9 @@ async def get_discounted_products(
             event_data={"product_count": len(products)}
         )
     
+    logger.info(f"할인 상품 조회 완료: user_id={current_user.user_id}, 결과 수={len(products)}")
     return {"products": products}
+
 
 @router.get("/top-selling", response_model=KokTopSellingProductsResponse)
 async def get_top_selling_products(
@@ -147,6 +151,7 @@ async def get_top_selling_products(
     logger.info(f"인기 상품 조회 완료: user_id={current_user.user_id}, 결과 수={len(products)}, sort_by={sort_by}")
     return {"products": products}
     
+
 @router.get("/store-best-items", response_model=KokStoreBestProductsResponse)
 async def get_store_best_items(
         sort_by: str = Query("review_count", description="정렬 기준 (review_count: 리뷰 개수 순, rating: 별점 평균 순)"),
@@ -173,6 +178,7 @@ async def get_store_best_items(
     
     logger.info(f"스토어 베스트 상품 조회 완료: user_id={current_user.user_id}, 결과 수={len(products)}, sort_by={sort_by}")
     return {"products": products}
+
 
 # ================================
 # 상품 상세 설명
@@ -203,6 +209,7 @@ async def get_product_info(
     
     return product
 
+
 @router.get("/product/{product_id}/tabs", response_model=KokProductTabsResponse)
 async def get_product_tabs(
         product_id: int,
@@ -229,6 +236,7 @@ async def get_product_tabs(
     return {
         "images": images
     }
+
 
 @router.get("/product/{product_id}/reviews", response_model=KokReviewResponse)
 async def get_product_reviews(
@@ -286,6 +294,7 @@ async def get_product_details(
         )
     
     return product_details
+
 
 @router.get("/product/{product_id}/full-detail", response_model=KokProductDetailResponse)
 async def get_product_detail(
@@ -351,6 +360,7 @@ async def search_products(
         "products": products
     }
 
+
 @router.get("/search/history", response_model=KokSearchHistoryResponse)
 async def get_search_history(
     limit: int = Query(10, ge=1, le=50, description="조회할 이력 개수"),
@@ -373,6 +383,7 @@ async def get_search_history(
         )
     
     return {"history": history}
+
 
 @router.post("/search/history", response_model=dict)
 async def add_search_history(
@@ -404,6 +415,7 @@ async def add_search_history(
         "saved": saved_history
     }
 
+
 @router.delete("/search/history/{history_id}", response_model=KokSearchHistoryDeleteResponse)
 async def delete_search_history(
     history_id: int,
@@ -434,6 +446,7 @@ async def delete_search_history(
     else:
         logger.warning(f"검색 이력을 찾을 수 없음: user_id={current_user.user_id}, history_id={history_id}")
         raise HTTPException(status_code=404, detail="해당 검색 이력을 찾을 수 없습니다.")
+
 
 # ================================
 # 찜 관련 API
@@ -478,6 +491,7 @@ async def toggle_likes(
             "message": "찜이 취소되었습니다."
         }
 
+
 @router.get("/likes", response_model=KokLikedProductsResponse)
 async def get_liked_products(
     limit: int = Query(50, ge=1, le=100, description="조회할 찜 상품 개수"),
@@ -503,6 +517,7 @@ async def get_liked_products(
         )
     
     return {"liked_products": liked_products}
+
 
 # ================================
 # 장바구니 관련 API
@@ -549,6 +564,7 @@ async def add_cart_item(
         message=result["message"]
     )
     
+
 @router.get("/carts", response_model=KokCartItemsResponse)
 async def get_cart_items(
     limit: int = Query(50, ge=1, le=200, description="조회할 장바구니 상품 개수"),
@@ -574,6 +590,7 @@ async def get_cart_items(
         )
     
     return {"cart_items": cart_items}
+
 
 @router.patch("/carts/{cart_id}", response_model=KokCartUpdateResponse)
 async def update_cart_quantity(
@@ -608,6 +625,7 @@ async def update_cart_quantity(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
 
 @router.delete("/carts/{cart_id}", response_model=KokCartDeleteResponse)
 async def delete_cart_item(
@@ -675,6 +693,7 @@ async def order_from_selected_carts(
         message=result["message"],
     )
 
+
 @router.post("/carts/recipe-recommend", response_model=KokCartRecipeRecommendResponse)
 async def recommend_recipes_from_cart_items(
     recommend_request: KokCartRecipeRecommendRequest,
@@ -740,3 +759,4 @@ async def recommend_recipes_from_cart_items(
     except Exception as e:
         logger.error(f"레시피 추천 실패: user_id={current_user.user_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail="레시피 추천 중 오류가 발생했습니다.")
+        
