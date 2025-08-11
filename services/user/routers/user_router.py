@@ -2,7 +2,7 @@
 User API 엔드포인트 (회원가입, 로그인) - 비동기 패턴
 """
 
-from fastapi import APIRouter, Depends, status, Query, BackgroundTasks, Header
+from fastapi import APIRouter, Depends, status, Query, BackgroundTasks, Header, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -121,28 +121,28 @@ async def login(
         raise
 
 
-
 @router.post("/logout", status_code=status.HTTP_200_OK)
 async def logout(
-    authorization: Optional[str] = Header(None),
+    request: Request,
+    current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_auth_db)
 ):
     """
     로그아웃 API
     - JWT 토큰을 블랙리스트에 추가하여 재사용을 방지
-    - Authorization 헤더에서 Bearer 토큰을 추출
+    - get_current_user 의존성을 통해 토큰 검증
     """
+    # Authorization 헤더에서 토큰 추출
+    authorization = request.headers.get("authorization")
     if not authorization or not authorization.startswith("Bearer "):
         raise InvalidTokenException("유효한 Authorization 헤더가 필요합니다.")
     
     token = authorization.replace("Bearer ", "")
     
-    # 토큰에서 사용자 ID와 만료 시간 추출
-    user_id = extract_user_id_from_token(token)
+    # 토큰에서 만료 시간 추출
     expires_at = get_token_expiration(token)
-    
-    if not user_id or not expires_at:
+    if not expires_at:
         raise InvalidTokenException("유효하지 않은 토큰입니다.")
     
     # 토큰을 블랙리스트에 추가
@@ -150,7 +150,7 @@ async def logout(
         db=db,
         token=token,
         expires_at=expires_at,
-        user_id=user_id,
+        user_id=current_user.user_id,
         metadata="user_logout"
     )
     
@@ -158,7 +158,7 @@ async def logout(
     if background_tasks:
         background_tasks.add_task(
             send_user_log, 
-            user_id=user_id, 
+            user_id=current_user.user_id, 
             event_type="user_logout", 
             event_data={"logout_method": "api_call"}
         )

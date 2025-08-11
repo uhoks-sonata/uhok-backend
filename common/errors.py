@@ -41,11 +41,11 @@ class TokenExpiredException(HTTPException):
 
 class InvalidTokenException(HTTPException):
     """401 Unauthorized - 토큰이 변조되었거나 형식이 올바르지 않음"""
-    def __init__(self):
-        logger.warning("InvalidTokenException raised: Invalid token")
+    def __init__(self, message: str = "유효하지 않은 토큰입니다."):
+        logger.warning(f"InvalidTokenException raised: {message}")
         super().__init__(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="유효하지 않은 토큰입니다."
+            detail=message
         )
 
 
