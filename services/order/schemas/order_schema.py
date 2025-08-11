@@ -1,8 +1,8 @@
 """
 주문 공통/서비스별 Pydantic 스키마 정의 (HomeShopping 명칭 통일)
 """
-from pydantic import BaseModel, field_validator
-from typing import Optional, List, Any
+from pydantic import BaseModel
+from typing import Optional, List
 from datetime import datetime
 
 class StatusMasterSchema(BaseModel):
@@ -20,9 +20,6 @@ class KokOrderCreate(BaseModel):
     quantity: int = 1
     recipe_id: Optional[int] = None
 
-# class HomeShoppingOrderCreate(BaseModel):
-#     live_id: int
-
 class KokOrderSchema(BaseModel):
     kok_order_id: int
     kok_price_id: int
@@ -33,13 +30,6 @@ class KokOrderSchema(BaseModel):
     
     class Config:
         from_attributes = True
-
-# class HomeShoppingOrderSchema(BaseModel):
-#     homeshopping_order_id: int
-#     live_id: int
-#     
-#     class Config:
-#         from_attributes = True
 
 class KokOrderStatusHistorySchema(BaseModel):
     """콕 주문 상태 변경 이력 스키마"""
@@ -110,3 +100,14 @@ class KokNotificationListResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+# class HomeShoppingOrderCreate(BaseModel):
+#     live_id: int
+
+# class HomeShoppingOrderSchema(BaseModel):
+#     homeshopping_order_id: int
+#     live_id: int
+#     
+#     class Config:
+#         from_attributes = True
