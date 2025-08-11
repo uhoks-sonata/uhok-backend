@@ -230,6 +230,7 @@ class KokDiscountedProduct(BaseModel):
     kok_store_name: Optional[str] = None
     kok_review_cnt: Optional[int] = None  # 리뷰 개수
     kok_review_score: Optional[float] = None  # 별점 평균
+    is_liked: Optional[bool] = False  # 찜 상태
     
     class Config:
         from_attributes = True
@@ -248,6 +249,7 @@ class KokTopSellingProduct(BaseModel):
     kok_store_name: Optional[str] = None
     kok_review_cnt: Optional[int] = None  # 리뷰 개수
     kok_review_score: Optional[float] = None  # 별점 평균
+    is_liked: Optional[bool] = False  # 찜 상태
     
     class Config:
         from_attributes = True
@@ -270,6 +272,7 @@ class KokStoreBestProduct(BaseModel):
     kok_store_name: Optional[str] = None
     kok_review_cnt: Optional[int] = None  # 리뷰 개수
     kok_review_score: Optional[float] = None  # 별점 평균
+    is_liked: Optional[bool] = False  # 찜 상태
     
     class Config:
         from_attributes = True
@@ -451,12 +454,28 @@ class KokSearchRequest(BaseModel):
     """검색 요청"""
     keyword: str
 
+class KokSearchProduct(BaseModel):
+    """검색 결과 상품 정보"""
+    kok_product_id: int
+    kok_product_name: Optional[str] = None
+    kok_store_name: Optional[str] = None
+    kok_thumbnail: Optional[str] = None
+    kok_product_price: Optional[int] = None
+    kok_discount_rate: Optional[int] = None
+    kok_discounted_price: Optional[int] = None
+    kok_review_cnt: Optional[int] = None
+    kok_review_score: Optional[float] = None
+    is_liked: Optional[bool] = False  # 찜 상태
+    
+    class Config:
+        from_attributes = True
+
 class KokSearchResponse(BaseModel):
     """검색 결과 응답"""
     total: int
     page: int
     size: int
-    products: List[dict] = Field(default_factory=list)
+    products: List[KokSearchProduct] = Field(default_factory=list)
 
 class KokSearchHistoryResponse(BaseModel):
     """검색 이력 응답"""

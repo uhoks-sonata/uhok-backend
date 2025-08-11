@@ -298,13 +298,14 @@ async def get_kok_product_list(
 
 async def get_kok_discounted_products(
         db: AsyncSession,
+        user_id: int,
         page: int = 1,
         size: int = 20
 ) -> List[dict]:
     """
     할인 특가 상품 목록 조회 (할인율 높은 순으로 정렬)
     """
-    logger.info(f"할인 상품 조회 시작: page={page}, size={size}")
+    logger.info(f"할인 상품 조회 시작: user_id={user_id}, page={page}, size={size}")
     
     # KokProductInfo와 KokPriceInfo를 JOIN해서 할인율 정보 가져오기
     offset = (page - 1) * size
@@ -325,6 +326,16 @@ async def get_kok_discounted_products(
         if price_info.kok_discount_rate and price_info.kok_discount_rate > 0:
             discounted_price = int(product.kok_product_price * (1 - price_info.kok_discount_rate / 100))
         
+        # 찜 상태 확인
+        is_liked = False
+        if user_id:
+            like_stmt = select(KokLikes).where(
+                KokLikes.user_id == user_id,
+                KokLikes.kok_product_id == product.kok_product_id
+            )
+            like_result = await db.execute(like_stmt)
+            is_liked = like_result.scalar_one_or_none() is not None
+        
         discounted_products.append({
             "kok_product_id": product.kok_product_id,
             "kok_thumbnail": product.kok_thumbnail,
@@ -334,14 +345,16 @@ async def get_kok_discounted_products(
             "kok_store_name": product.kok_store_name,
             "kok_review_cnt": product.kok_review_cnt,
             "kok_review_score": product.kok_review_score,
+            "is_liked": is_liked,
         })
     
-    logger.info(f"할인 상품 조회 완료: page={page}, size={size}, 결과 수={len(discounted_products)}")
+    logger.info(f"할인 상품 조회 완료: user_id={user_id}, page={page}, size={size}, 결과 수={len(discounted_products)}")
     return discounted_products
 
 
 async def get_kok_top_selling_products(
         db: AsyncSession,
+        user_id: int,
         page: int = 1,
         size: int = 20,
         sort_by: str = "review_count"  # "review_count" 또는 "rating"
@@ -351,11 +364,12 @@ async def get_kok_top_selling_products(
     
     Args:
         db: 데이터베이스 세션
+        user_id: 사용자 ID (찜 상태 확인용)
         page: 페이지 번호
         size: 페이지 크기
         sort_by: 정렬 기준 ("review_count": 리뷰 개수 순, "rating": 별점 평균 순)
     """
-    logger.info(f"인기 상품 조회 시작: page={page}, size={size}, sort_by={sort_by}")
+    logger.info(f"인기 상품 조회 시작: user_id={user_id}, page={page}, size={size}, sort_by={sort_by}")
     
     # KokProductInfo와 KokPriceInfo를 LEFT JOIN해서 할인율 정보 가져오기
     offset = (page - 1) * size
@@ -394,6 +408,16 @@ async def get_kok_top_selling_products(
             discount_rate = price_info.kok_discount_rate
             discounted_price = int(product.kok_product_price * (1 - price_info.kok_discount_rate / 100))
         
+        # 찜 상태 확인
+        is_liked = False
+        if user_id:
+            like_stmt = select(KokLikes).where(
+                KokLikes.user_id == user_id,
+                KokLikes.kok_product_id == product.kok_product_id
+            )
+            like_result = await db.execute(like_stmt)
+            is_liked = like_result.scalar_one_or_none() is not None
+        
         top_selling_products.append({
             "kok_product_id": product.kok_product_id,
             "kok_thumbnail": product.kok_thumbnail,
@@ -403,9 +427,10 @@ async def get_kok_top_selling_products(
             "kok_store_name": product.kok_store_name,
             "kok_review_cnt": product.kok_review_cnt,
             "kok_review_score": product.kok_review_score,
+            "is_liked": is_liked,
         })
     
-    logger.info(f"인기 상품 조회 완료: page={page}, size={size}, sort_by={sort_by}, 결과 수={len(top_selling_products)}")
+    logger.info(f"인기 상품 조회 완료: user_id={user_id}, sort_by={sort_by}, 결과 수={len(top_selling_products)}")
     return top_selling_products
 
 
@@ -543,6 +568,16 @@ async def get_kok_store_best_items(
             discount_rate = price_info.kok_discount_rate
             discounted_price = int(product.kok_product_price * (1 - price_info.kok_discount_rate / 100))
         
+        # 찜 상태 확인
+        is_liked = False
+        if user_id:
+            like_stmt = select(KokLikes).where(
+                KokLikes.user_id == user_id,
+                KokLikes.kok_product_id == product.kok_product_id
+            )
+            like_result = await db.execute(like_stmt)
+            is_liked = like_result.scalar_one_or_none() is not None
+        
         store_best_products.append({
             "kok_product_id": product.kok_product_id,
             "kok_thumbnail": product.kok_thumbnail,
@@ -552,6 +587,7 @@ async def get_kok_store_best_items(
             "kok_store_name": product.kok_store_name,
             "kok_review_cnt": product.kok_review_cnt,
             "kok_review_score": product.kok_review_score,
+            "is_liked": is_liked,
         })
     
     logger.info(f"스토어 베스트 상품 조회 완료: user_id={user_id}, sort_by={sort_by}, 결과 수={len(store_best_products)}")
@@ -696,6 +732,7 @@ async def get_kok_review_data(
 
 async def get_kok_products_by_ingredient(
     db: AsyncSession, 
+    user_id: int,
     ingredient: str, 
     limit: int = 10
 ) -> List[dict]:
@@ -711,8 +748,19 @@ async def get_kok_products_by_ingredient(
     result = await db.execute(stmt)
     results = result.all()
 
-    return [
-        {
+    products = []
+    for p, price in results:
+        # 찜 상태 확인
+        is_liked = False
+        if user_id:
+            like_stmt = select(KokLikes).where(
+                KokLikes.user_id == user_id,
+                KokLikes.kok_product_id == p.kok_product_id
+            )
+            like_result = await db.execute(like_stmt)
+            is_liked = like_result.scalar_one_or_none() is not None
+        
+        products.append({
             "kok_product_id": p.kok_product_id,
             "kok_product_name": p.kok_product_name,
             "kok_thumbnail": p.kok_thumbnail,
@@ -726,10 +774,11 @@ async def get_kok_products_by_ingredient(
             ),
             "kok_review_score": p.kok_review_score,
             "kok_review_cnt": p.kok_review_cnt,
+            "is_liked": is_liked,
             # 필요시 model에 정의된 추가 필드도 동일하게 추출
-        }
-        for p, price in results
-    ]
+        })
+    
+    return products
 
 
 # -----------------------------
@@ -1093,6 +1142,7 @@ async def create_orders_from_selected_carts(
 
 async def search_kok_products(
     db: AsyncSession,
+    user_id: int,
     keyword: str,
     page: int = 1,
     size: int = 20
@@ -1100,7 +1150,7 @@ async def search_kok_products(
     """
     키워드로 콕 상품 검색
     """
-    logger.info(f"상품 검색 시작: keyword='{keyword}', page={page}, size={size}")
+    logger.info(f"상품 검색 시작: user_id={user_id}, keyword='{keyword}', page={page}, size={size}")
     offset = (page - 1) * size
     
     # 검색 쿼리
@@ -1138,6 +1188,16 @@ async def search_kok_products(
             discount_rate = price.kok_discount_rate
             discounted_price = int(product.kok_product_price * (1 - price.kok_discount_rate / 100))
         
+        # 찜 상태 확인
+        is_liked = False
+        if user_id:
+            like_stmt = select(KokLikes).where(
+                KokLikes.user_id == user_id,
+                KokLikes.kok_product_id == product.kok_product_id
+            )
+            like_result = await db.execute(like_stmt)
+            is_liked = like_result.scalar_one_or_none() is not None
+        
         products.append({
             "kok_product_id": product.kok_product_id,
             "kok_product_name": product.kok_product_name,
@@ -1148,9 +1208,10 @@ async def search_kok_products(
             "kok_discounted_price": discounted_price,
             "kok_review_cnt": product.kok_review_cnt,
             "kok_review_score": product.kok_review_score,
+            "is_liked": is_liked,
         })
     
-    logger.info(f"상품 검색 완료: keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
+    logger.info(f"상품 검색 완료: user_id={user_id}, keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
     return products, total
 
 
