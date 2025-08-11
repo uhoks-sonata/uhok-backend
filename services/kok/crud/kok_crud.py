@@ -15,7 +15,8 @@ from services.kok.models.kok_model import (
     KokPriceInfo, 
     KokSearchHistory,
     KokLikes,
-    KokCart
+    KokCart,
+    KokNotification
 )
 
 from services.order.models.order_model import KokOrder, Order
@@ -766,10 +767,9 @@ async def toggle_kok_likes(
     logger.info(f"찜 토글 시작: user_id={user_id}, product_id={kok_product_id}")
     
     # 기존 찜 확인
-    stmt = (
-        select(KokLikes)
-        .where(KokLikes.user_id == user_id)
-        .where(KokLikes.kok_product_id == kok_product_id)
+    stmt = select(KokLikes).where(
+        KokLikes.user_id == user_id,
+        KokLikes.kok_product_id == kok_product_id
     )
     result = await db.execute(stmt)
     existing_like = result.scalar_one_or_none()
@@ -783,7 +783,7 @@ async def toggle_kok_likes(
     else:
         # 찜 등록
         from datetime import datetime
-        created_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        created_at = datetime.now()
         
         new_like = KokLikes(
             user_id=user_id,
@@ -897,54 +897,46 @@ async def add_kok_cart(
     """
     장바구니에 상품 추가
     """
-    logger.info(f"장바구니 추가 시작: user_id={user_id}, product_id={kok_product_id}, quantity={kok_quantity}, recipe_id={recipe_id}")
+    logger.info(f"장바구니 추가 시작: user_id={user_id}, product_id={kok_product_id}, quantity={kok_quantity}")
     
     # 기존 장바구니 항목 확인
-    stmt = (
-        select(KokCart)
-        .where(KokCart.user_id == user_id)
-        .where(KokCart.kok_product_id == kok_product_id)
+    stmt = select(KokCart).where(
+        KokCart.user_id == user_id,
+        KokCart.kok_product_id == kok_product_id
     )
     result = await db.execute(stmt)
     existing_cart = result.scalar_one_or_none()
     
     if existing_cart:
-        # 이미 장바구니에 있는 경우 추가하지 않음
-        logger.info(f"이미 장바구니에 존재: user_id={user_id}, product_id={kok_product_id}, cart_id={existing_cart.kok_cart_id}")
+        # 수량 업데이트
+        existing_cart.kok_quantity += kok_quantity
+        await db.commit()
+        logger.info(f"장바구니 수량 업데이트 완료: cart_id={existing_cart.kok_cart_id}, new_quantity={existing_cart.kok_quantity}")
         return {
             "kok_cart_id": existing_cart.kok_cart_id,
-            "message": "이미 장바구니에 있습니다."
+            "message": f"장바구니 수량이 {existing_cart.kok_quantity}개로 업데이트되었습니다."
         }
     else:
-        # 새로운 상품 추가
+        # 새 항목 추가
         from datetime import datetime
-        created_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        created_at = datetime.now()
         
-        # 레시피 FK 유효성 검증: 0, 음수, 존재하지 않으면 None 처리
-        valid_recipe_id: Optional[int] = None
-        if recipe_id and recipe_id > 0:
-            recipe_exists = (
-                await db.execute(select(Recipe.recipe_id).where(Recipe.recipe_id == recipe_id))
-            ).scalar_one_or_none()
-            if recipe_exists:
-                valid_recipe_id = recipe_id
-
         new_cart = KokCart(
             user_id=user_id,
             kok_product_id=kok_product_id,
             kok_quantity=kok_quantity,
             kok_created_at=created_at,
-            recipe_id=valid_recipe_id
+            recipe_id=recipe_id
         )
         
         db.add(new_cart)
         await db.commit()
         await db.refresh(new_cart)
         
-        logger.info(f"장바구니 추가 완료: user_id={user_id}, product_id={kok_product_id}, cart_id={new_cart.kok_cart_id}")
+        logger.info(f"장바구니 새 항목 추가 완료: cart_id={new_cart.kok_cart_id}")
         return {
             "kok_cart_id": new_cart.kok_cart_id,
-            "message": "장바구니에 추가되었습니다."
+            "message": "장바구니에 상품이 추가되었습니다."
         }
 
 
@@ -1211,8 +1203,7 @@ async def add_kok_search_history(
     logger.info(f"검색 이력 추가 시작: user_id={user_id}, keyword='{keyword}'")
     
     from datetime import datetime
-    
-    searched_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    searched_at = datetime.now()
     
     new_history = KokSearchHistory(
         user_id=user_id,
@@ -1224,8 +1215,7 @@ async def add_kok_search_history(
     await db.commit()
     await db.refresh(new_history)
     
-    logger.info(f"검색 이력 추가 완료: user_id={user_id}, keyword='{keyword}', history_id={new_history.kok_history_id}")
-    
+    logger.info(f"검색 이력 추가 완료: history_id={new_history.kok_history_id}")
     return {
         "kok_history_id": new_history.kok_history_id,
         "user_id": new_history.user_id,
@@ -1269,11 +1259,8 @@ async def get_kok_notifications(
     limit: int = 50
 ) -> List[dict]:
     """
-    사용자의 콕 알림 내역을 조회
-    - 주문완료, 배송출발, 배송완료 등의 알림을 조회
+    사용자의 알림 목록 조회
     """
-    from services.kok.models.kok_model import KokNotification
-    
     stmt = (
         select(KokNotification)
         .where(KokNotification.user_id == user_id)
@@ -1281,21 +1268,21 @@ async def get_kok_notifications(
         .limit(limit)
     )
     
-    result = await db.execute(stmt)
-    notifications = result.scalars().all()
+    results = (await db.execute(stmt)).scalars().all()
     
-    return [
-        {
+    notifications = []
+    for notification in results:
+        notifications.append({
             "notification_id": notification.notification_id,
             "user_id": notification.user_id,
             "kok_order_id": notification.kok_order_id,
             "status_id": notification.status_id,
             "title": notification.title,
             "message": notification.message,
-            "created_at": notification.created_at.strftime("%Y-%m-%d %H:%M:%S") if notification.created_at else None
-        }
-        for notification in notifications
-    ]
+            "created_at": notification.created_at
+        })
+    
+    return notifications
 
 
 async def get_ingredients_from_selected_cart_items(

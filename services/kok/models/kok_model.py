@@ -4,7 +4,7 @@
 - DB 데이터 정의서 기반으로 변수명 통일
 """
 
-from sqlalchemy import Column, Integer, String, ForeignKey, Float, Text, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, ForeignKey, Float, Text, DateTime
 from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.orm import relationship
 
@@ -103,8 +103,6 @@ class KokProductInfo(MariaBase):
         lazy="select"
     )
 
-
-
 class KokImageInfo(MariaBase):
     """
     FCT_KOK_IMAGE_INFO 테이블의 ORM 모델
@@ -190,7 +188,7 @@ class KokSearchHistory(MariaBase):
     kok_history_id = Column("KOK_HISTORY_ID", Integer, primary_key=True, autoincrement=True)  # 검색 이력 ID
     user_id = Column("USER_ID", Integer, nullable=False)  # 사용자 ID (회원 PK 참조)
     kok_keyword = Column("KOK_KEYWORD", String(100), nullable=False)  # 검색 키워드
-    kok_searched_at = Column("KOK_SEARCHED_AT", String(20), nullable=False)  # 검색 시간
+    kok_searched_at = Column("KOK_SEARCHED_AT", DateTime, nullable=False)  # 검색 시간
 
 class KokLikes(MariaBase):
     """
@@ -201,7 +199,7 @@ class KokLikes(MariaBase):
     kok_like_id = Column("KOK_LIKE_ID", Integer, primary_key=True, autoincrement=True)  # 찜 ID
     user_id = Column("USER_ID", Integer, nullable=False)  # 사용자 ID (회원 PK 참조)
     kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("FCT_KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=False)  # 제품 ID
-    kok_created_at = Column("KOK_CREATED_AT", String(20), nullable=False)  # 찜한 시간
+    kok_created_at = Column("KOK_CREATED_AT", DateTime, nullable=False)  # 찜한 시간
 
     # 제품 정보와 N:1 관계 설정
     product = relationship(
@@ -220,7 +218,7 @@ class KokCart(MariaBase):
     user_id = Column("USER_ID", Integer, nullable=False)  # 사용자 ID (회원 PK 참조)
     kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("FCT_KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=False)  # 제품 ID
     kok_quantity = Column("KOK_QUANTITY", Integer, nullable=False)  # 수량
-    kok_created_at = Column("KOK_CREATED_AT", String(20), nullable=True)  # 추가 시간
+    kok_created_at = Column("KOK_CREATED_AT", DateTime, nullable=True)  # 추가 시간
     recipe_id = Column("RECIPE_ID", Integer, ForeignKey("FCT_RECIPE.RECIPE_ID", onupdate="RESTRICT", ondelete="RESTRICT"), nullable=True)
 
     __table_args__ = (
@@ -233,7 +231,6 @@ class KokCart(MariaBase):
         back_populates="cart_items",
         lazy="select"
     )
-
 
 class KokNotification(MariaBase):
     """
