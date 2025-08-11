@@ -10,7 +10,7 @@ from typing import List, Optional, Dict, Tuple
 import pandas as pd
 import copy
 
-from services.recipe.models.recipe_model import Recipe, Material, RecipeRating
+from services.recipe.models.recipe_model import Recipe, Material, RecipeRating, RecipeVector
 from common.database.mariadb_service import get_maria_service_db
 
 def get_recipe_url(recipe_id: int) -> str:
@@ -51,42 +51,55 @@ async def recommend_recipes_by_ingredients(
     - 페이지네이션(page, size)과 전체 개수(total) 반환
     - 순차적 재고 소진 알고리즘 적용
     """
-    # 1. 입력 재료 중 하나 이상을 포함하는 레시피 후보 전체 추출(인기순)
-    stmt = (
+    # 공통: 기본 쿼리 (인기순)
+    base_stmt = (
         select(Recipe)
         .join(Material, Recipe.recipe_id == Material.recipe_id) # type: ignore
         .where(Material.material_name.in_(ingredients))
         .group_by(Recipe.recipe_id)
         .order_by(desc(Recipe.scrap_count))
     )
-    result = await db.execute(stmt)
-    candidate_recipes = result.scalars().unique().all()
-    total = len(candidate_recipes)  # 전체 후보 개수
+    offset = (page - 1) * size
 
     # 2. 레시피별 실제 들어간 재료(Material) 리스트 미리 조회(map 저장, 최적화)
-    recipe_materials_map = {}
-    for recipe in candidate_recipes:
-        mats_stmt = select(Material).where(Material.recipe_id == recipe.recipe_id) # type: ignore
-        mats = (await db.execute(mats_stmt)).scalars().all()
-        recipe_materials_map[recipe.recipe_id] = mats
+    # (단, 단순 검색 모드에서는 DB 레벨 페이지네이션을 적용)
 
     # 3. 입력한 재료가 실제로 들어간 개수 반환 함수
     def get_matched_count(recipe_id):
         mats = recipe_materials_map[recipe_id]
         return len(set(ingredients) & {m.material_name for m in mats})
 
-    # 4. amount/unit이 없으면 단순 재료 포함 레시피 전체 반환(페이지네이션)
+    # 4. amount/unit이 없으면 단순 재료 포함 레시피 반환(페이지네이션: DB 레벨 적용)
     if not amounts or not units:
+        # total 계산: DISTINCT 레시피 개수
+        total_stmt = (
+            select(func.count(func.distinct(Recipe.recipe_id)))
+            .join(Material, Recipe.recipe_id == Material.recipe_id)
+            .where(Material.material_name.in_(ingredients))
+        )
+        total = (await db.execute(total_stmt)).scalar() or 0
+
+        # 페이지네이션 적용하여 데이터 조회
+        page_stmt = base_stmt.offset(offset).limit(size)
+        page_result = await db.execute(page_stmt)
+        page_recipes = page_result.scalars().unique().all()
+
+        # 해당 페이지 레시피에 대해서만 재료 집계와 결과 구성
+        recipe_materials_map = {}
+        for recipe in page_recipes:
+            mats_stmt = select(Material).where(Material.recipe_id == recipe.recipe_id) # type: ignore
+            mats = (await db.execute(mats_stmt)).scalars().all()
+            recipe_materials_map[recipe.recipe_id] = mats
+
         filtered = [
             {
                 **r.__dict__,
                 "recipe_url": get_recipe_url(r.recipe_id),
-                "matched_ingredient_count": get_matched_count(r.recipe_id),
+                "matched_ingredient_count": len(set(ingredients) & {m.material_name for m in recipe_materials_map.get(r.recipe_id, [])}),
             }
-            for r in candidate_recipes
+            for r in page_recipes
         ]
-        start, end = (page-1)*size, (page-1)*size + size
-        return filtered[start:end], total
+        return filtered, total
 
     # 5. amount/unit 모두 있으면, 순차적 재고 소진 알고리즘 적용
     # 5-1. 초기 재고 설정
@@ -119,12 +132,12 @@ async def recommend_recipes_by_ingredients(
 
     # 5-3. 레시피 정보를 DataFrame 형태로 변환
     recipe_df = []
+    # 후보는 인기순 전체 후보를 사용 (알고리즘에서 조기중단)
+    candidate_recipes = (await db.execute(base_stmt)).scalars().unique().all()
     for recipe in candidate_recipes:
         recipe_dict = {
             'RECIPE_ID': recipe.recipe_id,
             'COOKING_NAME': recipe.cooking_name,
-            'COOKING_TIME': recipe.cooking_time,
-            'DIFFICULTY': recipe.difficulty,
             'SCRAP_COUNT': recipe.scrap_count,
             'RECIPE_URL': get_recipe_url(recipe.recipe_id),
             'MATCHED_INGREDIENT_COUNT': get_matched_count(recipe.recipe_id)
@@ -225,7 +238,11 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
             continue
 
         recipe_info = recipe_df[recipe_df['RECIPE_ID'] == best_recipe].iloc[0].to_dict()
-        recipe_info['used_ingredients'] = best_usage
+        # 프론트 렌더링 안전성을 위해 문자열 리스트로 변환
+        recipe_info['used_ingredients'] = [
+            f"{mat} {detail.get('amount', '')} {detail.get('unit', '')}".strip()
+            for mat, detail in best_usage.items()
+        ]
         recommended.append(recipe_info)
         used_recipe_ids.add(best_recipe)
 
@@ -239,6 +256,7 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
 
 async def search_recipes_by_keyword(
     db: AsyncSession,
+    postgres_db: Optional[AsyncSession],
     keyword: str,
     page: int = 1,
     size: int = 5,
@@ -246,70 +264,220 @@ async def search_recipes_by_keyword(
 ) -> Tuple[List[dict], int]:
     """
     레시피 검색 (페이지네이션)
-    - method == 'recipe': 레시피명(키워드) 부분일치 검색
+    - method == 'recipe': COOKING_NAME 기반 부분일치 검색 + 벡터 유사도 보완
     - method == 'ingredient': 식재료명(쉼표 구분) 포함 레시피 검색(모든 재료 포함)
     """
-    # MariaDB에서 키워드 검색으로 레시피 조회
-    # MariaDB 세션 생성
-    maria_db = await anext(get_maria_service_db())
-    try:
-        if method == "ingredient":
-            # 쉼표로 분리된 재료 파싱
-            ingredients = [i.strip() for i in keyword.split(",") if i.strip()]
-            if not ingredients:
-                return [], 0
+    if method == "ingredient":
+        # 쉼표로 분리된 재료 파싱
+        ingredients = [i.strip() for i in keyword.split(",") if i.strip()]
+        if not ingredients:
+            return [], 0
 
-            # 모든 입력 재료를 포함하는 레시피 추출
-            from sqlalchemy import func as sa_func
-            ids_stmt = (
-                select(Material.recipe_id)
-                .where(Material.material_name.in_(ingredients))
-                .group_by(Material.recipe_id)
-                .having(sa_func.count(sa_func.distinct(Material.material_name)) == len(ingredients))
-            )
-            ids_rows = await maria_db.execute(ids_stmt)
-            recipe_ids = [rid for (rid,) in ids_rows.all()]
-            if not recipe_ids:
-                return [], 0
+        # 모든 입력 재료를 포함하는 레시피 추출
+        from sqlalchemy import func as sa_func
+        ids_stmt = (
+            select(Material.recipe_id)
+            .where(Material.material_name.in_(ingredients))
+            .group_by(Material.recipe_id)
+            .having(sa_func.count(sa_func.distinct(Material.material_name)) == len(ingredients))
+        )
+        ids_rows = await db.execute(ids_stmt)
+        recipe_ids = [rid for (rid,) in ids_rows.all()]
+        if not recipe_ids:
+            return [], 0
 
-            # 상세 정보 로드 (정렬은 스크랩수 기준)
-            rec_stmt = (
-                select(Recipe)
-                .where(Recipe.recipe_id.in_(recipe_ids))
-                .order_by(desc(Recipe.scrap_count))
-            )
-            rec_rows = await maria_db.execute(rec_stmt)
-            recipes = rec_rows.scalars().all()
+        # 상세 정보 로드 (정렬은 스크랩수 기준)
+        rec_stmt = (
+            select(Recipe)
+            .where(Recipe.recipe_id.in_(recipe_ids))
+            .order_by(desc(Recipe.scrap_count))
+        )
+        rec_rows = await db.execute(rec_stmt)
+        recipes = rec_rows.scalars().all()
 
-            result_list = [{**r.__dict__, "recipe_url": get_recipe_url(r.recipe_id)} for r in recipes]
-            total = len(result_list)
-            start, end = (page-1)*size, (page-1)*size + size
-            paginated = result_list[start:end]
-            return paginated, total
+        result_list = [{**r.__dict__, "recipe_url": get_recipe_url(r.recipe_id)} for r in recipes]
+        total = len(result_list)
+        start, end = (page-1)*size, (page-1)*size + size
+        paginated = result_list[start:end]
+        return paginated, total
+    
+    else:  # method == "recipe"
+        # 1. MariaDB에서 COOKING_NAME 기반 정확 일치 우선 추천
+        # 먼저 전체 개수를 확인
+        total_cooking_name_stmt = (
+            select(func.count(Recipe.recipe_id))
+            .where(Recipe.cooking_name.contains(keyword))
+        )
+        total_cooking_name_result = await db.execute(total_cooking_name_stmt)
+        total_cooking_name_count = total_cooking_name_result.scalar() or 0
+        
+        print(f"COOKING_NAME 일치 총 개수: {total_cooking_name_count}")
+        
+        # 2. 요청된 개수만큼 COOKING_NAME 일치 결과 가져오기
+        cooking_name_stmt = (
+            select(Recipe)
+            .where(Recipe.cooking_name.contains(keyword))
+            .order_by(desc(Recipe.scrap_count))
+            .limit(size)
+        )
+        cooking_name_result = await db.execute(cooking_name_stmt)
+        cooking_name_matches = cooking_name_result.scalars().all()
+        
+        cooking_name_list = [
+            {
+                **r.__dict__,
+                "recipe_url": get_recipe_url(r.recipe_id),
+                "RANK_TYPE": 0  # 0은 'COOKING_NAME 정확 일치'를 의미
+            }
+            for r in cooking_name_matches
+        ]
+        
+        cooking_name_k = len(cooking_name_list)
+        seen_ids = {item["recipe_id"] for item in cooking_name_list}
+        
+        # 3. COOKING_NAME 일치가 부족한 경우 PostgreSQL에서 벡터 유사도 기반 보완 추천
+        remaining_after_cooking = size - cooking_name_k
+        
+        # 3. PostgreSQL에서 벡터 유사도 기반 보완 추천 (여전히 부족한 경우)
+        similar_list = []
+        
+        # 디버깅을 위한 간단한 로그
+        print(f"COOKING_NAME 일치: {cooking_name_k}개, 요청: {size}개, 부족: {remaining_after_cooking}개")
+        print(f"postgres_db 존재: {postgres_db is not None}")
+        
+        if remaining_after_cooking > 0 and postgres_db is not None:
+            print("벡터 유사도 검색 실행 시작")
+            
+            try:
+                # PostgreSQL에서 벡터 데이터 조회 (seen_ids 제외)
+                print(f"seen_ids: {seen_ids}")
+                if seen_ids:
+                    vec_stmt = (
+                        select(RecipeVector.recipe_id, RecipeVector.vector_name)
+                        .where(~RecipeVector.recipe_id.in_(seen_ids))
+                    )
+                else:
+                    vec_stmt = (
+                        select(RecipeVector.recipe_id, RecipeVector.vector_name)
+                    )
+                
+                print("PostgreSQL 벡터 데이터 조회 시작")
+                vec_result = await postgres_db.execute(vec_stmt)
+                vec_data = vec_result.all()
+                print(f"PostgreSQL에서 가져온 벡터 데이터 개수: {len(vec_data)}")
+                
+                if vec_data:
+                    print("SentenceTransformer 모델 로딩 시작")
+                    # SentenceTransformer 모델 로드
+                    from services.recommend.recommend_service import get_model
+                    model = await get_model()
+                    query_vec = model.encode(keyword, normalize_embeddings=True)
+                    print(f"쿼리 벡터 생성 완료, 차원: {len(query_vec)}")
+                    
+                    # 코사인 유사도 계산
+                    similarities = []
+                    print("코사인 유사도 계산 시작")
+                    
+                    for i, (rid, vector_data) in enumerate(vec_data):
+                        if vector_data is None:
+                            continue
+                        
+                        try:
+                            # pgvector Vector 타입을 numpy 배열로 변환
+                            import numpy as np
+                            
+                            # pgvector Vector 객체의 경우 to_list() 메서드 사용
+                            if hasattr(vector_data, 'to_list'):
+                                vector_array = np.array(vector_data.to_list())
+                            else:
+                                # 문자열인 경우 파싱
+                                vector_str = str(vector_data)
+                                if vector_str.startswith('[') and vector_str.endswith(']'):
+                                    vector_str = vector_str[1:-1]
+                                vector_values = [float(x.strip()) for x in vector_str.split(',')]
+                                vector_array = np.array(vector_values)
+                            
+                            # 코사인 유사도 계산
+                            dot_product = np.dot(query_vec, vector_array)
+                            norm_query = np.linalg.norm(query_vec)
+                            norm_vector = np.linalg.norm(vector_array)
+                            
+                            if norm_query > 0 and norm_vector > 0:
+                                similarity = dot_product / (norm_query * norm_vector)
+                                similarities.append((rid, similarity))
+                                
+                                if i < 5:  # 처음 5개만 출력
+                                    print(f"레시피 {rid}: 유사도 {similarity:.4f}")
+                        except Exception as e:
+                            if i < 5:  # 처음 5개만 출력
+                                print(f"레시피 {rid} 벡터 처리 실패: {e}")
+                            continue
+                    
+                    print(f"계산된 유사도 개수: {len(similarities)}")
+                    
+                    # 유사도 높은 순으로 정렬하고 상위 remaining_after_cooking개 선택
+                    if similarities:
+                        similarities.sort(key=lambda x: x[1], reverse=True)
+                        top_similar = similarities[:remaining_after_cooking]
+                        print(f"상위 유사도 레시피 개수: {len(top_similar)}")
+                        
+                        # 선택된 유사 레시피들의 상세 정보를 MariaDB에서 조회
+                        similar_ids = [rid for rid, _ in top_similar]
+                        print(f"MariaDB에서 조회할 유사 레시피 ID들: {similar_ids}")
+                        
+                        if similar_ids:
+                            similar_detail_stmt = (
+                                select(Recipe)
+                                .where(Recipe.recipe_id.in_(similar_ids))
+                            )
+                            similar_detail_result = await db.execute(similar_detail_stmt)
+                            similar_recipes = similar_detail_result.scalars().all()
+                            print(f"MariaDB에서 조회된 유사 레시피 개수: {len(similar_recipes)}")
+                            
+                            similar_list = [
+                                {
+                                    **r.__dict__,
+                                    "recipe_url": get_recipe_url(r.recipe_id),
+                                    "RANK_TYPE": 1  # 1은 '벡터 유사도 기반 추천'을 의미
+                                }
+                                for r in similar_recipes
+                            ]
+                            print(f"최종 similar_list 개수: {len(similar_list)}")
+                        else:
+                            print("similar_ids가 비어있음")
+                    else:
+                        print("계산된 유사도가 없음")
+                else:
+                    print("PostgreSQL에서 벡터 데이터를 가져오지 못함")
+                    
+            except Exception as e:
+                # 벡터 검색 실패 시 로그만 남기고 계속 진행
+                print(f"벡터 검색 중 오류 발생: {e}")
+                import traceback
+                traceback.print_exc()
+                pass
         else:
-            # 키워드가 포함된 레시피 검색
-            stmt = (
-                select(Recipe)
-                .where(Recipe.cooking_name.contains(keyword) | Recipe.recipe_title.contains(keyword))
-                .order_by(desc(Recipe.scrap_count))
-            )
-            result = await maria_db.execute(stmt)
-            recipes = result.scalars().all()
-            
-            # 결과 구성
-            result_list = []
-            for recipe in recipes:
-                result_list.append({
-                    **recipe.__dict__,
-                    "recipe_url": get_recipe_url(recipe.recipe_id)
-                })
-            
-            total = len(result_list)
-            start, end = (page-1)*size, (page-1)*size + size
-            paginated = result_list[start:end]
-            return paginated, total
-    finally:
-        await maria_db.close()
+            if remaining_after_cooking <= 0:
+                print(f"벡터 검색 불필요: 부족한 개수가 {remaining_after_cooking}개")
+            if postgres_db is None:
+                print("벡터 검색 불가: postgres_db가 None")
+        
+        # 4. 2단계 결과를 우선순위 순서로 합치기
+        final_list = cooking_name_list + similar_list
+        
+        if not final_list:
+            return [], 0
+        
+        # 4. 페이지네이션 적용
+        start, end = (page - 1) * size, (page - 1) * size + size
+        paginated = final_list[start:end]
+        
+        # 5. 전체 개수 계산 (정확한 total은 어려우므로 근사값)
+        total = (page - 1) * size + len(paginated)
+        if len(final_list) > end:
+            total += 1
+        
+        return paginated, total
 
 
 async def get_recipe_rating(db: AsyncSession, recipe_id: int) -> float:
