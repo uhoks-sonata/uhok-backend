@@ -2,7 +2,7 @@
 User API 엔드포인트 (회원가입, 로그인) - 비동기 패턴
 """
 
-from fastapi import APIRouter, Depends, status, Query, BackgroundTasks, Header, Request
+from fastapi import APIRouter, Depends, status, Query, BackgroundTasks, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
