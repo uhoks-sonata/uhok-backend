@@ -52,17 +52,18 @@ async def recommend_recipes_by_ingredients(
     amounts: Optional[List[str]] = None,
     units: Optional[List[str]] = None,
     page: int = 1,
-    size: int = 3
+    size: int = 10
 ) -> Tuple[List[Dict], int]:
     """
     재료명, 분량, 단위 기반 레시피 추천 (matched_ingredient_count 포함)
     - 소진횟수 파라미터 없이 동작
     - 페이지네이션(page, size)과 전체 개수(total) 반환
-    - 순차적 재고 소진 알고리즘 적용
+    - 순차적 재고 소진 알고리즘 적용 (amount/unit이 있는 경우)
+    - 효율적인 DB 쿼리로 타임아웃 방지
     """
     logger.info(f"재료 기반 레시피 추천 시작: 재료={ingredients}, 페이지={page}, 크기={size}")
     
-    # 공통: 기본 쿼리 (인기순)
+    # 기본 쿼리 (인기순)
     base_stmt = (
         select(Recipe)
         .join(Material, Recipe.recipe_id == Material.recipe_id) # type: ignore
@@ -70,17 +71,8 @@ async def recommend_recipes_by_ingredients(
         .group_by(Recipe.recipe_id)
         .order_by(desc(Recipe.scrap_count))
     )
-    offset = (page - 1) * size
-
-    # 2. 레시피별 실제 들어간 재료(Material) 리스트 미리 조회(map 저장, 최적화)
-    # (단, 단순 검색 모드에서는 DB 레벨 페이지네이션을 적용)
-
-    # 3. 입력한 재료가 실제로 들어간 개수 반환 함수
-    def get_matched_count(recipe_id):
-        mats = recipe_materials_map[recipe_id]
-        return len(set(ingredients) & {m.material_name for m in mats})
-
-    # 4. amount/unit이 없으면 단순 재료 포함 레시피 반환(페이지네이션: DB 레벨 적용)
+    
+    # 1. amount/unit이 없으면 단순 재료 포함 레시피 반환 (DB 레벨 페이지네이션)
     if not amounts or not units:
         logger.info("단순 재료 포함 레시피 추천 모드")
         
@@ -92,20 +84,21 @@ async def recommend_recipes_by_ingredients(
         )
         total = (await db.execute(total_stmt)).scalar() or 0
         logger.info(f"전체 레시피 개수: {total}")
-
+        
         # 페이지네이션 적용하여 데이터 조회
+        offset = (page - 1) * size
         page_stmt = base_stmt.offset(offset).limit(size)
         page_result = await db.execute(page_stmt)
         page_recipes = page_result.scalars().unique().all()
         logger.info(f"현재 페이지 레시피 개수: {len(page_recipes)}")
-
+        
         # 해당 페이지 레시피에 대해서만 재료 집계와 결과 구성
         recipe_materials_map = {}
         for recipe in page_recipes:
             mats_stmt = select(Material).where(Material.recipe_id == recipe.recipe_id) # type: ignore
             mats = (await db.execute(mats_stmt)).scalars().all()
             recipe_materials_map[recipe.recipe_id] = mats
-
+        
         filtered = [
             {
                 **r.__dict__,
@@ -115,9 +108,11 @@ async def recommend_recipes_by_ingredients(
             for r in page_recipes
         ]
         return filtered, total
-
-    # 5. amount/unit 모두 있으면, 순차적 재고 소진 알고리즘 적용
-    # 5-1. 초기 재고 설정
+    
+    # 2. amount/unit 모두 있으면, 순차적 재고 소진 알고리즘 적용
+    logger.info("순차적 재고 소진 알고리즘 모드")
+    
+    # 2-1. 초기 재고 설정
     initial_ingredients = []
     for i in range(len(ingredients)):
         try:
@@ -129,144 +124,189 @@ async def recommend_recipes_by_ingredients(
             'amount': amount,
             'unit': units[i] if units[i] else ''
         })
-
-    # 5-2. 레시피 재료 맵을 알고리즘에 맞는 형태로 변환
-    recipe_material_map = {}
-    for recipe_id, materials in recipe_materials_map.items():
-        recipe_material_map[recipe_id] = []
-        for mat in materials:
-            try:
-                amt = float(mat.measure_amount) if mat.measure_amount else 0
-            except (ValueError, TypeError):
-                amt = 0
-            recipe_material_map[recipe_id].append({
-                'mat': mat.material_name,
-                'amt': amt,
-                'unit': mat.measure_unit if mat.measure_unit else ''
-            })
-
-    # 5-3. 레시피 정보를 DataFrame 형태로 변환
-    recipe_df = []
-    # 후보는 인기순 전체 후보를 사용 (알고리즘에서 조기중단)
+    
+    # 2-2. 전체 후보 레시피를 한 번에 조회 (페이지네이션을 위해)
+    logger.info("전체 후보 레시피 조회 시작")
     candidate_recipes = (await db.execute(base_stmt)).scalars().unique().all()
+    logger.info(f"전체 후보 레시피 개수: {len(candidate_recipes)}")
+    
+    # 2-3. 레시피별 재료 정보를 효율적으로 조회
+    recipe_ids = [r.recipe_id for r in candidate_recipes]
+    materials_stmt = (
+        select(Material)
+        .where(Material.recipe_id.in_(recipe_ids))
+    )
+    all_materials = (await db.execute(materials_stmt)).scalars().all()
+    
+    # 레시피별 재료 맵 구성
+    recipe_material_map = {}
+    for mat in all_materials:
+        if mat.recipe_id not in recipe_material_map:
+            recipe_material_map[mat.recipe_id] = []
+        
+        try:
+            amt = float(mat.measure_amount) if mat.measure_amount else 0
+        except (ValueError, TypeError):
+            amt = 0
+        
+        recipe_material_map[mat.recipe_id].append({
+            'mat': mat.material_name,
+            'amt': amt,
+            'unit': mat.measure_unit if mat.measure_unit else ''
+        })
+    
+    # 2-4. 레시피 정보를 DataFrame 형태로 변환
+    recipe_df = []
     for recipe in candidate_recipes:
         recipe_dict = {
             'RECIPE_ID': recipe.recipe_id,
             'COOKING_NAME': recipe.cooking_name,
             'SCRAP_COUNT': recipe.scrap_count,
             'RECIPE_URL': get_recipe_url(recipe.recipe_id),
-            'MATCHED_INGREDIENT_COUNT': get_matched_count(recipe.recipe_id)
+            'THUMBNAIL_URL': recipe.thumbnail_url,
+            'COOKING_CASE_NAME': recipe.cooking_case_name,
+            'COOKING_CATEGORY_NAME': recipe.cooking_category_name,
+            'COOKING_INTRODUCTION': recipe.cooking_introduction,
+            'NUMBER_OF_SERVING': recipe.number_of_serving
         }
         recipe_df.append(recipe_dict)
     
     # DataFrame으로 변환
     recipe_df = pd.DataFrame(recipe_df)
-
-    # 5-4. 순차적 재고 소진 알고리즘 실행 (요청 페이지의 끝까지 생성하면 조기 중단)
+    
+    # 2-5. 순차적 재고 소진 알고리즘 실행 (요청 페이지의 끝까지 생성하면 조기 중단)
     max_results_needed = page * size
+    logger.info(f"알고리즘 실행: 최대 {max_results_needed}개까지 생성")
+    
     recommended, remaining_stock, early_stopped = recommend_sequentially_for_inventory(
         initial_ingredients,
         recipe_material_map,
         recipe_df,
         max_results=max_results_needed
     )
-
-    # 5-5. 페이지네이션 적용
+    
+    logger.info(f"알고리즘 완료: {len(recommended)}개 생성, 조기중단: {early_stopped}")
+    
+    # 2-6. 페이지네이션 적용
     start, end = (page-1)*size, (page-1)*size + size
     paginated_recommended = recommended[start:end]
-
-    # 전체 개수: 조기중단이면 정확한 total 계산이 어려우므로 최소치 + has_more 힌트 반영
+    
+    # 2-7. 전체 개수 계산
     if early_stopped:
-        # 요청한 페이지 범위까지는 존재하며, 그 이후가 더 있을 가능성을 1 더해 표현
+        # 조기중단이면 정확한 total 계산이 어려우므로 근사값 반환
         approx_total = (page - 1) * size + len(paginated_recommended) + 1
+        logger.info(f"조기중단으로 인한 근사 total: {approx_total}")
         return paginated_recommended, approx_total
     else:
-        return paginated_recommended, len(recommended)
+        total = len(recommended)
+        logger.info(f"정확한 total: {total}")
+        return paginated_recommended, total
 
 
 def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_map, recipe_df, max_results: Optional[int] = None):
+    """
+    순차적 재고 소진 알고리즘으로 레시피 추천
+    - 재료를 가장 효율적으로 사용하는 레시피를 순서대로 추천
+    - max_results에 도달하면 조기 중단하여 성능 최적화
+    """
+    # 내부 함수: 단위를 정규화 (소문자 + 앞뒤 공백 제거)
     def _norm(u):
         return (u or "").strip().lower()
 
+    # RECIPE_ID 컬럼을 int형으로 강제 변환 (정확한 비교를 위해)
     recipe_df['RECIPE_ID'] = recipe_df['RECIPE_ID'].astype(int)
 
+    # 초기 재고를 딕셔너리 형태로 가공: {재료명: {'amount': 수량, 'unit': 단위}}
     remaining_stock = {
         ing['name']: {'amount': ing['amount'], 'unit': ing['unit']}
         for ing in initial_ingredients
     }
 
+    # 추천된 레시피 리스트
     recommended = []
+    # 이미 사용된 레시피 ID를 저장하는 집합
     used_recipe_ids = set()
 
-    early_stopped = False
+    # 가능한 재료가 남아 있는 한 반복
     while True:
+        # 현재 재고 중 양이 0.001 이상인 재료 목록
         current_ingredients = [k for k, v in remaining_stock.items() if v['amount'] > 1e-3]
         if not current_ingredients:
-            break
+            break  # 재료가 다 떨어졌으면 종료
 
-        best_recipe = None
-        best_usage = {}
-        max_used = 0
+        best_recipe = None         # 이번 라운드에서 추천할 최고의 레시피 ID
+        best_usage = {}            # 그 레시피에서 실제 사용된 재료들
+        max_used = 0               # 가장 많은 종류의 재료를 사용한 수치
 
+        # 모든 레시피를 하나씩 탐색
         for rid, materials in recipe_material_map.items():
             rid = int(rid)
             if rid in used_recipe_ids:
-                continue
+                continue  # 이미 추천된 레시피는 스킵
 
-            temp_stock = copy.deepcopy(remaining_stock)
-            used_ingredients = {}
+            temp_stock = copy.deepcopy(remaining_stock)  # 재고 복사본 (시뮬레이션용)
+            used_ingredients = {}  # 현재 레시피에서 사용된 재료
 
+            # 이 레시피에 필요한 모든 재료를 순회
             for m in materials:
-                mat = m['mat']
-                req_amt = m['amt']
-                req_unit = m['unit']
+                mat = m['mat']      # 재료 이름
+                req_amt = m['amt']  # 필요한 양
+                req_unit = m['unit']  # 단위
 
+                # 조건:
+                # - 재고에 그 재료가 있음
+                # - 필요한 양이 명시되어 있음
+                # - 재고 수량이 충분함
+                # - 단위가 일치하거나 둘 중 하나라도 명시되지 않았음
                 if (
                     mat in temp_stock and
                     req_amt is not None and
                     temp_stock[mat]['amount'] > 1e-3 and
-                    (
-                        not temp_stock[mat].get('unit') or
-                        not req_unit or
-                        _norm(temp_stock[mat]['unit']) == _norm(req_unit)
-                    )
+                    (not temp_stock[mat].get('unit') or not req_unit
+                     or _norm(temp_stock[mat]['unit']) == _norm(req_unit))
                 ):
+                    # 실제 사용할 양은 현재 재고와 필요량 중 작은 값
                     used_amt = min(req_amt, temp_stock[mat]['amount'])
                     if used_amt > 1e-3:
-                        temp_stock[mat]['amount'] -= used_amt
+                        temp_stock[mat]['amount'] -= used_amt  # 재고에서 차감
                         used_ingredients[mat] = {'amount': used_amt, 'unit': req_unit}
 
+            # 현재 레시피가 지금까지 중 가장 많은 재료를 사용했다면 선택
             if used_ingredients and len(used_ingredients) > max_used:
                 best_recipe = rid
                 best_usage = used_ingredients
                 max_used = len(used_ingredients)
 
+        # 이번 라운드에 추천할 레시피가 없다면 종료
         if not best_recipe:
             break
 
+        # 선택된 레시피의 재료를 실제 재고에서 차감
         for mat, detail in best_usage.items():
             remaining_stock[mat]['amount'] -= detail['amount']
 
+        # 레시피 정보 조회
+        rid_int = int(best_recipe)
         row = recipe_df[recipe_df['RECIPE_ID'] == best_recipe]
         if row.empty:
+            # 레시피 정보가 없으면 무시하고 다음으로 진행
             used_recipe_ids.add(best_recipe)
             continue
 
-        recipe_info = recipe_df[recipe_df['RECIPE_ID'] == best_recipe].iloc[0].to_dict()
-        # 프론트 렌더링 안전성을 위해 문자열 리스트로 변환
-        recipe_info['used_ingredients'] = [
-            f"{mat} {detail.get('amount', '')} {detail.get('unit', '')}".strip()
-            for mat, detail in best_usage.items()
-        ]
+        # 레시피 정보 딕셔너리로 변환하고 사용된 재료 정보 추가
+        recipe_info = row.iloc[0].to_dict()
+        recipe_info['used_ingredients'] = best_usage
+
+        # 최종 추천 목록에 추가
         recommended.append(recipe_info)
-        used_recipe_ids.add(best_recipe)
+        used_recipe_ids.add(best_recipe)  # 재사용 방지
 
         # 최대 결과 수에 도달하면 조기 중단
         if max_results is not None and len(recommended) >= max_results:
-            early_stopped = True
-            break
+            return recommended, remaining_stock, True
 
-    return recommended, remaining_stock, early_stopped
+    # 추천된 레시피와 남은 재고를 반환
+    return recommended, remaining_stock, False
 
 
 async def search_recipes_by_keyword(
