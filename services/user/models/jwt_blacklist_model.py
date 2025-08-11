@@ -24,4 +24,4 @@ class JWTBlacklist(MariaBase):
     user_id = Column("USER_ID", String(36), nullable=True, index=True)
     
     # 추가 메타데이터 (선택적)
-    metadata = Column("METADATA", Text, nullable=True)
+    meta_data = Column("METADATA", Text, nullable=True)
