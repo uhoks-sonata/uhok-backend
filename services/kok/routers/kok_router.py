@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status, Background
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.dependencies import get_current_user
-from services.user.models.user_model import User
+from services.user.schemas.user_schema import UserOut
 from services.kok.schemas.kok_schema import (
     # 제품 관련 스키마
     KokProductDetailResponse,
@@ -98,7 +98,7 @@ logger = get_logger("kok_router")
 async def get_discounted_products(
         page: int = Query(1, ge=1, description="페이지 번호"),
         size: int = Query(20, ge=1, le=100, description="페이지 크기"),
-        current_user: User = Depends(get_current_user),
+        current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -122,7 +122,7 @@ async def get_discounted_products(
 async def get_top_selling_products(
         page: int = Query(1, ge=1, description="페이지 번호"),
         size: int = Query(20, ge=1, le=100, description="페이지 크기"),
-        current_user: User = Depends(get_current_user),
+        current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -144,7 +144,7 @@ async def get_top_selling_products(
     
 @router.get("/store-best-items", response_model=KokStoreBestProductsResponse)
 async def get_store_best_items(
-        current_user: User = Depends(get_current_user),
+        current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -171,7 +171,7 @@ async def get_store_best_items(
 @router.get("/product/{product_id}/info", response_model=KokProductInfoResponse)
 async def get_product_info(
         product_id: int,
-        current_user: User = Depends(get_current_user),
+        current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -196,7 +196,7 @@ async def get_product_info(
 @router.get("/product/{product_id}/tabs", response_model=KokProductTabsResponse)
 async def get_product_tabs(
         product_id: int,
-        current_user: User = Depends(get_current_user),
+        current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -223,7 +223,7 @@ async def get_product_tabs(
 @router.get("/product/{product_id}/reviews", response_model=KokReviewResponse)
 async def get_product_reviews(
         product_id: int,
-        current_user: User = Depends(get_current_user),
+        current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -255,7 +255,7 @@ async def get_product_reviews(
 @router.get("/product/{product_id}/seller-details", response_model=KokProductDetailsResponse)
 async def get_product_details(
         product_id: int,
-        current_user: User = Depends(get_current_user),
+        current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -280,7 +280,7 @@ async def get_product_details(
 @router.get("/product/{product_id}/full-detail", response_model=KokProductDetailResponse)
 async def get_product_detail(
         product_id: int,
-        current_user: User = Depends(get_current_user),
+        current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -312,7 +312,7 @@ async def search_products(
     keyword: str = Query(..., description="검색 키워드"),
     page: int = Query(1, ge=1, description="페이지 번호"),
     size: int = Query(20, ge=1, le=100, description="페이지 크기"),
-    current_user: User = Depends(get_current_user),
+    current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -340,7 +340,7 @@ async def search_products(
 @router.get("/search/history", response_model=KokSearchHistoryResponse)
 async def get_search_history(
     limit: int = Query(10, ge=1, le=50, description="조회할 이력 개수"),
-    current_user: User = Depends(get_current_user),
+    current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -363,7 +363,7 @@ async def get_search_history(
 @router.post("/search/history", response_model=dict)
 async def add_search_history(
     search_data: KokSearchHistoryCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -389,7 +389,7 @@ async def add_search_history(
 @router.delete("/search/history/{history_id}", response_model=KokSearchHistoryDeleteResponse)
 async def delete_search_history(
     history_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -419,7 +419,7 @@ async def delete_search_history(
 @router.post("/likes/toggle", response_model=KokLikesToggleResponse)
 async def toggle_likes(
     like_data: KokLikesToggleRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -454,7 +454,7 @@ async def toggle_likes(
 @router.get("/likes", response_model=KokLikedProductsResponse)
 async def get_liked_products(
     limit: int = Query(50, ge=1, le=100, description="조회할 찜 상품 개수"),
-    current_user: User = Depends(get_current_user),
+    current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -484,7 +484,7 @@ async def get_liked_products(
 @router.post("/carts", response_model=KokCartAddResponse, status_code=status.HTTP_201_CREATED)
 async def add_cart_item(
     cart_data: KokCartAddRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -521,7 +521,7 @@ async def add_cart_item(
 @router.get("/carts", response_model=KokCartItemsResponse)
 async def get_cart_items(
     limit: int = Query(50, ge=1, le=200, description="조회할 장바구니 상품 개수"),
-    current_user: User = Depends(get_current_user),
+    current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -548,7 +548,7 @@ async def get_cart_items(
 async def update_cart_quantity(
     cart_id: int,
     update_data: KokCartUpdateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -581,7 +581,7 @@ async def update_cart_quantity(
 @router.delete("/carts/{cart_id}", response_model=KokCartDeleteResponse)
 async def delete_cart_item(
     cart_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -614,7 +614,7 @@ async def delete_cart_item(
 @router.post("/carts/order", response_model=KokCartOrderResponse, status_code=status.HTTP_201_CREATED)
 async def order_from_selected_carts(
     request: KokCartOrderRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db),
 ):
@@ -642,7 +642,7 @@ async def order_from_selected_carts(
 @router.post("/carts/recipe-recommend", response_model=KokCartRecipeRecommendResponse)
 async def recommend_recipes_from_cart_items(
     recommend_request: KokCartRecipeRecommendRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
 ):

@@ -140,9 +140,11 @@ async def logout(
     
     token = authorization.replace("Bearer ", "")
     
-    # 토큰에서 만료 시간 추출
+    # 토큰에서 사용자 ID와 만료 시간 추출
+    user_id = extract_user_id_from_token(token)
     expires_at = get_token_expiration(token)
-    if not expires_at:
+    
+    if not user_id or not expires_at:
         raise InvalidTokenException("유효하지 않은 토큰입니다.")
     
     # 토큰을 블랙리스트에 추가
@@ -150,7 +152,7 @@ async def logout(
         db=db,
         token=token,
         expires_at=expires_at,
-        user_id=current_user.user_id,
+        user_id=user_id,
         metadata="user_logout"
     )
     
@@ -158,7 +160,7 @@ async def logout(
     if background_tasks:
         background_tasks.add_task(
             send_user_log, 
-            user_id=current_user.user_id, 
+            user_id=user_id, 
             event_type="user_logout", 
             event_data={"logout_method": "api_call"}
         )

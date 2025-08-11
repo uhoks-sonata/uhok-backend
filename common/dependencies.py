@@ -43,8 +43,17 @@ async def get_current_user(
             logger.warning(f"User not found for user_id: {user_id}")
             raise NotFoundException("사용자")
 
+        # SQLAlchemy ORM 객체를 Pydantic 모델로 변환하여 직렬화 문제 해결
+        from services.user.schemas.user_schema import UserOut
+        user_out = UserOut(
+            user_id=user.user_id,
+            username=user.username,
+            email=user.email,
+            created_at=user.created_at
+        )
+
         logger.debug(f"User authenticated successfully: user_id={user_id}")
-        return user
+        return user_out
         
     except Exception as e:
         logger.error(f"Authentication failed: {str(e)}")

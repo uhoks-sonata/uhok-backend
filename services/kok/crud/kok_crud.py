@@ -60,11 +60,72 @@ async def get_kok_product_full_detail(
     price_infos = (await db.execute(price_stmt)).scalars().all()
     
     return {
-        **product.__dict__,
-        "images": [img.__dict__ for img in images],
-        "detail_infos": [detail.__dict__ for detail in detail_infos],
-        "review_examples": [review.__dict__ for review in review_examples],
-        "price_infos": [price.__dict__ for price in price_infos],
+        "kok_product_id": product.kok_product_id,
+        "kok_product_name": product.kok_product_name,
+        "kok_store_name": product.kok_store_name,
+        "kok_thumbnail": product.kok_thumbnail,
+        "kok_product_price": product.kok_product_price,
+        "kok_discount_rate": product.kok_discount_rate,
+        "kok_discounted_price": product.kok_discounted_price,
+        "kok_review_cnt": product.kok_review_cnt,
+        "kok_review_score": product.kok_review_score,
+        "kok_5_ratio": product.kok_5_ratio,
+        "kok_4_ratio": product.kok_4_ratio,
+        "kok_3_ratio": product.kok_3_ratio,
+        "kok_2_ratio": product.kok_2_ratio,
+        "kok_1_ratio": product.kok_1_ratio,
+        "kok_aspect_price": product.kok_aspect_price,
+        "kok_aspect_price_ratio": product.kok_aspect_price_ratio,
+        "kok_aspect_delivery": product.kok_aspect_delivery,
+        "kok_aspect_delivery_ratio": product.kok_aspect_delivery_ratio,
+        "kok_aspect_taste": product.kok_aspect_taste,
+        "kok_aspect_taste_ratio": product.kok_aspect_taste_ratio,
+        "kok_seller": product.kok_seller,
+        "kok_co_ceo": product.kok_co_ceo,
+        "kok_co_reg_no": product.kok_co_reg_no,
+        "kok_co_ec_reg": product.kok_co_ec_reg,
+        "kok_tell": product.kok_tell,
+        "kok_ver_item": product.kok_ver_item,
+        "kok_ver_date": product.kok_ver_date,
+        "kok_co_addr": product.kok_co_addr,
+        "kok_return_addr": product.kok_return_addr,
+        "kok_exchange_addr": product.kok_exchange_addr,
+        "images": [
+            {
+                "kok_img_id": img.kok_img_id,
+                "kok_product_id": img.kok_product_id,
+                "kok_img_url": img.kok_img_url
+            } for img in images
+        ],
+        "detail_infos": [
+            {
+                "kok_detail_col_id": detail.kok_detail_col_id,
+                "kok_product_id": detail.kok_product_id,
+                "kok_detail_col": detail.kok_detail_col,
+                "kok_detail_val": detail.kok_detail_val
+            } for detail in detail_infos
+        ],
+        "review_examples": [
+            {
+                "kok_review_id": review.kok_review_id,
+                "kok_product_id": review.kok_product_id,
+                "kok_nickname": review.kok_nickname,
+                "kok_review_text": review.kok_review_text,
+                "kok_review_date": review.kok_review_date,
+                "kok_review_score": review.kok_review_score,
+                "kok_price_eval": review.kok_price_eval,
+                "kok_delivery_eval": review.kok_delivery_eval,
+                "kok_taste_eval": review.kok_taste_eval
+            } for review in review_examples
+        ],
+        "price_infos": [
+            {
+                "kok_price_id": price.kok_price_id,
+                "kok_product_id": price.kok_product_id,
+                "kok_discount_rate": price.kok_discount_rate,
+                "kok_discounted_price": price.kok_discounted_price
+            } for price in price_infos
+        ],
     }
 
 
@@ -176,7 +237,43 @@ async def get_kok_product_list(
         )
     total = (await db.execute(count_stmt)).scalar()
     
-    return [product.__dict__ for product in products], total
+    product_list = []
+    for product in products:
+        product_dict = {
+            "kok_product_id": product.kok_product_id,
+            "kok_product_name": product.kok_product_name,
+            "kok_store_name": product.kok_store_name,
+            "kok_thumbnail": product.kok_thumbnail,
+            "kok_product_price": product.kok_product_price,
+            "kok_discount_rate": product.kok_discount_rate,
+            "kok_discounted_price": product.kok_discounted_price,
+            "kok_review_cnt": product.kok_review_cnt,
+            "kok_review_score": product.kok_review_score,
+            "kok_5_ratio": product.kok_5_ratio,
+            "kok_4_ratio": product.kok_4_ratio,
+            "kok_3_ratio": product.kok_3_ratio,
+            "kok_2_ratio": product.kok_2_ratio,
+            "kok_1_ratio": product.kok_1_ratio,
+            "kok_aspect_price": product.kok_aspect_price,
+            "kok_aspect_price_ratio": product.kok_aspect_price_ratio,
+            "kok_aspect_delivery": product.kok_aspect_delivery,
+            "kok_aspect_delivery_ratio": product.kok_aspect_delivery_ratio,
+            "kok_aspect_taste": product.kok_aspect_taste,
+            "kok_aspect_taste_ratio": product.kok_aspect_taste_ratio,
+            "kok_seller": product.kok_seller,
+            "kok_co_ceo": product.kok_co_ceo,
+            "kok_co_reg_no": product.kok_co_reg_no,
+            "kok_co_ec_reg": product.kok_co_ec_reg,
+            "kok_tell": product.kok_tell,
+            "kok_ver_item": product.kok_ver_item,
+            "kok_ver_date": product.kok_ver_date,
+            "kok_co_addr": product.kok_co_addr,
+            "kok_return_addr": product.kok_return_addr,
+            "kok_exchange_addr": product.kok_exchange_addr
+        }
+        product_list.append(product_dict)
+    
+    return product_list, total
 
 # -----------------------------
 # 메인화면 상품 리스트 함수
