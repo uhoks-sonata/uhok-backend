@@ -4,157 +4,171 @@
 - DB 데이터 정의서 기반으로 변수명 통일
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, Text, SmallInt, BigInteger, Enum, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Text, BigInteger, Enum, ForeignKey, SMALLINT
 from sqlalchemy.orm import relationship
 
 from common.database.base_mariadb import MariaBase
 
 
-class HOMESHOPPING_INFO(MariaBase):
+class HomeshoppingInfo(MariaBase):
     """홈쇼핑 정보 테이블"""
     __tablename__ = "HOMESHOPPING_INFO"
     
-    homeshopping_id = Column("HOMESHOPPING_ID", SmallInt, primary_key=True, autoincrement=True, comment="홈쇼핑 인덱스")
+    homeshopping_id = Column("HOMESHOPPING_ID", SMALLINT, primary_key=True, autoincrement=True, comment="홈쇼핑 인덱스")
     homeshopping_channel_name = Column("HOMESHOPPING_CHANNEL_NAME", String(20), comment="채널명")
-    homeshopping_channel_number = Column("HOMSHOPPING_CHANNEL_NUMBER", SmallInt, comment="채널번호")
+    homeshopping_channel_number = Column("HOMSHOPPING_CHANNEL_NUMBER", SMALLINT, comment="채널번호")
 
     # 홈쇼핑 라이브 목록과 1:N 관계 설정
     live_lists = relationship(
-        "FCT_HOMESHOPPING_LIST",
+        "HomeshoppingList",
         back_populates="homeshopping_info",
-        primaryjoin="HOMESHOPPING_INFO.homeshopping_id==FCT_HOMESHOPPING_LIST.homeshopping_id",
+        primaryjoin="HomeshoppingInfo.homeshopping_id==HomeshoppingList.homeshopping_id",
         lazy="select"
     )
 
 
-class FCT_HOMESHOPPING_PRODUCT_INFO(MariaBase):
-    """홈쇼핑 제품 정보 테이블"""
-    __tablename__ = "FCT_HOMESHOPPING_PRODUCT_INFO"
-    
-    product_id = Column("PRODUCT_ID", String(15), primary_key=True, comment="제품코드")
-    store_name = Column("STORE_NAME", Text, comment="판매자 정보")
-    product_name = Column("PRODUCT_NAME", Text, comment="제품명")
-    sale_price = Column("SALE_PRICE", BigInteger, comment="원가")
-    dc_rate = Column("DC_RATE", BigInteger, comment="할인율")
-    dc_price = Column("DC_PRICE", BigInteger, comment="판매가")
-    delivery_fee = Column("DELIVERY_FEE", Text, comment="배송비")
-    delivery_co = Column("DELIVERY_CO", Text, comment="택배사명")
-    return_exchange = Column("RETURN_EXCHANGE", Text, comment="교환/반품 정보")
-    term = Column("TERM", Text, comment="소비기한")
-
-    # 홈쇼핑 라이브 목록과 1:N 관계 설정
-    live_lists = relationship(
-        "FCT_HOMESHOPPING_LIST",
-        back_populates="product_info",
-        lazy="select"
-    )
-
-    # 상세 정보와 1:N 관계 설정
-    detail_infos = relationship(
-        "FCT_HOMESHOPPING_DETAIL_INFO",
-        back_populates="product_info",
-        lazy="select"
-    )
-
-    # 이미지와 1:N 관계 설정
-    images = relationship(
-        "FCT_HOMESHOPPING_IMG_URL",
-        back_populates="product_info",
-        lazy="select"
-    )
-
-
-class FCT_HOMESHOPPING_LIST(MariaBase):
+class HomeshoppingList(MariaBase):
     """홈쇼핑 라이브 목록 테이블"""
     __tablename__ = "FCT_HOMESHOPPING_LIST"
     
     live_id = Column("LIVE_ID", Integer, primary_key=True, autoincrement=True, comment="라이브 인덱스")
-    homeshopping_id = Column("HOMESHOPPING_ID", SmallInt, ForeignKey("HOMESHOPPING_INFO.HOMESHOPPING_ID"), comment="홈쇼핑 인덱스")
+    homeshopping_id = Column("HOMESHOPPING_ID", SMALLINT, ForeignKey("HOMESHOPPING_INFO.HOMESHOPPING_ID"), comment="홈쇼핑 인덱스")
     live_date = Column("LIVE_DATE", DateTime, comment="방영일")
     live_time = Column("LIVE_TIME", String(20), comment="방영시간")
     promotion_type = Column("PROMOTION_TYPE", Enum('main', 'sub', name='promotion_type_enum'), comment="main/sub")
     live_title = Column("LIVE_TITLE", Text, nullable=True, comment="방송제목")
-    product_id = Column("PRODUCT_ID", String(20), ForeignKey("FCT_HOMESHOPPING_PRODUCT_INFO.PRODUCT_ID"), comment="제품 코드")
+    product_id = Column("PRODUCT_ID", String(20), comment="제품 코드")
     product_name = Column("PRODUCT_NAME", Text, comment="제품명")
-    sale_price = Column("SALE_PRICE", BigInteger, comment="판매 원가")
     dc_price = Column("DC_PRICE", BigInteger, comment="할인가")
     dc_rate = Column("DC_RATE", BigInteger, comment="할인율")
     thumb_img_url = Column("THUMB_IMG_URL", Text, comment="썸네일 URL")
 
     # 홈쇼핑 정보와 N:1 관계 설정
     homeshopping_info = relationship(
-        "HOMESHOPPING_INFO",
+        "HomeshoppingInfo",
         back_populates="live_lists",
         lazy="select"
     )
 
-    # 제품 정보와 N:1 관계 설정
+    # 제품 정보와 1:1 관계 설정 (FK 제약 조건)
     product_info = relationship(
-        "FCT_HOMESHOPPING_PRODUCT_INFO",
-        back_populates="live_lists",
+        "HomeshoppingProductInfo",
+        back_populates="live_list",
+        uselist=False,
         lazy="select"
     )
 
     # 상세 정보와 1:N 관계 설정
     detail_infos = relationship(
-        "FCT_HOMESHOPPING_DETAIL_INFO",
+        "HomeshoppingDetailInfo",
         back_populates="live_list",
-        primaryjoin="FCT_HOMESHOPPING_LIST.product_id==FCT_HOMESHOPPING_DETAIL_INFO.product_id",
+        primaryjoin="HomeshoppingList.product_id==HomeshoppingDetailInfo.product_id",
         lazy="select"
     )
 
     # 이미지와 1:N 관계 설정
     images = relationship(
-        "FCT_HOMESHOPPING_IMG_URL",
+        "HomeshoppingImgUrl",
         back_populates="live_list",
-        primaryjoin="FCT_HOMESHOPPING_LIST.product_id==FCT_HOMESHOPPING_IMG_URL.product_id",
+        primaryjoin="HomeshoppingList.product_id==HomeshoppingImgUrl.product_id",
+        lazy="select"
+    )
+
+    # 찜과 1:N 관계 설정
+    likes = relationship(
+        "HomeshoppingLikes",
+        back_populates="live_list",
+        primaryjoin="HomeshoppingList.product_id==HomeshoppingLikes.product_id",
         lazy="select"
     )
 
 
-class FCT_HOMESHOPPING_DETAIL_INFO(MariaBase):
+class HomeshoppingProductInfo(MariaBase):
+    """홈쇼핑 제품 정보 테이블"""
+    __tablename__ = "FCT_HOMESHOPPING_PRODUCT_INFO"
+    
+    product_id = Column("PRODUCT_ID", String(20), ForeignKey("FCT_HOMESHOPPING_LIST.PRODUCT_ID"), primary_key=True, comment="제품코드")
+    store_name = Column("STORE_NAME", Text, comment="판매자 정보")
+    sale_price = Column("SALE_PRICE", BigInteger, comment="원가")
+    return_exchange = Column("RETURN_EXCHANGE", Text, comment="교환/반품 정보")
+    term = Column("TERM", Text, comment="소비기한")
+
+    # 홈쇼핑 라이브 목록과 N:1 관계 설정 (FK 제약 조건)
+    live_list = relationship(
+        "HomeshoppingList",
+        back_populates="product_info",
+        lazy="select"
+    )
+
+
+
+
+class HomeshoppingDetailInfo(MariaBase):
     """홈쇼핑 상세 정보 테이블"""
     __tablename__ = "FCT_HOMESHOPPING_DETAIL_INFO"
     
     detail_id = Column("DETAIL_ID", Integer, primary_key=True, autoincrement=True, comment="상세정보 인덱스")
-    product_id = Column("PRODUCT_ID", String(20), ForeignKey("FCT_HOMESHOPPING_PRODUCT_INFO.PRODUCT_ID"), comment="제품 코드")
+    product_id = Column("PRODUCT_ID", String(20), ForeignKey("FCT_HOMESHOPPING_LIST.PRODUCT_ID"), comment="제품 코드")
     detail_col = Column("DETAIL_COL", Text, comment="상세정보 컬럼명")
     detail_val = Column("DETAIL_VAL", Text, comment="상세정보 텍스트")
 
     # 홈쇼핑 라이브 목록과 N:1 관계 설정
     live_list = relationship(
-        "FCT_HOMESHOPPING_LIST",
+        "HomeshoppingList",
         back_populates="detail_infos",
         lazy="select"
     )
 
-    # 제품 정보와 N:1 관계 설정
-    product_info = relationship(
-        "FCT_HOMESHOPPING_PRODUCT_INFO",
-        back_populates="detail_infos",
-        lazy="select"
-    )
-
-
-class FCT_HOMESHOPPING_IMG_URL(MariaBase):
+class HomeshoppingImgUrl(MariaBase):
     """홈쇼핑 이미지 URL 테이블"""
     __tablename__ = "FCT_HOMESHOPPING_IMG_URL"
     
     img_id = Column("IMG_ID", Integer, primary_key=True, autoincrement=True, comment="이미지 인덱스")
-    product_id = Column("PRODUCT_ID", String(20), ForeignKey("FCT_HOMESHOPPING_PRODUCT_INFO.PRODUCT_ID"), comment="제품코드")
-    sort_order = Column("SORT_ORDER", SmallInt, comment="이미지 순서")
+    product_id = Column("PRODUCT_ID", String(20), ForeignKey("FCT_HOMESHOPPING_LIST.PRODUCT_ID"), comment="제품코드")
+    sort_order = Column("SORT_ORDER", SMALLINT, comment="이미지 순서")
     img_url = Column("IMG_URL", Text, comment="이미지 URL")
 
     # 홈쇼핑 라이브 목록과 N:1 관계 설정
     live_list = relationship(
-        "FCT_HOMESHOPPING_LIST",
+        "HomeshoppingList",
         back_populates="images",
         lazy="select"
     )
 
-    # 제품 정보와 N:1 관계 설정
-    product_info = relationship(
-        "FCT_HOMESHOPPING_PRODUCT_INFO",
-        back_populates="images",
+class HomeshoppingSearchHistory(MariaBase):
+    """홈쇼핑 검색 이력 테이블"""
+    __tablename__ = "HOMESHOPPING_SEARCH_HISTORY"
+    
+    homeshopping_history_id = Column("HOMESHOPPING_HISTORY_ID", Integer, primary_key=True, autoincrement=True, comment="검색 이력 ID (PK)")
+    user_id = Column("USER_ID", Integer, nullable=False, comment="사용자 ID (회원 PK 참조)")
+    homeshopping_keyword = Column("HOMESHOPPING_KEYWORD", String(100), nullable=False, comment="검색 키워드")
+    homeshopping_searched_at = Column("HOMESHOPPING_SEARCHED_AT", DateTime, nullable=False, comment="검색 시간")
+
+
+class HomeshoppingLikes(MariaBase):
+    """홈쇼핑 찜 테이블"""
+    __tablename__ = "HOMESHOPPING_LIKES"
+    
+    homeshopping_like_id = Column("HOMESHOPPING_LIKE_ID", Integer, primary_key=True, autoincrement=True, comment="찜 ID (PK)")
+    user_id = Column("USER_ID", Integer, nullable=False, comment="사용자 ID (회원 PK 참조)")
+    product_id = Column("PRODUCT_ID", String(20), ForeignKey("FCT_HOMESHOPPING_LIST.PRODUCT_ID", ondelete="RESTRICT"), nullable=False, comment="제품 ID (FK)")
+    homeshopping_created_at = Column("HOMESHOPPING_CREATED_AT", DateTime, nullable=False, comment="찜한 시간")
+
+    # 홈쇼핑 라이브 목록과 N:1 관계 설정
+    live_list = relationship(
+        "HomeshoppingList",
+        back_populates="likes",
         lazy="select"
     )
+
+class HomeshoppingNotification(MariaBase):
+    """홈쇼핑 알림 테이블"""
+    __tablename__ = "HOMESHOPPING_NOTIFICATION"
+    
+    notification_id = Column("NOTIFICATION_ID", BigInteger, primary_key=True, autoincrement=True, comment="알림 고유번호 (PK)")
+    user_id = Column("USER_ID", Integer, nullable=False, comment="알림 대상 사용자 ID (논리 FK, 외래키 제약 없음)")
+    homeshopping_order_id = Column("HOMESHOPPING_ORDER_ID", Integer, nullable=False, comment="관련 주문 상세 ID")
+    status_id = Column("STATUS_ID", Integer, nullable=False, comment="상태 코드 ID(알림 트리거)")
+    title = Column("TITLE", String(100), nullable=False, comment="알림 제목")
+    message = Column("MESSAGE", String(255), nullable=False, comment="알림 메시지(상세)")
+    created_at = Column("CREATED_AT", DateTime, nullable=False, server_default='current_timestamp()', comment='알림 생성 시각')

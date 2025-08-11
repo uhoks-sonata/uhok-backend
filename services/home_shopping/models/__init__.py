@@ -1,17 +1,23 @@
 from .home_shopping_model import (
-    HOMESHOPPING_INFO,
-    FCT_HOMESHOPPING_LIST,
-    FCT_HOMESHOPPING_PRODUCT_INFO,
-    FCT_HOMESHOPPING_DETAIL_INFO,
-    FCT_HOMESHOPPING_IMG_URL,
-    Base
+    HomeshoppingInfo,
+    HomeshoppingList,
+    HomeshoppingProductInfo,
+    HomeshoppingDetailInfo,
+    HomeshoppingImgUrl,
+    HomeshoppingSearchHistory,
+    HomeshoppingLikes,
+    HomeshoppingNotification,
+    MariaBase
 )
 
 __all__ = [
-    "HOMESHOPPING_INFO",
-    "FCT_HOMESHOPPING_LIST", 
-    "FCT_HOMESHOPPING_PRODUCT_INFO",
-    "FCT_HOMESHOPPING_DETAIL_INFO",
-    "FCT_HOMESHOPPING_IMG_URL",
-    "Base"
+    "HomeshoppingInfo",
+    "HomeshoppingList", 
+    "HomeshoppingProductInfo",
+    "HomeshoppingDetailInfo",
+    "HomeshoppingImgUrl",
+    "HomeshoppingSearchHistory",
+    "HomeshoppingLikes",
+    "HomeshoppingNotification",
+    "MariaBase"
 ]
