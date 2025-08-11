@@ -114,7 +114,6 @@ class KokPriceInfo(BaseModel):
         from_attributes = True
 
 
-
 # -----------------------------
 # 제품 기본/목록/상세 스키마
 # -----------------------------
@@ -247,6 +246,8 @@ class KokTopSellingProduct(BaseModel):
     kok_discounted_price: Optional[int] = None
     kok_product_name: Optional[str] = None
     kok_store_name: Optional[str] = None
+    kok_review_cnt: Optional[int] = None  # 리뷰 개수
+    kok_review_score: Optional[float] = None  # 별점 평균
     
     class Config:
         from_attributes = True
@@ -269,6 +270,8 @@ class KokStoreBestProduct(BaseModel):
     kok_discounted_price: Optional[int] = None
     kok_product_name: Optional[str] = None
     kok_store_name: Optional[str] = None
+    kok_review_cnt: Optional[int] = None  # 리뷰 개수
+    kok_review_score: Optional[float] = None  # 별점 평균
     
     class Config:
         from_attributes = True

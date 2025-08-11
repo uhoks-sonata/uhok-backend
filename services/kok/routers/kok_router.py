@@ -122,14 +122,18 @@ async def get_discounted_products(
 async def get_top_selling_products(
         page: int = Query(1, ge=1, description="페이지 번호"),
         size: int = Query(20, ge=1, le=100, description="페이지 크기"),
+        sort_by: str = Query("review_count", description="정렬 기준 (review_count: 리뷰 개수 순, rating: 별점 평균 순)"),
         current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
     판매율 높은 상품 리스트 조회
+    - sort_by: review_count (리뷰 개수 순) 또는 rating (별점 평균 순)
     """
-    products = await get_kok_top_selling_products(db, page=page, size=size)
+    logger.info(f"인기 상품 조회 요청: user_id={current_user.user_id}, page={page}, size={size}, sort_by={sort_by}")
+    
+    products = await get_kok_top_selling_products(db, page=page, size=size, sort_by=sort_by)
     
     # 인기 상품 목록 조회 로그 기록
     if background_tasks:
@@ -137,21 +141,26 @@ async def get_top_selling_products(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="top_selling_products_view", 
-            event_data={"product_count": len(products)}
+            event_data={"product_count": len(products), "sort_by": sort_by}
         )
     
+    logger.info(f"인기 상품 조회 완료: user_id={current_user.user_id}, 결과 수={len(products)}, sort_by={sort_by}")
     return {"products": products}
     
 @router.get("/store-best-items", response_model=KokStoreBestProductsResponse)
 async def get_store_best_items(
+        sort_by: str = Query("review_count", description="정렬 기준 (review_count: 리뷰 개수 순, rating: 별점 평균 순)"),
         current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    구매한 스토어의 리뷰 많은 상품 리스트 조회
+    구매한 스토어의 베스트 상품 리스트 조회
+    - sort_by: review_count (리뷰 개수 순) 또는 rating (별점 평균 순)
     """
-    products = await get_kok_store_best_items(db, current_user.user_id)
+    logger.info(f"스토어 베스트 상품 조회 요청: user_id={current_user.user_id}, sort_by={sort_by}")
+    
+    products = await get_kok_store_best_items(db, current_user.user_id, sort_by=sort_by)
     
     # 스토어 베스트 상품 조회 로그 기록
     if background_tasks:
@@ -159,9 +168,10 @@ async def get_store_best_items(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="store_best_items_view", 
-            event_data={"product_count": len(products)}
+            event_data={"product_count": len(products), "sort_by": sort_by}
         )
     
+    logger.info(f"스토어 베스트 상품 조회 완료: user_id={current_user.user_id}, 결과 수={len(products)}, sort_by={sort_by}")
     return {"products": products}
 
 # ================================
