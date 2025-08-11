@@ -256,7 +256,6 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
 
 async def search_recipes_by_keyword(
     db: AsyncSession,
-    postgres_db: Optional[AsyncSession],
     keyword: str,
     page: int = 1,
     size: int = 5,
@@ -267,6 +266,9 @@ async def search_recipes_by_keyword(
     - method == 'recipe': COOKING_NAME 기반 부분일치 검색 + 벡터 유사도 보완
     - method == 'ingredient': 식재료명(쉼표 구분) 포함 레시피 검색(모든 재료 포함)
     """
+    print(f"=== search_recipes_by_keyword 시작 ===")
+    print(f"keyword: {keyword}, page: {page}, size: {size}, method: {method}")
+    
     if method == "ingredient":
         # 쉼표로 분리된 재료 파싱
         ingredients = [i.strip() for i in keyword.split(",") if i.strip()]
@@ -312,6 +314,7 @@ async def search_recipes_by_keyword(
         total_cooking_name_count = total_cooking_name_result.scalar() or 0
         
         print(f"COOKING_NAME 일치 총 개수: {total_cooking_name_count}")
+        print(f"요청된 size: {size}")
         
         # 2. 요청된 개수만큼 COOKING_NAME 일치 결과 가져오기
         cooking_name_stmt = (
@@ -320,8 +323,12 @@ async def search_recipes_by_keyword(
             .order_by(desc(Recipe.scrap_count))
             .limit(size)
         )
+        print(f"실행할 SQL 쿼리: {cooking_name_stmt}")
+        
         cooking_name_result = await db.execute(cooking_name_stmt)
         cooking_name_matches = cooking_name_result.scalars().all()
+        
+        print(f"실제 반환된 COOKING_NAME 일치 개수: {len(cooking_name_matches)}")
         
         cooking_name_list = [
             {
@@ -343,112 +350,128 @@ async def search_recipes_by_keyword(
         
         # 디버깅을 위한 간단한 로그
         print(f"COOKING_NAME 일치: {cooking_name_k}개, 요청: {size}개, 부족: {remaining_after_cooking}개")
-        print(f"postgres_db 존재: {postgres_db is not None}")
         
-        if remaining_after_cooking > 0 and postgres_db is not None:
+        if remaining_after_cooking > 0:
             print("벡터 유사도 검색 실행 시작")
             
             try:
-                # PostgreSQL에서 벡터 데이터 조회 (seen_ids 제외)
-                print(f"seen_ids: {seen_ids}")
-                if seen_ids:
-                    vec_stmt = (
-                        select(RecipeVector.recipe_id, RecipeVector.vector_name)
-                        .where(~RecipeVector.recipe_id.in_(seen_ids))
-                    )
-                else:
-                    vec_stmt = (
-                        select(RecipeVector.recipe_id, RecipeVector.vector_name)
-                    )
-                
-                print("PostgreSQL 벡터 데이터 조회 시작")
-                vec_result = await postgres_db.execute(vec_stmt)
-                vec_data = vec_result.all()
-                print(f"PostgreSQL에서 가져온 벡터 데이터 개수: {len(vec_data)}")
-                
-                if vec_data:
-                    print("SentenceTransformer 모델 로딩 시작")
-                    # SentenceTransformer 모델 로드
-                    from services.recommend.recommend_service import get_model
-                    model = await get_model()
-                    query_vec = model.encode(keyword, normalize_embeddings=True)
-                    print(f"쿼리 벡터 생성 완료, 차원: {len(query_vec)}")
-                    
-                    # 코사인 유사도 계산
-                    similarities = []
-                    print("코사인 유사도 계산 시작")
-                    
-                    for i, (rid, vector_data) in enumerate(vec_data):
-                        if vector_data is None:
-                            continue
-                        
-                        try:
-                            # pgvector Vector 타입을 numpy 배열로 변환
-                            import numpy as np
-                            
-                            # pgvector Vector 객체의 경우 to_list() 메서드 사용
-                            if hasattr(vector_data, 'to_list'):
-                                vector_array = np.array(vector_data.to_list())
-                            else:
-                                # 문자열인 경우 파싱
-                                vector_str = str(vector_data)
-                                if vector_str.startswith('[') and vector_str.endswith(']'):
-                                    vector_str = vector_str[1:-1]
-                                vector_values = [float(x.strip()) for x in vector_str.split(',')]
-                                vector_array = np.array(vector_values)
-                            
-                            # 코사인 유사도 계산
-                            dot_product = np.dot(query_vec, vector_array)
-                            norm_query = np.linalg.norm(query_vec)
-                            norm_vector = np.linalg.norm(vector_array)
-                            
-                            if norm_query > 0 and norm_vector > 0:
-                                similarity = dot_product / (norm_query * norm_vector)
-                                similarities.append((rid, similarity))
-                                
-                                if i < 5:  # 처음 5개만 출력
-                                    print(f"레시피 {rid}: 유사도 {similarity:.4f}")
-                        except Exception as e:
-                            if i < 5:  # 처음 5개만 출력
-                                print(f"레시피 {rid} 벡터 처리 실패: {e}")
-                            continue
-                    
-                    print(f"계산된 유사도 개수: {len(similarities)}")
-                    
-                    # 유사도 높은 순으로 정렬하고 상위 remaining_after_cooking개 선택
-                    if similarities:
-                        similarities.sort(key=lambda x: x[1], reverse=True)
-                        top_similar = similarities[:remaining_after_cooking]
-                        print(f"상위 유사도 레시피 개수: {len(top_similar)}")
-                        
-                        # 선택된 유사 레시피들의 상세 정보를 MariaDB에서 조회
-                        similar_ids = [rid for rid, _ in top_similar]
-                        print(f"MariaDB에서 조회할 유사 레시피 ID들: {similar_ids}")
-                        
-                        if similar_ids:
-                            similar_detail_stmt = (
-                                select(Recipe)
-                                .where(Recipe.recipe_id.in_(similar_ids))
-                            )
-                            similar_detail_result = await db.execute(similar_detail_stmt)
-                            similar_recipes = similar_detail_result.scalars().all()
-                            print(f"MariaDB에서 조회된 유사 레시피 개수: {len(similar_recipes)}")
-                            
-                            similar_list = [
-                                {
-                                    **r.__dict__,
-                                    "recipe_url": get_recipe_url(r.recipe_id),
-                                    "RANK_TYPE": 1  # 1은 '벡터 유사도 기반 추천'을 의미
-                                }
-                                for r in similar_recipes
-                            ]
-                            print(f"최종 similar_list 개수: {len(similar_list)}")
-                        else:
-                            print("similar_ids가 비어있음")
+                # PostgreSQL 세션을 새로 생성하여 사용
+                from common.database.postgres_recommend import SessionLocal
+                async with SessionLocal() as postgres_session:
+                    # PostgreSQL에서 벡터 데이터 조회 (seen_ids 제외)
+                    print(f"seen_ids: {seen_ids}")
+                    if seen_ids:
+                        vec_stmt = (
+                            select(RecipeVector.recipe_id, RecipeVector.vector_name)
+                            .where(~RecipeVector.recipe_id.in_(seen_ids))
+                        )
                     else:
-                        print("계산된 유사도가 없음")
-                else:
-                    print("PostgreSQL에서 벡터 데이터를 가져오지 못함")
+                        vec_stmt = (
+                            select(RecipeVector.recipe_id, RecipeVector.vector_name)
+                        )
+                    
+                    print("PostgreSQL 벡터 데이터 조회 시작")
+                    vec_result = await postgres_session.execute(vec_stmt)
+                    vec_data = vec_result.all()
+                    print(f"PostgreSQL에서 가져온 벡터 데이터 개수: {len(vec_data)}")
+                    
+                    if vec_data:
+                        print("SentenceTransformer 모델 로딩 시작")
+                        # SentenceTransformer 모델 로드
+                        from services.recommend.recommend_service import get_model
+                        model = await get_model()
+                        query_vec = model.encode(keyword, normalize_embeddings=True)
+                        print(f"쿼리 벡터 생성 완료, 차원: {len(query_vec)}")
+                        
+                        # 코사인 유사도 계산
+                        similarities = []
+                        print("코사인 유사도 계산 시작")
+                        
+                        for i, (rid, vector_data) in enumerate(vec_data):
+                            if vector_data is None:
+                                continue
+                            
+                            try:
+                                # pgvector Vector 타입을 numpy 배열로 변환
+                                import numpy as np
+                                
+                                # 디버깅: 벡터 데이터 타입과 내용 확인
+                                if i < 3:  # 처음 3개만 출력
+                                    print(f"레시피 {rid} 벡터 데이터 타입: {type(vector_data)}")
+                                    print(f"레시피 {rid} 벡터 데이터 내용: {str(vector_data)[:100]}...")
+                                
+                                # pgvector Vector 객체의 경우 to_list() 메서드 사용
+                                if hasattr(vector_data, 'to_list'):
+                                    vector_array = np.array(vector_data.to_list())
+                                else:
+                                    # 문자열인 경우 파싱 (공백 또는 쉼표로 구분)
+                                    vector_str = str(vector_data)
+                                    if vector_str.startswith('[') and vector_str.endswith(']'):
+                                        vector_str = vector_str[1:-1]
+                                    
+                                    # 공백과 쉼표 모두 처리
+                                    if ',' in vector_str:
+                                        # 쉼표로 구분된 경우
+                                        vector_values = [float(x.strip()) for x in vector_str.split(',')]
+                                    else:
+                                        # 공백으로 구분된 경우 (새줄 문자도 제거)
+                                        vector_str = vector_str.replace('\n', ' ').replace('\r', ' ')
+                                        vector_values = [float(x.strip()) for x in vector_str.split() if x.strip()]
+                                    
+                                    vector_array = np.array(vector_values)
+                                
+                                # 코사인 유사도 계산
+                                dot_product = np.dot(query_vec, vector_array)
+                                norm_query = np.linalg.norm(query_vec)
+                                norm_vector = np.linalg.norm(vector_array)
+                                
+                                if norm_query > 0 and norm_vector > 0:
+                                    similarity = dot_product / (norm_query * norm_vector)
+                                    similarities.append((rid, similarity))
+                                    
+                                    if i < 5:  # 처음 5개만 출력
+                                        print(f"레시피 {rid}: 유사도 {similarity:.4f}")
+                            except Exception as e:
+                                if i < 5:  # 처음 5개만 출력
+                                    print(f"레시피 {rid} 벡터 처리 실패: {e}")
+                                continue
+                        
+                        print(f"계산된 유사도 개수: {len(similarities)}")
+                        
+                        # 유사도 높은 순으로 정렬하고 상위 remaining_after_cooking개 선택
+                        if similarities:
+                            similarities.sort(key=lambda x: x[1], reverse=True)
+                            top_similar = similarities[:remaining_after_cooking]
+                            print(f"상위 유사도 레시피 개수: {len(top_similar)}")
+                            
+                            # 선택된 유사 레시피들의 상세 정보를 MariaDB에서 조회
+                            similar_ids = [rid for rid, _ in top_similar]
+                            print(f"MariaDB에서 조회할 유사 레시피 ID들: {similar_ids}")
+                            
+                            if similar_ids:
+                                similar_detail_stmt = (
+                                    select(Recipe)
+                                    .where(Recipe.recipe_id.in_(similar_ids))
+                                )
+                                similar_detail_result = await db.execute(similar_detail_stmt)
+                                similar_recipes = similar_detail_result.scalars().all()
+                                print(f"MariaDB에서 조회된 유사 레시피 개수: {len(similar_recipes)}")
+                                
+                                similar_list = [
+                                    {
+                                        **r.__dict__,
+                                        "recipe_url": get_recipe_url(r.recipe_id),
+                                        "RANK_TYPE": 1  # 1은 '벡터 유사도 기반 추천'을 의미
+                                    }
+                                    for r in similar_recipes
+                                ]
+                                print(f"최종 similar_list 개수: {len(similar_list)}")
+                            else:
+                                print("similar_ids가 비어있음")
+                        else:
+                            print("계산된 유사도가 없음")
+                    else:
+                        print("PostgreSQL에서 벡터 데이터를 가져오지 못함")
                     
             except Exception as e:
                 # 벡터 검색 실패 시 로그만 남기고 계속 진행
@@ -459,11 +482,11 @@ async def search_recipes_by_keyword(
         else:
             if remaining_after_cooking <= 0:
                 print(f"벡터 검색 불필요: 부족한 개수가 {remaining_after_cooking}개")
-            if postgres_db is None:
-                print("벡터 검색 불가: postgres_db가 None")
         
         # 4. 2단계 결과를 우선순위 순서로 합치기
         final_list = cooking_name_list + similar_list
+        
+        print(f"최종 결과: COOKING_NAME 일치 {len(cooking_name_list)}개 + 유사도 기반 {len(similar_list)}개 = 총 {len(final_list)}개")
         
         if not final_list:
             return [], 0
@@ -472,10 +495,15 @@ async def search_recipes_by_keyword(
         start, end = (page - 1) * size, (page - 1) * size + size
         paginated = final_list[start:end]
         
+        print(f"페이지네이션: page={page}, size={size}, start={start}, end={end}")
+        print(f"페이지네이션 후 최종 반환 개수: {len(paginated)}")
+        
         # 5. 전체 개수 계산 (정확한 total은 어려우므로 근사값)
         total = (page - 1) * size + len(paginated)
         if len(final_list) > end:
             total += 1
+        
+        print(f"=== search_recipes_by_keyword 완료: 총 {len(paginated)}개 반환, total={total} ===")
         
         return paginated, total
 
