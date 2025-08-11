@@ -29,6 +29,7 @@ pymysql==1.1.1                 # SQLAlchemy와 MariaDB/MySQL 연동용 드라이
 asyncmy==0.2.10                # MariaDB/MySQL용 비동기 SQLAlchemy 드라이버 (SQLAlchemy 1.4+ 지원)
 psycopg2==2.9.10               # PostgreSQL 동기 드라이버 (alembic migration 등에서 필수)
 asyncpg==0.30.0                # PostgreSQL용 비동기 SQLAlchemy 드라이버 (SQLAlchemy 1.4+ 지원)
+pgvector==0.3.6                # PostgreSQL 벡터 확장 및 SQLAlchemy 지원
 greenlet==3.2.3                # SQLAlchemy 등에서 비동기 context 전환에 사용되는 코루틴 지원
 idna==3.10                     # 국제 도메인 이름 처리용 (FastAPI 요청 헤더/URL 처리에 필요)
 passlib[bcrypt]==1.7.4         # 비밀번호 해싱 라이브러리 (bcrypt 포함, 로그인 기능 구현 시 사용)
