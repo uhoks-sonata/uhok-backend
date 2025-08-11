@@ -24,6 +24,10 @@ from services.kok.crud.kok_crud import get_kok_products_by_ingredient
 from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
 from common.log_utils import send_user_log
+from common.logger import get_logger
+
+# 로거 초기화
+logger = get_logger("recipe_router")
 
 router = APIRouter(prefix="/api/recipes", tags=["Recipe"])
 
@@ -43,14 +47,20 @@ async def by_ingredients(
     - matched_ingredient_count 포함
     - 응답: recipes(추천 목록), page(현재 페이지), total(전체 결과 개수)
     """
+    logger.info(f"재료 기반 레시피 추천 API 호출: user_id={current_user.user_id}, 재료={ingredient}, 페이지={page}, 크기={size}")
+    
     # amount/unit 길이 체크
     if (amount and len(amount) != len(ingredient)) or (unit and len(unit) != len(ingredient)):
+        logger.warning(f"파라미터 길이 불일치: ingredient={len(ingredient)}, amount={len(amount) if amount else 0}, unit={len(unit) if unit else 0}")
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="amount, unit 파라미터 개수가 ingredient와 일치해야 합니다.")
+    
     # 추천 결과 + 전체 개수 반환
     recipes, total = await recommend_recipes_by_ingredients(
         db, ingredient, amount, unit, page=page, size=size
     )
+    
+    logger.info(f"재료 기반 레시피 추천 완료: 총 {total}개, 현재 페이지 {len(recipes)}개")
     
     # 재료 기반 레시피 검색 로그 기록
     if background_tasks:
@@ -93,7 +103,11 @@ async def search_recipe(
     - 모델에서 유사 recipe_id 추천받아 상세조회 및 결과 반환
     - 응답: recipes(추천 목록), page(현재 페이지), total(전체 결과 개수)
     """
+    logger.info(f"레시피 키워드 검색 API 호출: user_id={current_user.user_id}, keyword={recipe}, method={method}, 페이지={page}, 크기={size}")
+    
     recipes, total = await search_recipes_by_keyword(db, recipe, page=page, size=size, method=method)
+    
+    logger.info(f"레시피 키워드 검색 완료: 총 {total}개, 현재 페이지 {len(recipes)}개")
     
     # 레시피 키워드 검색 로그 기록
     if background_tasks:
@@ -126,6 +140,7 @@ async def get_recipe(
     """
     레시피 상세 정보 + 재료 리스트 + 만개의레시피 url 조회
     """
+    logger.info(f"레시피 상세 조회 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}")
     result = await get_recipe_detail(db, recipe_id)
     if not result:
         raise HTTPException(status_code=404, detail="레시피가 존재하지 않습니다.")
@@ -154,6 +169,7 @@ async def get_recipe_url_api(
     """
     만개의 레시피 URL 동적 생성하여 반환
     """
+    logger.info(f"만개의 레시피 URL 조회 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}")
     url = get_recipe_url(recipe_id)
     
     # 레시피 URL 조회 로그 기록
@@ -178,6 +194,7 @@ async def get_rating(
     """
     레시피 별점 평균 조회
     """
+    logger.info(f"레시피 별점 조회 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}")
     rating = await get_recipe_rating(db, recipe_id)
     
     # 레시피 별점 조회 로그 기록
@@ -203,6 +220,7 @@ async def post_rating(
     """
     레시피 별점 등록 (0~5 정수만 허용)
     """
+    logger.info(f"레시피 별점 등록 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}, rating={req.rating}")
     # 실제 서비스에서는 user_id를 인증에서 추출
     rating = await set_recipe_rating(db, recipe_id, user_id=current_user.user_id, rating=int(req.rating))
     
@@ -232,6 +250,7 @@ async def get_kok_products(
     콕 쇼핑몰 내 ingredient(식재료명) 관련 상품 정보 조회
     - 반환 필드명은 kok 모델 변수명(소문자)과 100% 일치
     """
+    logger.info(f"콕 상품 검색 API 호출: user_id={current_user.user_id}, ingredient={ingredient}")
     products = await get_kok_products_by_ingredient(db, ingredient)
     
     # 식재료 기반 상품 검색 로그 기록

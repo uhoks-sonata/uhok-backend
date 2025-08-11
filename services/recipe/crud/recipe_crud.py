@@ -12,6 +12,10 @@ import copy
 
 from services.recipe.models.recipe_model import Recipe, Material, RecipeRating, RecipeVector
 from common.database.mariadb_service import get_maria_service_db
+from common.logger import get_logger
+
+# 로거 초기화
+logger = get_logger("recipe_crud")
 
 def get_recipe_url(recipe_id: int) -> str:
     """
@@ -24,16 +28,21 @@ async def get_recipe_detail(db: AsyncSession, recipe_id: int) -> Optional[Dict]:
     """
     레시피 상세정보(+재료 리스트, recipe_url 포함) 반환
     """
+    logger.info(f"레시피 상세정보 조회 시작: recipe_id={recipe_id}")
+    
     stmt = select(Recipe).where(Recipe.recipe_id == recipe_id) # type: ignore
     recipe_row = await db.execute(stmt)
     recipe = recipe_row.scalar_one_or_none()
     if not recipe:
+        logger.warning(f"레시피를 찾을 수 없음: recipe_id={recipe_id}")
         return None
 
     mats_row = await db.execute(select(Material).where(Material.recipe_id == recipe_id)) # type: ignore
     materials = [m.__dict__ for m in mats_row.scalars().all()]
     recipe_url = get_recipe_url(recipe_id)
     result_dict = {**recipe.__dict__, "materials": materials, "recipe_url": recipe_url}
+    
+    logger.info(f"레시피 상세정보 조회 완료: recipe_id={recipe_id}, 재료 개수={len(materials)}")
     return result_dict
 
 
@@ -51,6 +60,8 @@ async def recommend_recipes_by_ingredients(
     - 페이지네이션(page, size)과 전체 개수(total) 반환
     - 순차적 재고 소진 알고리즘 적용
     """
+    logger.info(f"재료 기반 레시피 추천 시작: 재료={ingredients}, 페이지={page}, 크기={size}")
+    
     # 공통: 기본 쿼리 (인기순)
     base_stmt = (
         select(Recipe)
@@ -71,6 +82,8 @@ async def recommend_recipes_by_ingredients(
 
     # 4. amount/unit이 없으면 단순 재료 포함 레시피 반환(페이지네이션: DB 레벨 적용)
     if not amounts or not units:
+        logger.info("단순 재료 포함 레시피 추천 모드")
+        
         # total 계산: DISTINCT 레시피 개수
         total_stmt = (
             select(func.count(func.distinct(Recipe.recipe_id)))
@@ -78,11 +91,13 @@ async def recommend_recipes_by_ingredients(
             .where(Material.material_name.in_(ingredients))
         )
         total = (await db.execute(total_stmt)).scalar() or 0
+        logger.info(f"전체 레시피 개수: {total}")
 
         # 페이지네이션 적용하여 데이터 조회
         page_stmt = base_stmt.offset(offset).limit(size)
         page_result = await db.execute(page_stmt)
         page_recipes = page_result.scalars().unique().all()
+        logger.info(f"현재 페이지 레시피 개수: {len(page_recipes)}")
 
         # 해당 페이지 레시피에 대해서만 재료 집계와 결과 구성
         recipe_materials_map = {}
@@ -266,13 +281,13 @@ async def search_recipes_by_keyword(
     - method == 'recipe': COOKING_NAME 기반 부분일치 검색 + 벡터 유사도 보완
     - method == 'ingredient': 식재료명(쉼표 구분) 포함 레시피 검색(모든 재료 포함)
     """
-    print(f"=== search_recipes_by_keyword 시작 ===")
-    print(f"keyword: {keyword}, page: {page}, size: {size}, method: {method}")
+    logger.info(f"레시피 키워드 검색 시작: keyword={keyword}, page={page}, size={size}, method={method}")
     
     if method == "ingredient":
         # 쉼표로 분리된 재료 파싱
         ingredients = [i.strip() for i in keyword.split(",") if i.strip()]
         if not ingredients:
+            logger.warning("입력된 재료가 없어 검색 중단")
             return [], 0
 
         # 모든 입력 재료를 포함하는 레시피 추출
@@ -286,6 +301,7 @@ async def search_recipes_by_keyword(
         ids_rows = await db.execute(ids_stmt)
         recipe_ids = [rid for (rid,) in ids_rows.all()]
         if not recipe_ids:
+            logger.warning(f"입력된 재료로 레시피를 찾을 수 없음: ingredients={ingredients}")
             return [], 0
 
         # 상세 정보 로드 (정렬은 스크랩수 기준)
@@ -301,6 +317,7 @@ async def search_recipes_by_keyword(
         total = len(result_list)
         start, end = (page-1)*size, (page-1)*size + size
         paginated = result_list[start:end]
+        logger.info(f"재료 기반 레시피 검색 완료: 총 {total}개, 페이지네이션 후 {len(paginated)}개")
         return paginated, total
     
     else:  # method == "recipe"
@@ -313,8 +330,8 @@ async def search_recipes_by_keyword(
         total_cooking_name_result = await db.execute(total_cooking_name_stmt)
         total_cooking_name_count = total_cooking_name_result.scalar() or 0
         
-        print(f"COOKING_NAME 일치 총 개수: {total_cooking_name_count}")
-        print(f"요청된 size: {size}")
+        logger.info(f"COOKING_NAME 일치 총 개수: {total_cooking_name_count}")
+        logger.info(f"요청된 size: {size}")
         
         # 2. 요청된 개수만큼 COOKING_NAME 일치 결과 가져오기
         cooking_name_stmt = (
@@ -323,12 +340,12 @@ async def search_recipes_by_keyword(
             .order_by(desc(Recipe.scrap_count))
             .limit(size)
         )
-        print(f"실행할 SQL 쿼리: {cooking_name_stmt}")
+        logger.info(f"실행할 SQL 쿼리: {cooking_name_stmt}")
         
         cooking_name_result = await db.execute(cooking_name_stmt)
         cooking_name_matches = cooking_name_result.scalars().all()
         
-        print(f"실제 반환된 COOKING_NAME 일치 개수: {len(cooking_name_matches)}")
+        logger.info(f"실제 반환된 COOKING_NAME 일치 개수: {len(cooking_name_matches)}")
         
         cooking_name_list = [
             {
@@ -349,17 +366,17 @@ async def search_recipes_by_keyword(
         similar_list = []
         
         # 디버깅을 위한 간단한 로그
-        print(f"COOKING_NAME 일치: {cooking_name_k}개, 요청: {size}개, 부족: {remaining_after_cooking}개")
+        logger.info(f"COOKING_NAME 일치: {cooking_name_k}개, 요청: {size}개, 부족: {remaining_after_cooking}개")
         
         if remaining_after_cooking > 0:
-            print("벡터 유사도 검색 실행 시작")
+            logger.info("벡터 유사도 검색 실행 시작")
             
             try:
                 # PostgreSQL 세션을 새로 생성하여 사용
                 from common.database.postgres_recommend import SessionLocal
                 async with SessionLocal() as postgres_session:
                     # PostgreSQL에서 벡터 데이터 조회 (seen_ids 제외)
-                    print(f"seen_ids: {seen_ids}")
+                    logger.info(f"seen_ids: {seen_ids}")
                     if seen_ids:
                         vec_stmt = (
                             select(RecipeVector.recipe_id, RecipeVector.vector_name)
@@ -370,22 +387,22 @@ async def search_recipes_by_keyword(
                             select(RecipeVector.recipe_id, RecipeVector.vector_name)
                         )
                     
-                    print("PostgreSQL 벡터 데이터 조회 시작")
+                    logger.info("PostgreSQL 벡터 데이터 조회 시작")
                     vec_result = await postgres_session.execute(vec_stmt)
                     vec_data = vec_result.all()
-                    print(f"PostgreSQL에서 가져온 벡터 데이터 개수: {len(vec_data)}")
+                    logger.info(f"PostgreSQL에서 가져온 벡터 데이터 개수: {len(vec_data)}")
                     
                     if vec_data:
-                        print("SentenceTransformer 모델 로딩 시작")
+                        logger.info("SentenceTransformer 모델 로딩 시작")
                         # SentenceTransformer 모델 로드
                         from services.recommend.recommend_service import get_model
                         model = await get_model()
                         query_vec = model.encode(keyword, normalize_embeddings=True)
-                        print(f"쿼리 벡터 생성 완료, 차원: {len(query_vec)}")
+                        logger.info(f"쿼리 벡터 생성 완료, 차원: {len(query_vec)}")
                         
                         # 코사인 유사도 계산
                         similarities = []
-                        print("코사인 유사도 계산 시작")
+                        logger.info("코사인 유사도 계산 시작")
                         
                         for i, (rid, vector_data) in enumerate(vec_data):
                             if vector_data is None:
@@ -397,8 +414,8 @@ async def search_recipes_by_keyword(
                                 
                                 # 디버깅: 벡터 데이터 타입과 내용 확인
                                 if i < 3:  # 처음 3개만 출력
-                                    print(f"레시피 {rid} 벡터 데이터 타입: {type(vector_data)}")
-                                    print(f"레시피 {rid} 벡터 데이터 내용: {str(vector_data)[:100]}...")
+                                    logger.debug(f"레시피 {rid} 벡터 데이터 타입: {type(vector_data)}")
+                                    logger.debug(f"레시피 {rid} 벡터 데이터 내용: {str(vector_data)[:100]}...")
                                 
                                 # pgvector Vector 객체의 경우 to_list() 메서드 사용
                                 if hasattr(vector_data, 'to_list'):
@@ -430,23 +447,23 @@ async def search_recipes_by_keyword(
                                     similarities.append((rid, similarity))
                                     
                                     if i < 5:  # 처음 5개만 출력
-                                        print(f"레시피 {rid}: 유사도 {similarity:.4f}")
+                                        logger.debug(f"레시피 {rid}: 유사도 {similarity:.4f}")
                             except Exception as e:
                                 if i < 5:  # 처음 5개만 출력
-                                    print(f"레시피 {rid} 벡터 처리 실패: {e}")
+                                    logger.debug(f"레시피 {rid} 벡터 처리 실패: {e}")
                                 continue
                         
-                        print(f"계산된 유사도 개수: {len(similarities)}")
+                        logger.info(f"계산된 유사도 개수: {len(similarities)}")
                         
                         # 유사도 높은 순으로 정렬하고 상위 remaining_after_cooking개 선택
                         if similarities:
                             similarities.sort(key=lambda x: x[1], reverse=True)
                             top_similar = similarities[:remaining_after_cooking]
-                            print(f"상위 유사도 레시피 개수: {len(top_similar)}")
+                            logger.info(f"상위 유사도 레시피 개수: {len(top_similar)}")
                             
                             # 선택된 유사 레시피들의 상세 정보를 MariaDB에서 조회
                             similar_ids = [rid for rid, _ in top_similar]
-                            print(f"MariaDB에서 조회할 유사 레시피 ID들: {similar_ids}")
+                            logger.info(f"MariaDB에서 조회할 유사 레시피 ID들: {similar_ids}")
                             
                             if similar_ids:
                                 similar_detail_stmt = (
@@ -455,7 +472,7 @@ async def search_recipes_by_keyword(
                                 )
                                 similar_detail_result = await db.execute(similar_detail_stmt)
                                 similar_recipes = similar_detail_result.scalars().all()
-                                print(f"MariaDB에서 조회된 유사 레시피 개수: {len(similar_recipes)}")
+                                logger.info(f"MariaDB에서 조회된 유사 레시피 개수: {len(similar_recipes)}")
                                 
                                 similar_list = [
                                     {
@@ -465,28 +482,28 @@ async def search_recipes_by_keyword(
                                     }
                                     for r in similar_recipes
                                 ]
-                                print(f"최종 similar_list 개수: {len(similar_list)}")
+                                logger.info(f"최종 similar_list 개수: {len(similar_list)}")
                             else:
-                                print("similar_ids가 비어있음")
+                                logger.warning("similar_ids가 비어있음")
                         else:
-                            print("계산된 유사도가 없음")
+                            logger.warning("계산된 유사도가 없음")
                     else:
-                        print("PostgreSQL에서 벡터 데이터를 가져오지 못함")
+                        logger.warning("PostgreSQL에서 벡터 데이터를 가져오지 못함")
                     
             except Exception as e:
                 # 벡터 검색 실패 시 로그만 남기고 계속 진행
-                print(f"벡터 검색 중 오류 발생: {e}")
+                logger.error(f"벡터 검색 중 오류 발생: {e}")
                 import traceback
                 traceback.print_exc()
                 pass
         else:
             if remaining_after_cooking <= 0:
-                print(f"벡터 검색 불필요: 부족한 개수가 {remaining_after_cooking}개")
+                logger.info(f"벡터 검색 불필요: 부족한 개수가 {remaining_after_cooking}개")
         
         # 4. 2단계 결과를 우선순위 순서로 합치기
         final_list = cooking_name_list + similar_list
         
-        print(f"최종 결과: COOKING_NAME 일치 {len(cooking_name_list)}개 + 유사도 기반 {len(similar_list)}개 = 총 {len(final_list)}개")
+        logger.info(f"최종 결과: COOKING_NAME 일치 {len(cooking_name_list)}개 + 유사도 기반 {len(similar_list)}개 = 총 {len(final_list)}개")
         
         if not final_list:
             return [], 0
@@ -495,15 +512,15 @@ async def search_recipes_by_keyword(
         start, end = (page - 1) * size, (page - 1) * size + size
         paginated = final_list[start:end]
         
-        print(f"페이지네이션: page={page}, size={size}, start={start}, end={end}")
-        print(f"페이지네이션 후 최종 반환 개수: {len(paginated)}")
+        logger.info(f"페이지네이션: page={page}, size={size}, start={start}, end={end}")
+        logger.info(f"페이지네이션 후 최종 반환 개수: {len(paginated)}")
         
         # 5. 전체 개수 계산 (정확한 total은 어려우므로 근사값)
         total = (page - 1) * size + len(paginated)
         if len(final_list) > end:
             total += 1
         
-        print(f"=== search_recipes_by_keyword 완료: 총 {len(paginated)}개 반환, total={total} ===")
+        logger.info(f"=== search_recipes_by_keyword 완료: 총 {len(paginated)}개 반환, total={total} ===")
         
         return paginated, total
 
