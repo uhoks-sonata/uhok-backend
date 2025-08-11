@@ -5,6 +5,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional, List, Tuple
+from common.logger import get_logger
 
 from services.kok.models.kok_model import (
     KokProductInfo, 
@@ -20,6 +21,8 @@ from services.kok.models.kok_model import (
 from services.order.models.order_model import KokOrder, Order
 from services.recipe.models.recipe_model import Recipe
 
+logger = get_logger("kok_crud")
+
 async def get_kok_product_full_detail(
         db: AsyncSession,
         product_id: int
@@ -27,12 +30,15 @@ async def get_kok_product_full_detail(
     """
     주어진 product_id에 해당하는 콕 제품 상세정보와 관련 정보를 반환
     """
+    logger.info(f"상품 상세 정보 조회 시작: product_id={product_id}")
+    
     stmt = (
         select(KokProductInfo).where(KokProductInfo.kok_product_id == product_id)
     )
     result = await db.execute(stmt)
     product = result.scalar_one_or_none()
     if not product:
+        logger.warning(f"상품을 찾을 수 없음: product_id={product_id}")
         return None
     
     # 이미지 정보 조회
@@ -127,6 +133,9 @@ async def get_kok_product_full_detail(
             } for price in price_infos
         ],
     }
+    
+    logger.info(f"상품 상세 정보 조회 완료: product_id={product_id}, 이미지 수={len(images)}, 상세정보 수={len(detail_infos)}")
+    return result
 
 
 async def get_kok_product_seller_details(
@@ -138,6 +147,8 @@ async def get_kok_product_seller_details(
     - KOK_PRODUCT_INFO 테이블에서 판매자 정보
     - KOK_DETAIL_INFO 테이블에서 상세정보 목록
     """
+    logger.info(f"상품 판매자 정보 조회 시작: product_id={product_id}")
+    
     # 1. KOK_PRODUCT_INFO 테이블에서 판매자 정보 조회
     product_stmt = (
         select(KokProductInfo).where(KokProductInfo.kok_product_id == product_id)
@@ -146,6 +157,7 @@ async def get_kok_product_seller_details(
     product = product_result.scalar_one_or_none()
     
     if not product:
+        logger.warning(f"상품을 찾을 수 없음: product_id={product_id}")
         return None
     
     # 2. KOK_DETAIL_INFO 테이블에서 상세정보 목록 조회
@@ -177,10 +189,13 @@ async def get_kok_product_seller_details(
         for detail in detail_infos
     ]
     
-    return {
+    result = {
         "seller_info": seller_info,
         "detail_info": detail_info_list
     }
+    
+    logger.info(f"상품 판매자 정보 조회 완료: product_id={product_id}, 상세정보 수={len(detail_info_list)}")
+    return result
     
 async def get_kok_product_list(
         db: AsyncSession,
@@ -662,6 +677,8 @@ async def toggle_kok_likes(
     """
     찜 등록/해제 토글
     """
+    logger.info(f"찜 토글 시작: user_id={user_id}, product_id={kok_product_id}")
+    
     # 기존 찜 확인
     stmt = (
         select(KokLikes)
@@ -675,6 +692,7 @@ async def toggle_kok_likes(
         # 찜 해제
         await db.delete(existing_like)
         await db.commit()
+        logger.info(f"찜 해제 완료: user_id={user_id}, product_id={kok_product_id}")
         return False
     else:
         # 찜 등록
@@ -689,6 +707,7 @@ async def toggle_kok_likes(
         
         db.add(new_like)
         await db.commit()
+        logger.info(f"찜 등록 완료: user_id={user_id}, product_id={kok_product_id}")
         return True
 
 async def get_kok_liked_products(
@@ -789,6 +808,8 @@ async def add_kok_cart(
     """
     장바구니에 상품 추가
     """
+    logger.info(f"장바구니 추가 시작: user_id={user_id}, product_id={kok_product_id}, quantity={kok_quantity}, recipe_id={recipe_id}")
+    
     # 기존 장바구니 항목 확인
     stmt = (
         select(KokCart)
@@ -800,6 +821,7 @@ async def add_kok_cart(
     
     if existing_cart:
         # 이미 장바구니에 있는 경우 추가하지 않음
+        logger.info(f"이미 장바구니에 존재: user_id={user_id}, product_id={kok_product_id}, cart_id={existing_cart.kok_cart_id}")
         return {
             "kok_cart_id": existing_cart.kok_cart_id,
             "message": "이미 장바구니에 있습니다."
@@ -830,6 +852,7 @@ async def add_kok_cart(
         await db.commit()
         await db.refresh(new_cart)
         
+        logger.info(f"장바구니 추가 완료: user_id={user_id}, product_id={kok_product_id}, cart_id={new_cart.kok_cart_id}")
         return {
             "kok_cart_id": new_cart.kok_cart_id,
             "message": "장바구니에 추가되었습니다."
@@ -1004,6 +1027,7 @@ async def search_kok_products(
     """
     키워드로 콕 상품 검색
     """
+    logger.info(f"상품 검색 시작: keyword='{keyword}', page={page}, size={size}")
     offset = (page - 1) * size
     
     # 검색 쿼리
@@ -1053,6 +1077,7 @@ async def search_kok_products(
             "kok_review_score": product.kok_review_score,
         })
     
+    logger.info(f"상품 검색 완료: keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
     return products, total
 
 async def get_kok_search_history(
@@ -1090,6 +1115,8 @@ async def add_kok_search_history(
     """
     검색 이력 추가
     """
+    logger.info(f"검색 이력 추가 시작: user_id={user_id}, keyword='{keyword}'")
+    
     from datetime import datetime
     
     searched_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -1103,6 +1130,8 @@ async def add_kok_search_history(
     db.add(new_history)
     await db.commit()
     await db.refresh(new_history)
+    
+    logger.info(f"검색 이력 추가 완료: user_id={user_id}, keyword='{keyword}', history_id={new_history.kok_history_id}")
     
     return {
         "kok_history_id": new_history.kok_history_id,
@@ -1119,6 +1148,8 @@ async def delete_kok_search_history(
     """
     특정 검색 이력 ID로 검색 이력 삭제
     """
+    logger.info(f"검색 이력 삭제 시작: user_id={user_id}, history_id={kok_history_id}")
+    
     stmt = (
         select(KokSearchHistory)
         .where(KokSearchHistory.user_id == user_id)
@@ -1131,8 +1162,10 @@ async def delete_kok_search_history(
     if history:
         await db.delete(history)
         await db.commit()
+        logger.info(f"검색 이력 삭제 완료: user_id={user_id}, history_id={kok_history_id}")
         return True
     
+    logger.warning(f"검색 이력을 찾을 수 없음: user_id={user_id}, history_id={kok_history_id}")
     return False
 
 async def get_kok_notifications(
@@ -1178,7 +1211,10 @@ async def get_ingredients_from_selected_cart_items(
     선택된 장바구니 상품들에서 재료명을 추출
     - 상품명에서 식재료 관련 키워드를 추출하여 반환
     """
+    logger.info(f"장바구니 상품에서 재료 추출 시작: user_id={user_id}, cart_ids={selected_cart_ids}")
+    
     if not selected_cart_ids:
+        logger.warning("선택된 장바구니 항목이 없음")
         return []
     
     # 선택된 장바구니 상품들의 상품 정보 조회
@@ -1228,4 +1264,6 @@ async def get_ingredients_from_selected_cart_items(
                 ingredients.append(product_name)
     
     # 중복 제거 및 반환
-    return list(set(ingredients))
+    unique_ingredients = list(set(ingredients))
+    logger.info(f"재료 추출 완료: user_id={user_id}, 추출된 재료 수={len(unique_ingredients)}, 재료 목록={unique_ingredients}")
+    return unique_ingredients

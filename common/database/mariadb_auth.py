@@ -13,13 +13,13 @@ settings = get_settings()
 engine = create_async_engine(settings.mariadb_auth_url, echo=settings.debug)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-logger.info(f"MariaDB Auth engine created with URL: {settings.mariadb_auth_url}")
-logger.info(f"Debug mode: {settings.debug}")
+logger.info(f"MariaDB Auth 엔진 생성됨, URL: {settings.mariadb_auth_url}")
+logger.info(f"디버그 모드: {settings.debug}")
 
 async def get_maria_auth_db() -> AsyncGenerator[AsyncSession, None]:
     """MariaDB 인증용 세션 반환"""
-    logger.debug("Creating MariaDB auth database session")
+    logger.debug("MariaDB 인증 데이터베이스 세션 생성 중")
     async with SessionLocal() as session:
-        logger.debug("MariaDB auth database session created successfully")
+        logger.debug("MariaDB 인증 데이터베이스 세션 생성 완료")
         yield session
-    logger.debug("MariaDB auth database session closed")
+    logger.debug("MariaDB 인증 데이터베이스 세션 종료됨")

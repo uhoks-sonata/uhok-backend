@@ -21,16 +21,16 @@ from services.recipe.routers.recipe_router import router as recipe_router
 # TODO: 다른 서비스(router) import 추가 (recommend 등)
 
 logger = get_logger("gateway")
-logger.info("Starting API Gateway initialization...")
+logger.info("API Gateway 초기화 시작...")
 
 try:
     settings = get_settings()
-    logger.info("Settings loaded successfully")
+    logger.info("설정 로드 완료")
 except Exception as e:
-    logger.error(f"Failed to load settings: {e}")
+    logger.error(f"설정 로드 실패: {e}")
     raise
 
-logger.info(f"Creating FastAPI application: title={settings.app_name}, debug={settings.debug}")
+logger.info(f"FastAPI 애플리케이션 생성: 제목={settings.app_name}, 디버그={settings.debug}")
 
 app = FastAPI(
     title=settings.app_name,
@@ -38,7 +38,7 @@ app = FastAPI(
 )
 
 # CORS 설정
-logger.info("Configuring CORS middleware...")
+logger.info("CORS 미들웨어 설정 중...")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3001"],  # 프론트엔드 도메인
@@ -46,37 +46,37 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-logger.info("CORS middleware configured successfully")
+logger.info("CORS 미들웨어 설정 완료")
 
 # 라우터 등록 (각 서비스별 router를 include)
-logger.info("Registering service routers...")
+logger.info("서비스 라우터 등록 중...")
 
-logger.debug("Including user router...")
+logger.debug("사용자 라우터 포함 중...")
 app.include_router(user_router)
-logger.info("User router included successfully")
+logger.info("사용자 라우터 포함 완료")
 
-logger.debug("Including log router...")
+logger.debug("로그 라우터 포함 중...")
 app.include_router(log_router)
-logger.info("Log router included successfully")
+logger.info("로그 라우터 포함 완료")
 
-logger.debug("Including kok router...")
+logger.debug("콕 라우터 포함 중...")
 app.include_router(kok_router)
-logger.info("Kok router included successfully")
+logger.info("콕 라우터 포함 완료")
 
 # app.include_router(home_shopping_router)
 
-logger.debug("Including order router...")
+logger.debug("주문 라우터 포함 중...")
 app.include_router(order_router)
-logger.info("Order router included successfully")
+logger.info("주문 라우터 포함 완료")
 
-logger.debug("Including recipe router...")
+logger.debug("레시피 라우터 포함 중...")
 app.include_router(recipe_router)
-logger.info("Recipe router included successfully")
+logger.info("레시피 라우터 포함 완료")
 
-logger.info("API Gateway started successfully")
-logger.info(f"App title: {settings.app_name}")
-logger.info(f"Debug mode: {settings.debug}")
-logger.info("All service routers registered successfully")
+logger.info("API Gateway 시작 완료")
+logger.info(f"앱 제목: {settings.app_name}")
+logger.info(f"디버그 모드: {settings.debug}")
+logger.info("모든 서비스 라우터 등록 완료")
 
 # TODO: 다른 서비스 라우터도 아래와 같이 추가
 # from services.recommend.routers.recommend_router import router as recommend_router

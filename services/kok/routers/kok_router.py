@@ -319,7 +319,11 @@ async def search_products(
     """
     키워드 기반으로 콕 쇼핑몰 내에 있는 상품을 검색
     """
+    logger.info(f"상품 검색 요청: user_id={current_user.user_id}, keyword='{keyword}', page={page}, size={size}")
+    
     products, total = await search_kok_products(db, keyword, page, size)
+    
+    logger.info(f"상품 검색 완료: user_id={current_user.user_id}, keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
     
     # 검색 로그 기록
     if background_tasks:
@@ -370,7 +374,11 @@ async def add_search_history(
     """
     사용자의 검색 이력을 저장
     """
+    logger.info(f"검색 이력 추가 요청: user_id={current_user.user_id}, keyword='{search_data.keyword}'")
+    
     saved_history = await add_kok_search_history(db, current_user.user_id, search_data.keyword)
+    
+    logger.info(f"검색 이력 추가 완료: user_id={current_user.user_id}, history_id={saved_history['kok_history_id']}")
     
     # 검색 이력 저장 로그 기록
     if background_tasks:
@@ -396,9 +404,13 @@ async def delete_search_history(
     """
     사용자의 검색 이력을 삭제
     """
+    logger.info(f"검색 이력 삭제 요청: user_id={current_user.user_id}, history_id={history_id}")
+    
     deleted = await delete_kok_search_history(db, current_user.user_id, history_id)
     
     if deleted:
+        logger.info(f"검색 이력 삭제 완료: user_id={current_user.user_id}, history_id={history_id}")
+        
         # 검색 이력 삭제 로그 기록
         if background_tasks:
             background_tasks.add_task(
@@ -410,6 +422,7 @@ async def delete_search_history(
         
         return {"message": f"검색 이력 ID {history_id}가 삭제되었습니다."}
     else:
+        logger.warning(f"검색 이력을 찾을 수 없음: user_id={current_user.user_id}, history_id={history_id}")
         raise HTTPException(status_code=404, detail="해당 검색 이력을 찾을 수 없습니다.")
 
 # ================================
@@ -426,7 +439,11 @@ async def toggle_likes(
     """
     상품 찜 등록/해제
     """
+    logger.info(f"찜 토글 요청: user_id={current_user.user_id}, product_id={like_data.kok_product_id}")
+    
     liked = await toggle_kok_likes(db, current_user.user_id, like_data.kok_product_id)
+    
+    logger.info(f"찜 토글 완료: user_id={current_user.user_id}, product_id={like_data.kok_product_id}, liked={liked}")
     
     # 찜 토글 로그 기록
     if background_tasks:
@@ -491,6 +508,8 @@ async def add_cart_item(
     """
     장바구니에 상품 추가
     """
+    logger.info(f"장바구니 추가 요청: user_id={current_user.user_id}, product_id={cart_data.kok_product_id}, quantity={cart_data.kok_quantity}, recipe_id={cart_data.recipe_id}")
+    
     result = await add_kok_cart(
         db,
         current_user.user_id,
@@ -498,6 +517,8 @@ async def add_cart_item(
         cart_data.kok_quantity,
         cart_data.recipe_id,
     )
+    
+    logger.info(f"장바구니 추가 완료: user_id={current_user.user_id}, cart_id={result['kok_cart_id']}, message={result['message']}")
     
     # 장바구니 추가 로그 기록
     if background_tasks:
@@ -618,12 +639,17 @@ async def order_from_selected_carts(
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db),
 ):
+    logger.info(f"장바구니 주문 시작: user_id={current_user.user_id}, selected_items_count={len(request.selected_items)}")
+    
     if not request.selected_items:
+        logger.warning(f"선택된 항목이 없음: user_id={current_user.user_id}")
         raise HTTPException(status_code=400, detail="선택된 항목이 없습니다.")
 
     result = await create_orders_from_selected_carts(
         db, current_user.user_id, [i.model_dump() for i in request.selected_items]
     )
+
+    logger.info(f"장바구니 주문 완료: user_id={current_user.user_id}, order_id={result['order_id']}, order_count={result['order_count']}")
 
     if background_tasks:
         background_tasks.add_task(
@@ -650,7 +676,7 @@ async def recommend_recipes_from_cart_items(
     선택된 장바구니 상품들의 재료로 레시피 추천
     """
     try:
-        logger.info(f"Recipe recommendation requested: user_id={current_user.user_id}, cart_ids={recommend_request.selected_cart_ids}")
+        logger.info(f"레시피 추천 요청: user_id={current_user.user_id}, cart_ids={recommend_request.selected_cart_ids}")
         
         # 선택된 장바구니 상품들에서 재료명 추출
         ingredients = await get_ingredients_from_selected_cart_items(
@@ -658,10 +684,10 @@ async def recommend_recipes_from_cart_items(
         )
         
         if not ingredients:
-            logger.warning(f"No ingredients extracted from cart items: user_id={current_user.user_id}, cart_ids={recommend_request.selected_cart_ids}")
+            logger.warning(f"장바구니 상품에서 재료를 추출할 수 없음: user_id={current_user.user_id}, cart_ids={recommend_request.selected_cart_ids}")
             raise HTTPException(status_code=400, detail="재료를 추출할 수 있는 상품이 없습니다.")
         
-        logger.info(f"Ingredients extracted successfully: {ingredients}")
+        logger.info(f"재료 추출 성공: {ingredients}")
         
         # 레시피 추천 서비스 호출
         from services.recipe.crud.recipe_crud import recommend_recipes_by_ingredients
@@ -675,7 +701,7 @@ async def recommend_recipes_from_cart_items(
             size=recommend_request.size
         )
         
-        logger.info(f"Recipe recommendation completed: {len(recipes)} recipes found, total={total}")
+        logger.info(f"레시피 추천 완료: {len(recipes)}개 레시피 발견, 총 {total}개")
         
         # 레시피 추천 로그 기록
         if background_tasks:
@@ -699,9 +725,8 @@ async def recommend_recipes_from_cart_items(
             ingredients_used=ingredients
         )
     except ValueError as e:
-        logger.warning(f"Recipe recommendation validation error: {str(e)}")
+        logger.warning(f"레시피 추천 검증 오류: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Recipe recommendation failed: user_id={current_user.user_id}, error={str(e)}")
-        raise HTTPException(status_code=500, detail="레시피 추천 중 오류가 발생했습니다.") 
-        
+        logger.error(f"레시피 추천 실패: user_id={current_user.user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="레시피 추천 중 오류가 발생했습니다.")

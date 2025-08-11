@@ -20,6 +20,6 @@ app.add_middleware(
 
 app.include_router(kok_router.router)
 
-logger.info("Kok Service initialized successfully")
-logger.info("CORS middleware configured for localhost:3001")
-logger.info("Kok router included")
+logger.info("Kok 서비스가 성공적으로 초기화되었습니다")
+logger.info("localhost:3001에 대한 CORS 미들웨어가 구성되었습니다")
+logger.info("Kok 라우터가 포함되었습니다")

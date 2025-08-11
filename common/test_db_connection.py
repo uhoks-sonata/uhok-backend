@@ -31,7 +31,7 @@ async def test_mariadb_server_connection_async():
     settings = get_settings()
     conn_info = extract_conn_info(settings.mariadb_auth_url)
     if not conn_info:
-        logger.error("❌ DB URL 파싱 실패!")
+        logger.error("❌ 데이터베이스 URL 파싱 실패!")
         return
 
     try:
@@ -59,9 +59,9 @@ async def test_db_connection_async():
         async with engine.connect() as conn:  # type: AsyncConnection
             result = await conn.execute(text("SELECT VERSION();"))
             version = result.scalar_one()
-            logger.info(f"✅ 비동기 DB 연결 성공! MariaDB/MySQL Version: {version}")
+            logger.info(f"✅ 비동기 데이터베이스 연결 성공! MariaDB/MySQL 버전: {version}")
     except Exception as e:
-        logger.error(f"❌ 비동기 DB 연결 실패: {e}")
+        logger.error(f"❌ 비동기 데이터베이스 연결 실패: {e}")
     finally:
         await engine.dispose()
 

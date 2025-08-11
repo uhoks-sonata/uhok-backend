@@ -21,8 +21,8 @@ def send_user_log(user_id: int, event_type: str, event_data: dict = None):
     try:
         res = requests.post(api_url, json=log_payload, timeout=2)
         res.raise_for_status()
-        logger.info(f"User log sent successfully: user_id={user_id}, event_type={event_type}")
+        logger.info(f"사용자 로그 전송 성공: user_id={user_id}, event_type={event_type}")
         return res.json()
     except Exception as e:
-        logger.warning(f"Failed to send user log: user_id={user_id}, event_type={event_type}, error={e}")
+        logger.warning(f"사용자 로그 전송 실패: user_id={user_id}, event_type={event_type}, 오류={e}")
         return None

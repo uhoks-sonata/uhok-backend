@@ -45,11 +45,11 @@ async def signup(
     try:
         exist_user = await get_user_by_email(db, str(user.email))
         if exist_user:
-            logger.warning(f"Signup attempt with duplicate email: {user.email}")
+            logger.warning(f"중복 이메일로 회원가입 시도: {user.email}")
             raise ConflictException("이미 가입된 이메일입니다.")
         
         new_user = await create_user(db, str(user.email), user.password, user.username)
-        logger.info(f"New user registered successfully: user_id={new_user.user_id}, email={user.email}")
+        logger.info(f"새 사용자 등록 성공: user_id={new_user.user_id}, email={user.email}")
         
         # 회원가입 로그 기록
         background_tasks.add_task(
@@ -61,7 +61,7 @@ async def signup(
         
         return new_user
     except Exception as e:
-        logger.error(f"Signup failed for email {user.email}: {str(e)}")
+        logger.error(f"회원가입 실패, email={user.email}: {str(e)}")
         raise
 
 
@@ -76,10 +76,10 @@ async def check_email_duplicate(
     try:
         is_dup = await get_user_by_email(db, str(email)) is not None
         msg = "이미 존재하는 아이디입니다." if is_dup else "사용 가능한 아이디입니다."
-        logger.debug(f"Email duplicate check: {email} - is_duplicate={is_dup}")
+        logger.debug(f"이메일 중복 확인: {email} - 중복여부={is_dup}")
         return EmailDuplicateCheckResponse(email=email, is_duplicate=is_dup, message=msg)
     except Exception as e:
-        logger.error(f"Email duplicate check failed for {email}: {str(e)}")
+        logger.error(f"이메일 중복 확인 실패, email={email}: {str(e)}")
         raise
 
 
@@ -100,11 +100,11 @@ async def login(
 
         db_user = await get_user_by_email(db, email)
         if not db_user or not verify_password(password, db_user.password_hash):
-            logger.warning(f"Login failed for email: {email}")
+            logger.warning(f"로그인 실패, email={email}")
             raise NotAuthenticatedException()
 
         access_token = create_access_token({"sub": str(db_user.user_id)})
-        logger.info(f"User logged in successfully: user_id={db_user.user_id}, email={email}")
+        logger.info(f"사용자 로그인 성공: user_id={db_user.user_id}, email={email}")
         
         # 로그인 로그 기록
         if background_tasks:
@@ -117,7 +117,7 @@ async def login(
         
         return {"access_token": access_token, "token_type": "bearer"}
     except Exception as e:
-        logger.error(f"Login failed for email {email}: {str(e)}")
+        logger.error(f"로그인 실패, email={email}: {str(e)}")
         raise
 
 

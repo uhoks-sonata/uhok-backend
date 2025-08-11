@@ -13,13 +13,13 @@ settings = get_settings()
 engine = create_async_engine(settings.postgres_log_url, echo=settings.debug)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-logger.info(f"PostgreSQL Log engine created with URL: {settings.postgres_log_url}")
-logger.info(f"Debug mode: {settings.debug}")
+logger.info(f"PostgreSQL Log 엔진 생성됨, URL: {settings.postgres_log_url}")
+logger.info(f"디버그 모드: {settings.debug}")
 
 async def get_postgres_log_db() -> AsyncGenerator[AsyncSession, None]:
     """PostgreSQL 로그용 세션 반환"""
-    logger.debug("Creating PostgreSQL log database session")
+    logger.debug("PostgreSQL 로그 데이터베이스 세션 생성 중")
     async with SessionLocal() as session:
-        logger.debug("PostgreSQL log database session created successfully")
+        logger.debug("PostgreSQL 로그 데이터베이스 세션 생성 완료")
         yield session
-    logger.debug("PostgreSQL log database session closed")
+    logger.debug("PostgreSQL 로그 데이터베이스 세션 종료됨")
