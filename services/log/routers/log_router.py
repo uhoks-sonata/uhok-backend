@@ -17,7 +17,7 @@ from typing import List
 # 로그 관련 API 라우터
 # - prefix="/log" : 이 라우터에 포함된 모든 경로 앞에 "/log"가 자동으로 붙는다
 #   예) @router.post("/") → POST /log/
-# - tags=["log"] : Swagger 문서에서 log 그룹으로 노출
+# - tags=["log"] : Swagger 문서에서 log 그룹으로 분류
 router = APIRouter(
     prefix="/log",   # 이 라우터의 모든 엔드포인트 URL 앞에 "/log"를 자동으로 추가
     tags=["log"]     # API 문서(Swagger)에서 'log' 그룹으로 분류
