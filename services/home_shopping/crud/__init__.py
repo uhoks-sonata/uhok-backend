@@ -13,7 +13,8 @@ from .home_shopping_crud import (
     create_homeshopping_order,
     get_homeshopping_stream_info,
     toggle_homeshopping_likes,
-    get_homeshopping_liked_products
+    get_homeshopping_liked_products,
+    get_homeshopping_notifications_history
 )
 
 __all__ = [
@@ -27,5 +28,6 @@ __all__ = [
     "create_homeshopping_order",
     "get_homeshopping_stream_info",
     "toggle_homeshopping_likes",
-    "get_homeshopping_liked_products"
+    "get_homeshopping_liked_products",
+    "get_homeshopping_notifications_history"
 ]

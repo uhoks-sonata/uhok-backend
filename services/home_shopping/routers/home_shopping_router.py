@@ -38,7 +38,10 @@ from services.home_shopping.schemas.home_shopping_schema import (
     # 찜 관련 스키마
     HomeshoppingLikesToggleRequest,
     HomeshoppingLikesToggleResponse,
-    HomeshoppingLikesResponse
+    HomeshoppingLikesResponse,
+    
+    # 알림 관련 스키마
+    HomeshoppingNotificationHistoryResponse
 )
 
 from services.home_shopping.crud.home_shopping_crud import (
@@ -67,7 +70,10 @@ from services.home_shopping.crud.home_shopping_crud import (
     
     # 찜 관련 CRUD
     toggle_homeshopping_likes,
-    get_homeshopping_liked_products
+    get_homeshopping_liked_products,
+    
+    # 알림 관련 CRUD
+    get_homeshopping_notifications_history
 )
 
 from common.database.mariadb_service import get_maria_service_db
@@ -432,3 +438,49 @@ async def get_liked_products(
     logger.info(f"홈쇼핑 찜한 상품 조회 완료: user_id={current_user.user_id}, 결과 수={len(liked_products)}")
     return {"liked_products": liked_products}
 
+
+# ================================
+# 알림 관련 API
+# ================================
+
+@router.get("/notifications/history", response_model=HomeshoppingNotificationHistoryResponse)
+async def get_notifications_history(
+        limit: int = Query(20, ge=1, le=100, description="조회할 알림 개수"),
+        offset: int = Query(0, ge=0, description="시작 위치"),
+        current_user: UserOut = Depends(get_current_user),
+        background_tasks: BackgroundTasks = None,
+        db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    홈쇼핑 알림 내역 조회
+    """
+    logger.info(f"홈쇼핑 알림 내역 조회 요청: user_id={current_user.user_id}, limit={limit}, offset={offset}")
+    
+    try:
+        notifications, total_count = await get_homeshopping_notifications_history(
+            db, current_user.user_id, limit, offset
+        )
+        
+        # 알림 내역 조회 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="homeshopping_notifications_history_view", 
+                event_data={
+                    "limit": limit,
+                    "offset": offset,
+                    "notification_count": len(notifications),
+                    "total_count": total_count
+                }
+            )
+        
+        logger.info(f"홈쇼핑 알림 내역 조회 완료: user_id={current_user.user_id}, 결과 수={len(notifications)}, 전체 개수={total_count}")
+        return {
+            "notifications": notifications,
+            "total_count": total_count
+        }
+        
+    except Exception as e:
+        logger.error(f"홈쇼핑 알림 내역 조회 실패: user_id={current_user.user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="알림 내역 조회 중 오류가 발생했습니다.")

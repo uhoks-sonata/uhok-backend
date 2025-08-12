@@ -225,3 +225,25 @@ class HomeshoppingLikedProduct(BaseModel):
 class HomeshoppingLikesResponse(BaseModel):
     """찜한 상품 목록 응답"""
     liked_products: List[HomeshoppingLikedProduct] = Field(default_factory=list)
+
+# -----------------------------
+# 알림 관련 스키마
+# -----------------------------
+
+class HomeshoppingNotificationItem(BaseModel):
+    """홈쇼핑 알림 정보"""
+    notification_id: int = Field(..., description="알림 ID")
+    homeshopping_order_id: int = Field(..., description="관련 주문 상세 ID")
+    status_id: int = Field(..., description="상태 코드 ID")
+    title: str = Field(..., description="알림 제목")
+    message: str = Field(..., description="알림 메시지")
+    created_at: datetime = Field(..., description="알림 생성 시각")
+    
+    class Config:
+        from_attributes = True
+
+
+class HomeshoppingNotificationHistoryResponse(BaseModel):
+    """홈쇼핑 알림 내역 조회 응답"""
+    notifications: List[HomeshoppingNotificationItem] = Field(default_factory=list, description="알림 목록")
+    total_count: int = Field(..., description="전체 알림 개수")

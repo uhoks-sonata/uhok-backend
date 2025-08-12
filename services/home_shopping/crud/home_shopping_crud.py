@@ -531,3 +531,58 @@ async def get_homeshopping_stream_info(
     
     logger.info(f"홈쇼핑 스트리밍 정보 조회 완료: product_id={product_id}, is_live={is_live}")
     return stream_info
+
+# -----------------------------
+# 알림 관련 CRUD 함수
+# -----------------------------
+
+async def get_homeshopping_notifications_history(
+    db: AsyncSession,
+    user_id: int,
+    limit: int = 20,
+    offset: int = 0
+) -> Tuple[List[dict], int]:
+    """
+    홈쇼핑 알림 내역 조회
+    """
+    logger.info(f"홈쇼핑 알림 내역 조회 시작: user_id={user_id}, limit={limit}, offset={offset}")
+    
+    try:
+        # 전체 알림 개수 조회
+        count_stmt = (
+            select(func.count())
+            .select_from(HomeshoppingNotification)
+            .where(HomeshoppingNotification.user_id == user_id)
+        )
+        total_count = await db.execute(count_stmt)
+        total_count = total_count.scalar()
+        
+        # 알림 목록 조회
+        stmt = (
+            select(HomeshoppingNotification)
+            .where(HomeshoppingNotification.user_id == user_id)
+            .order_by(HomeshoppingNotification.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        
+        results = await db.execute(stmt)
+        notifications = results.scalars().all()
+        
+        notification_list = []
+        for notification in notifications:
+            notification_list.append({
+                "notification_id": notification.notification_id,
+                "homeshopping_order_id": notification.homeshopping_order_id,
+                "status_id": notification.status_id,
+                "title": notification.title,
+                "message": notification.message,
+                "created_at": notification.created_at
+            })
+        
+        logger.info(f"홈쇼핑 알림 내역 조회 완료: user_id={user_id}, 결과 수={len(notification_list)}, 전체 개수={total_count}")
+        return notification_list, total_count
+        
+    except Exception as e:
+        logger.error(f"홈쇼핑 알림 내역 조회 실패: user_id={user_id}, error={str(e)}")
+        raise
