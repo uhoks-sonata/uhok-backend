@@ -411,7 +411,7 @@ async def search_recipes_by_keyword(
     db: AsyncSession,
     keyword: str,
     page: int = 1,
-    size: int = 5,
+    size: int = 15,
     method: str = "recipe",
 ) -> Tuple[List[dict], int]:
     """
@@ -806,3 +806,108 @@ async def set_recipe_rating(db: AsyncSession, recipe_id: int, user_id: int, rati
 #     # 페이지네이션
 #     start, end = (page-1)*size, (page-1)*size + size
 #     return filtered[start:end], len(filtered)
+
+async def get_recipe_ingredients_status(
+    db: AsyncSession, 
+    recipe_id: int, 
+    user_id: int
+) -> Dict:
+    """
+    레시피의 식재료 상태 조회 (보유/장바구니/미보유)
+    - 보유: 최근 7일 내 주문한 상품
+    - 장바구니: 현재 장바구니에 담긴 상품
+    - 미보유: 보유/장바구니 상태를 제외한 식재료
+    """
+    logger.info(f"레시피 식재료 상태 조회 시작: recipe_id={recipe_id}, user_id={user_id}")
+    
+    # 1. 레시피의 모든 식재료 조회
+    materials_stmt = select(Material).where(Material.recipe_id == recipe_id)
+    materials_result = await db.execute(materials_stmt)
+    materials = materials_result.scalars().all()
+    
+    if not materials:
+        logger.warning(f"레시피 {recipe_id}의 식재료를 찾을 수 없음")
+        return {
+            "recipe_id": recipe_id,
+            "user_id": user_id,
+            "ingredients_status": {"owned": [], "cart": [], "not_owned": []},
+            "summary": {"total_ingredients": 0, "owned_count": 0, "cart_count": 0, "not_owned_count": 0}
+        }
+    
+    # 2. 최근 7일 내 주문한 상품 조회 (보유 상태)
+    from datetime import datetime, timedelta
+    from services.order.models.order_model import Order, KokOrder
+    from services.kok.models.kok_model import KokProductInfo
+    
+    seven_days_ago = datetime.now() - timedelta(days=7)
+    
+    # 주문 테이블에서 최근 7일 내 주문 조회 (상품명 포함)
+    recent_orders_stmt = (
+        select(
+            Order.order_id, 
+            Order.order_time,
+            KokOrder.kok_order_id,
+            KokProductInfo.product_name
+        )
+        .join(KokOrder, Order.order_id == KokOrder.order_id)
+        .join(KokProductInfo, KokOrder.kok_product_id == KokProductInfo.kok_product_id)
+        .where(Order.user_id == user_id)
+        .where(Order.order_time >= seven_days_ago)
+        .where(Order.cancel_time.is_(None))  # 취소되지 않은 주문만
+    )
+    
+    try:
+        recent_orders_result = await db.execute(recent_orders_stmt)
+        recent_orders = recent_orders_result.all()
+        
+        # 주문한 상품명으로 보유 재료 구성
+        owned_materials = []
+        for order_id, order_time, kok_order_id, product_name in recent_orders:
+            owned_materials.append({
+                "material_name": product_name,
+                "order_date": order_time,
+                "order_id": order_id
+            })
+    except Exception as e:
+        logger.warning(f"주문 정보 조회 실패, 빈 리스트로 처리: {e}")
+        owned_materials = []
+    
+    # 3. 장바구니에 담긴 상품 조회 (장바구니 상태)
+    # 장바구니 테이블이 있다면 여기서 조회
+    # 현재는 빈 리스트로 처리 (장바구니 테이블이 구현되면 수정 필요)
+    cart_materials = []
+    
+    # 4. 미보유 식재료 계산
+    all_material_names = {m.material_name for m in materials}
+    owned_material_names = {m["material_name"] for m in owned_materials}
+    cart_material_names = {m["material_name"] for m in cart_materials}
+    
+    not_owned_materials = [
+        {"material_name": name}
+        for name in all_material_names 
+        if name not in owned_material_names and name not in cart_material_names
+    ]
+    
+    # 5. 결과 구성
+    ingredients_status = {
+        "owned": owned_materials,
+        "cart": cart_materials,
+        "not_owned": not_owned_materials
+    }
+    
+    summary = {
+        "total_ingredients": len(materials),
+        "owned_count": len(owned_materials),
+        "cart_count": len(cart_materials),
+        "not_owned_count": len(not_owned_materials)
+    }
+    
+    result = {
+        "recipe_id": recipe_id,
+        "user_id": user_id,
+        "ingredients_status": ingredients_status,
+        "summary": summary
+    }
+    
+    logger.info(f"레시피 식재료 상태 조회 완료: {summary}")
+    return result

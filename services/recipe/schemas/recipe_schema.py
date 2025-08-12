@@ -5,8 +5,9 @@
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from enum import Enum
+from datetime import datetime
 
 # -----------------------------
 # 별점 스키마 (별점 0~5 int, 후기 없음)
@@ -131,3 +132,37 @@ class RecipeRatingResponse(BaseModel):
 # class RecipeCommentListResponse(BaseModel):
 #     comments: List[RecipeComment]
 #     total: int
+
+class RecipeIngredientStatusResponse(BaseModel):
+    """레시피 식재료 상태 조회 응답 스키마"""
+    recipe_id: int
+    user_id: int
+    ingredients_status: Dict[str, List[Dict[str, Any]]]
+    summary: Dict[str, int]
+    
+    class Config:
+        from_attributes = True
+
+class IngredientOwnedStatus(BaseModel):
+    """보유 중인 식재료 상태"""
+    material_name: str
+    order_date: datetime
+    order_id: int
+    
+    class Config:
+        from_attributes = True
+
+class IngredientCartStatus(BaseModel):
+    """장바구니에 있는 식재료 상태"""
+    material_name: str
+    cart_id: int
+    
+    class Config:
+        from_attributes = True
+
+class IngredientNotOwnedStatus(BaseModel):
+    """미보유 식재료 상태"""
+    material_name: str
+    
+    class Config:
+        from_attributes = True
