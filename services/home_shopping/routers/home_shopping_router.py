@@ -80,7 +80,7 @@ from common.database.mariadb_service import get_maria_service_db
 from common.log_utils import send_user_log
 from common.logger import get_logger
 
-router = APIRouter(prefix="/api/home-shopping", tags=["home-shopping"])
+router = APIRouter(prefix="/api/homeshopping", tags=["HomeShopping"])
 logger = get_logger("home_shopping_router")
 
 
