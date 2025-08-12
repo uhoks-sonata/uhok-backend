@@ -3,10 +3,10 @@
 - 메인화면 상품정보, 상품 상세, 검색, 찜, 장바구니 기능
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from common.dependencies import get_current_user
+from common.dependencies import get_current_user, debug_optional_auth, get_current_user_optional
 from services.user.schemas.user_schema import UserOut
 from services.kok.schemas.kok_schema import (
     # 제품 관련 스키마
@@ -90,27 +90,31 @@ from common.logger import get_logger
 router = APIRouter(prefix="/api/kok", tags=["kok"])
 logger = get_logger("kok_router")
 
+
 # ================================
 # 메인화면 상품정보
 # ================================
 
 @router.get("/discounted", response_model=KokDiscountedProductsResponse)
 async def get_discounted_products(
+        request: Request,
         page: int = Query(1, ge=1, description="페이지 번호"),
-        size: int = Query(20, ge=1, le=100, description="페이지 크기"),
-        current_user: UserOut = Depends(get_current_user),
+        size: int = Query(1, ge=1, le=100, description="페이지 크기"),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
     할인 특가 상품 리스트 조회
     """
-    logger.info(f"할인 상품 조회 요청: user_id={current_user.user_id}, page={page}, size={size}")
+    # 공통 디버깅 함수 사용
+    current_user, user_id = await debug_optional_auth(request, "할인 상품 조회")
+    
+    logger.info(f"할인 상품 조회 요청: user_id={user_id}, page={page}, size={size}")
     
     products = await get_kok_discounted_products(db, page=page, size=size)
     
-    # 할인 상품 목록 조회 로그 기록
-    if background_tasks:
+    # 인증된 사용자의 경우에만 로그 기록
+    if current_user and background_tasks:
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
@@ -118,16 +122,16 @@ async def get_discounted_products(
             event_data={"product_count": len(products)}
         )
     
-    logger.info(f"할인 상품 조회 완료: user_id={current_user.user_id}, 결과 수={len(products)}")
+    logger.info(f"할인 상품 조회 완료: user_id={user_id}, 결과 수={len(products)}")
     return {"products": products}
 
 
 @router.get("/top-selling", response_model=KokTopSellingProductsResponse)
 async def get_top_selling_products(
+        request: Request,
         page: int = Query(1, ge=1, description="페이지 번호"),
         size: int = Query(20, ge=1, le=100, description="페이지 크기"),
         sort_by: str = Query("review_count", description="정렬 기준 (review_count: 리뷰 개수 순, rating: 별점 평균 순)"),
-        current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -135,12 +139,14 @@ async def get_top_selling_products(
     판매율 높은 상품 리스트 조회
     - sort_by: review_count (리뷰 개수 순) 또는 rating (별점 평균 순)
     """
-    logger.info(f"인기 상품 조회 요청: user_id={current_user.user_id}, page={page}, size={size}, sort_by={sort_by}")
+    current_user = await get_current_user_optional(request)
+    user_id = current_user.user_id if current_user else None
+    logger.info(f"인기 상품 조회 요청: user_id={user_id}, page={page}, size={size}, sort_by={sort_by}")
     
     products = await get_kok_top_selling_products(db, page=page, size=size, sort_by=sort_by)
     
-    # 인기 상품 목록 조회 로그 기록
-    if background_tasks:
+    # 인증된 사용자의 경우에만 로그 기록
+    if current_user and background_tasks:
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
@@ -148,14 +154,14 @@ async def get_top_selling_products(
             event_data={"product_count": len(products), "sort_by": sort_by}
         )
     
-    logger.info(f"인기 상품 조회 완료: user_id={current_user.user_id}, 결과 수={len(products)}, sort_by={sort_by}")
+    logger.info(f"인기 상품 조회 완료: user_id={user_id}, 결과 수={len(products)}, sort_by={sort_by}")
     return {"products": products}
     
 
 @router.get("/store-best-items", response_model=KokStoreBestProductsResponse)
 async def get_store_best_items(
+        request: Request,
         sort_by: str = Query("review_count", description="정렬 기준 (review_count: 리뷰 개수 순, rating: 별점 평균 순)"),
-        current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -163,12 +169,14 @@ async def get_store_best_items(
     구매한 스토어의 베스트 상품 리스트 조회
     - sort_by: review_count (리뷰 개수 순) 또는 rating (별점 평균 순)
     """
-    logger.info(f"스토어 베스트 상품 조회 요청: user_id={current_user.user_id}, sort_by={sort_by}")
+    current_user = await get_current_user_optional(request)
+    user_id = current_user.user_id if current_user else None
+    logger.info(f"스토어 베스트 상품 조회 요청: user_id={user_id}, sort_by={sort_by}")
     
-    products = await get_kok_store_best_items(db, current_user.user_id, sort_by=sort_by)
+    products = await get_kok_store_best_items(db, user_id, sort_by=sort_by)
     
-    # 스토어 베스트 상품 조회 로그 기록
-    if background_tasks:
+    # 인증된 사용자의 경우에만 로그 기록
+    if current_user and background_tasks:
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
@@ -176,7 +184,7 @@ async def get_store_best_items(
             event_data={"product_count": len(products), "sort_by": sort_by}
         )
     
-    logger.info(f"스토어 베스트 상품 조회 완료: user_id={current_user.user_id}, 결과 수={len(products)}, sort_by={sort_by}")
+    logger.info(f"스토어 베스트 상품 조회 완료: user_id={user_id}, 결과 수={len(products)}, sort_by={sort_by}")
     return {"products": products}
 
 
@@ -186,22 +194,24 @@ async def get_store_best_items(
 
 @router.get("/product/{product_id}/info", response_model=KokProductInfoResponse)
 async def get_product_info(
+        request: Request,
         product_id: int,
-        current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
     상품 기본 정보 조회
     """
-    logger.info(f"상품 기본 정보 조회 요청: user_id={current_user.user_id}, product_id={product_id}")
+    current_user = await get_current_user_optional(request)
+    user_id = current_user.user_id if current_user else None
+    logger.info(f"상품 기본 정보 조회 요청: user_id={user_id}, product_id={product_id}")
     
-    product = await get_kok_product_info(db, product_id, current_user.user_id)
+    product = await get_kok_product_info(db, product_id, user_id)
     if not product:
         raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
     
-    # 상품 기본 정보 조회 로그 기록
-    if background_tasks:
+    # 인증된 사용자의 경우에만 로그 기록
+    if current_user and background_tasks:
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
@@ -209,26 +219,30 @@ async def get_product_info(
             event_data={"product_id": product_id}
         )
     
-    logger.info(f"상품 기본 정보 조회 완료: user_id={current_user.user_id}, product_id={product_id}")
+    logger.info(f"상품 기본 정보 조회 완료: user_id={user_id}, product_id={product_id}")
     return product
 
 
 @router.get("/product/{product_id}/tabs", response_model=KokProductTabsResponse)
 async def get_product_tabs(
+        request: Request,
         product_id: int,
-        current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
     상품 설명 탭 정보 조회
     """
+    current_user = await get_current_user_optional(request)
+    user_id = current_user.user_id if current_user else None
+    logger.info(f"상품 탭 정보 조회 요청: user_id={user_id}, product_id={product_id}")
+    
     images = await get_kok_product_tabs(db, product_id)
     if images is None:
         raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
     
-    # 상품 탭 정보 조회 로그 기록
-    if background_tasks:
+    # 인증된 사용자의 경우에만 로그 기록
+    if current_user and background_tasks:
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
@@ -236,6 +250,7 @@ async def get_product_tabs(
             event_data={"product_id": product_id, "tab_count": len(images)}
         )
     
+    logger.info(f"상품 탭 정보 조회 완료: user_id={user_id}, product_id={product_id}")
     return {
         "images": images
     }
@@ -243,8 +258,8 @@ async def get_product_tabs(
 
 @router.get("/product/{product_id}/reviews", response_model=KokReviewResponse)
 async def get_product_reviews(
+        request: Request,
         product_id: int,
-        current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -253,12 +268,16 @@ async def get_product_reviews(
     - KOK_PRODUCT_INFO 테이블에서 리뷰 통계 정보
     - KOK_REVIEW_EXAMPLE 테이블에서 개별 리뷰 목록
     """
+    current_user = await get_current_user_optional(request)
+    user_id = current_user.user_id if current_user else None
+    logger.info(f"상품 리뷰 조회 요청: user_id={user_id}, product_id={product_id}")
+    
     review_data = await get_kok_review_data(db, product_id)
     if review_data is None:
         raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
     
-    # 상품 리뷰 조회 로그 기록
-    if background_tasks:
+    # 인증된 사용자의 경우에만 로그 기록
+    if current_user and background_tasks:
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
@@ -266,6 +285,7 @@ async def get_product_reviews(
             event_data={"product_id": product_id}
         )
     
+    logger.info(f"상품 리뷰 조회 완료: user_id={user_id}, product_id={product_id}")
     return review_data
 
 
@@ -275,20 +295,24 @@ async def get_product_reviews(
 
 @router.get("/product/{product_id}/seller-details", response_model=KokProductDetailsResponse)
 async def get_product_details(
+        request: Request,
         product_id: int,
-        current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
     상품 판매자 정보 및 상세정보 조회
     """
+    current_user = await get_current_user_optional(request)
+    user_id = current_user.user_id if current_user else None
+    logger.info(f"상품 상세 정보 조회 요청: user_id={user_id}, product_id={product_id}")
+    
     product_details = await get_kok_product_seller_details(db, product_id)
     if not product_details:
         raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
     
-    # 상품 상세 정보 조회 로그 기록
-    if background_tasks:
+    # 인증된 사용자의 경우에만 로그 기록
+    if current_user and background_tasks:
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
@@ -296,25 +320,30 @@ async def get_product_details(
             event_data={"product_id": product_id}
         )
     
+    logger.info(f"상품 상세 정보 조회 완료: user_id={user_id}, product_id={product_id}")
     return product_details
 
 
 @router.get("/product/{product_id}/full-detail", response_model=KokProductDetailResponse)
 async def get_product_detail(
+        request: Request,
         product_id: int,
-        current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
     제품 상세 정보 조회
     """
+    current_user = await get_current_user_optional(request)
+    user_id = current_user.user_id if current_user else None
+    logger.info(f"상품 상세 조회 요청: user_id={user_id}, product_id={product_id}")
+    
     product = await get_kok_product_full_detail(db, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
     
-    # 상품 상세 조회 로그 기록
-    if background_tasks:
+    # 인증된 사용자의 경우에만 로그 기록
+    if current_user and background_tasks:
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
@@ -322,6 +351,7 @@ async def get_product_detail(
             event_data={"product_id": product_id, "kok_product_name": product.get("kok_product_name", "")}
         )
     
+    logger.info(f"상품 상세 조회 완료: user_id={user_id}, product_id={product_id}")
     return product
 
 
@@ -331,29 +361,40 @@ async def get_product_detail(
 
 @router.get("/search", response_model=KokSearchResponse)
 async def search_products(
+    request: Request,
     keyword: str = Query(..., description="검색 키워드"),
     page: int = Query(1, ge=1, description="페이지 번호"),
     size: int = Query(20, ge=1, le=100, description="페이지 크기"),
-    current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
     키워드 기반으로 콕 쇼핑몰 내에 있는 상품을 검색
     """
-    logger.info(f"상품 검색 요청: user_id={current_user.user_id}, keyword='{keyword}', page={page}, size={size}")
+    current_user = await get_current_user_optional(request)
+    user_id = current_user.user_id if current_user else None
+    logger.info(f"상품 검색 요청: user_id={user_id}, keyword='{keyword}', page={page}, size={size}")
     
     products, total = await search_kok_products(db, keyword, page, size)
     
-    logger.info(f"상품 검색 완료: user_id={current_user.user_id}, keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
+    logger.info(f"상품 검색 완료: user_id={user_id}, keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
     
-    # 검색 로그 기록
-    if background_tasks:
+    # 인증된 사용자의 경우에만 로그 기록과 검색 기록 저장
+    if current_user and background_tasks:
+        # 검색 로그 기록
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="product_search", 
             event_data={"keyword": keyword, "result_count": len(products)}
+        )
+        
+        # 검색 기록 저장
+        background_tasks.add_task(
+            add_kok_search_history,
+            db=db,
+            user_id=current_user.user_id,
+            keyword=keyword
         )
     
     return {

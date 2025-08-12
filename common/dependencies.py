@@ -1,4 +1,4 @@
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -6,8 +6,12 @@ from common.auth.jwt_handler import verify_token
 from common.errors import InvalidTokenException, NotFoundException
 from services.user.crud.user_crud import get_user_by_id
 from services.user.crud.jwt_blacklist_crud import is_token_blacklisted
+from services.user.schemas.user_schema import UserOut
+
 from common.database.mariadb_auth import get_maria_auth_db
 from common.logger import get_logger
+
+from typing import Optional
 
 from common.config import get_settings
 settings = get_settings()
@@ -58,3 +62,94 @@ async def get_current_user(
     except Exception as e:
         logger.error(f"인증 실패: {str(e)}")
         raise
+
+
+async def get_current_user_optional(
+    request: Request
+) -> Optional[UserOut]:
+    """인증이 실패해도 에러를 발생시키지 않는 선택적 사용자 의존성"""
+    authorization = request.headers.get("authorization")
+    
+    # 디버깅 로그 추가
+    logger.info(f"Authorization 헤더: {authorization}")
+    
+    if not authorization:
+        logger.info("Authorization 헤더가 없습니다.")
+        return None
+    
+    try:
+        # JWT 토큰에서 사용자 ID 추출
+        from common.auth.jwt_handler import verify_token
+        
+        # Bearer 토큰에서 실제 토큰 추출
+        if authorization.startswith("Bearer "):
+            token = authorization[7:]
+            logger.info(f"Bearer 토큰 추출: {token[:20]}...")
+        else:
+            token = authorization
+            logger.info(f"직접 토큰: {token[:20]}...")
+        
+        # JWT 토큰 검증 전 로그
+        logger.info(f"verify_token 호출 전 토큰 길이: {len(token)}")
+        logger.info(f"토큰의 처음 50자: {token[:50]}")
+        
+        # JWT 토큰 검증
+        payload = verify_token(token)
+        logger.info(f"verify_token 결과: {payload}")
+        
+        if not payload:
+            logger.warning("JWT 페이로드가 없습니다.")
+            # 추가 디버깅: 직접 JWT 디코딩 시도
+            try:
+                from jose import jwt
+                from common.config import get_settings
+                settings = get_settings()
+                logger.info(f"JWT 시크릿: {settings.jwt_secret[:10]}...")
+                logger.info(f"JWT 알고리즘: {settings.jwt_algorithm}")
+                
+                # 직접 디코딩 시도
+                direct_payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+                logger.info(f"직접 디코딩 결과: {direct_payload}")
+            except Exception as direct_error:
+                logger.error(f"직접 디코딩 실패: {str(direct_error)}")
+            
+            return None
+        
+        user_id = int(payload.get("sub"))
+        logger.info(f"추출된 user_id: {user_id}")
+        
+        if not user_id:
+            logger.warning("user_id가 유효하지 않습니다.")
+            return None
+        
+        # 올바른 UserOut 객체 생성 (필수 필드 포함)
+        from datetime import datetime
+        user = UserOut(
+            user_id=user_id, 
+            email="user@example.com",  # 임시 이메일 (실제로는 사용하지 않음)
+            username="user",           # 임시 사용자명 (실제로는 사용하지 않음)
+            created_at=datetime.now()  # 현재 시간
+        )
+        logger.info(f"사용자 객체 생성 완료: {user}")
+        return user
+        
+    except Exception as e:
+        # 인증 실패 시 None 반환 (에러 발생하지 않음)
+        logger.error(f"JWT 토큰 처리 중 오류 발생: {str(e)}")
+        return None
+
+
+async def debug_optional_auth(request: Request, endpoint_name: str):
+    """선택적 인증 디버깅을 위한 공통 함수"""
+    logger.info(f"=== {endpoint_name} 디버깅 시작 ===")
+    logger.info(f"Request headers: {dict(request.headers)}")
+    logger.info(f"Authorization header: {request.headers.get('authorization')}")
+    
+    current_user = await get_current_user_optional(request)
+    logger.info(f"get_current_user_optional 결과: {current_user}")
+    
+    user_id = current_user.user_id if current_user else None
+    logger.info(f"최종 user_id: {user_id}")
+    logger.info(f"=== {endpoint_name} 디버깅 완료 ===")
+    
+    return current_user, user_id

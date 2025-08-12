@@ -472,7 +472,7 @@ async def get_kok_unpurchased(
 
 async def get_kok_store_best_items(
         db: AsyncSession,
-        user_id: int,
+        user_id: Optional[int] = None,
         sort_by: str = "review_count"  # "review_count" 또는 "rating"
 ) -> List[dict]:
     """
@@ -480,58 +480,80 @@ async def get_kok_store_best_items(
     
     Args:
         db: 데이터베이스 세션
-        user_id: 사용자 ID
+        user_id: 사용자 ID (None이면 전체 베스트 상품 반환)
         sort_by: 정렬 기준 ("review_count": 리뷰 개수 순, "rating": 별점 평균 순)
     """
     logger.info(f"스토어 베스트 상품 조회 시작: user_id={user_id}, sort_by={sort_by}")
     
-    # 1. 사용자가 구매한 주문에서 price_id를 통해 상품 정보 조회
-    stmt = (
-        select(KokOrder, KokPriceInfo, KokProductInfo)
-        .join(KokPriceInfo, KokOrder.price_id == KokPriceInfo.kok_price_id)
-        .join(KokProductInfo, KokPriceInfo.kok_product_id == KokProductInfo.kok_product_id)
-        .join(Order, KokOrder.order_id == Order.order_id)
-        .where(Order.user_id == user_id)
-        .distinct()
-    )
-    results = (await db.execute(stmt)).all()
-    
-    if not results:
-        logger.warning(f"사용자가 구매한 상품이 없음: user_id={user_id}")
-        return []
-    
-    # 2. 구매한 상품들의 판매자 정보 수집
-    store_names = set()
-    for order, price, product in results:
-        if product.kok_store_name:
-            store_names.add(product.kok_store_name)
-    
-    if not store_names:
-        logger.warning(f"구매한 상품의 판매자 정보가 없음: user_id={user_id}")
-        return []
-    
-    # 3. 해당 판매자들이 판매중인 상품 중 정렬 기준에 따라 조회
-    if sort_by == "rating":
-        # 별점 평균 순으로 정렬 (리뷰가 있는 상품만)
-        store_best_stmt = (
-            select(KokProductInfo, KokPriceInfo)
-            .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
-            .where(KokProductInfo.kok_store_name.in_(store_names))
-            .where(KokProductInfo.kok_review_cnt > 0)
-            .where(KokProductInfo.kok_review_score > 0)
-            .order_by(KokProductInfo.kok_review_score.desc(), KokProductInfo.kok_review_cnt.desc())
-            .limit(10)
+    if user_id:
+        # 1. 사용자가 구매한 주문에서 price_id를 통해 상품 정보 조회
+        stmt = (
+            select(KokOrder, KokPriceInfo, KokProductInfo)
+            .join(KokPriceInfo, KokOrder.price_id == KokPriceInfo.kok_price_id)
+            .join(KokProductInfo, KokPriceInfo.kok_product_id == KokProductInfo.kok_product_id)
+            .join(Order, KokOrder.order_id == Order.order_id)
+            .where(Order.user_id == user_id)
+            .distinct()
         )
+        results = (await db.execute(stmt)).all()
+        
+        if not results:
+            logger.warning(f"사용자가 구매한 상품이 없음: user_id={user_id}")
+            return []
+        
+        # 2. 구매한 상품들의 판매자 정보 수집
+        store_names = set()
+        for order, price, product in results:
+            if product.kok_store_name:
+                store_names.add(product.kok_store_name)
+        
+        if not store_names:
+            logger.warning(f"구매한 상품의 판매자 정보가 없음: user_id={user_id}")
+            return []
+        
+        # 3. 해당 판매자들이 판매중인 상품 중 정렬 기준에 따라 조회
+        if sort_by == "rating":
+            # 별점 평균 순으로 정렬 (리뷰가 있는 상품만)
+            store_best_stmt = (
+                select(KokProductInfo, KokPriceInfo)
+                .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
+                .where(KokProductInfo.kok_store_name.in_(store_names))
+                .where(KokProductInfo.kok_review_cnt > 0)
+                .where(KokProductInfo.kok_review_score > 0)
+                .order_by(KokProductInfo.kok_review_score.desc(), KokProductInfo.kok_review_cnt.desc())
+                .limit(10)
+            )
+        else:
+            # 기본값: 리뷰 개수 순으로 정렬
+            store_best_stmt = (
+                select(KokProductInfo, KokPriceInfo)
+                .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
+                .where(KokProductInfo.kok_store_name.in_(store_names))
+                .where(KokProductInfo.kok_review_cnt > 0)
+                .order_by(KokProductInfo.kok_review_cnt.desc(), KokProductInfo.kok_review_score.desc())
+                .limit(10)
+            )
     else:
-        # 기본값: 리뷰 개수 순으로 정렬
-        store_best_stmt = (
-            select(KokProductInfo, KokPriceInfo)
-            .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
-            .where(KokProductInfo.kok_store_name.in_(store_names))
-            .where(KokProductInfo.kok_review_cnt > 0)
-            .order_by(KokProductInfo.kok_review_cnt.desc(), KokProductInfo.kok_review_score.desc())
-            .limit(10)
-        )
+        # user_id가 없으면 전체 베스트 상품 조회
+        if sort_by == "rating":
+            # 별점 평균 순으로 정렬 (리뷰가 있는 상품만)
+            store_best_stmt = (
+                select(KokProductInfo, KokPriceInfo)
+                .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
+                .where(KokProductInfo.kok_review_cnt > 0)
+                .where(KokProductInfo.kok_review_score > 0)
+                .order_by(KokProductInfo.kok_review_score.desc(), KokProductInfo.kok_review_cnt.desc())
+                .limit(10)
+            )
+        else:
+            # 기본값: 리뷰 개수 순으로 정렬
+            store_best_stmt = (
+                select(KokProductInfo, KokPriceInfo)
+                .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
+                .where(KokProductInfo.kok_review_cnt > 0)
+                .order_by(KokProductInfo.kok_review_cnt.desc(), KokProductInfo.kok_review_score.desc())
+                .limit(10)
+            )
     
     store_results = (await db.execute(store_best_stmt)).all()
     
