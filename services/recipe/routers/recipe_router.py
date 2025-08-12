@@ -240,7 +240,7 @@ async def post_rating(
     return {"recipe_id": recipe_id, "rating": rating}
 
 
-@router.get("/recipes/kok")
+@router.get("/kok")
 async def get_kok_products(
     ingredient: str = Query(..., description="검색할 식재료명(예: 감자, 양파 등)"),
     current_user = Depends(get_current_user),
