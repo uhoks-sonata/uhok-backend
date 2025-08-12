@@ -919,7 +919,12 @@ async def add_kok_cart(
     """
     장바구니에 상품 추가
     """
-    logger.info(f"장바구니 추가 시작: user_id={user_id}, product_id={kok_product_id}, quantity={kok_quantity}")
+    logger.info(f"장바구니 추가 시작: user_id={user_id}, product_id={kok_product_id}, quantity={kok_quantity}, recipe_id={recipe_id}")
+    
+    # recipe_id가 0이면 None으로 처리 (외래키 제약 조건 위반 방지)
+    if recipe_id == 0:
+        recipe_id = None
+        logger.info(f"recipe_id가 0이므로 None으로 처리")
     
     # 기존 장바구니 항목 확인
     stmt = select(KokCart).where(

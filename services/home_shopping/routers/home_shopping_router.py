@@ -305,44 +305,6 @@ async def get_product_recommendations(
     logger.info(f"홈쇼핑 상품 추천 조회 완료: user_id={current_user.user_id}, product_id={product_id}, 추천 수={len(recommendations)}")
     return {"recommendations": recommendations}
 
-
-# ================================
-# 주문 관련 API
-# ================================
-
-@router.post("/order", response_model=HomeshoppingOrderResponse)
-async def create_order(
-        order_data: HomeshoppingOrderRequest,
-        current_user: UserOut = Depends(get_current_user),
-        background_tasks: BackgroundTasks = None,
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    홈쇼핑 주문 생성
-    """
-    logger.info(f"홈쇼핑 주문 생성 요청: user_id={current_user.user_id}, items_count={len(order_data.items)}")
-    
-    order_result = await create_homeshopping_order(
-        db, 
-        current_user.user_id, 
-        [{"product_id": item.product_id, "quantity": item.quantity} for item in order_data.items],
-        order_data.delivery_address,
-        order_data.delivery_phone
-    )
-    
-    # 주문 생성 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="homeshopping_order_create", 
-            event_data={"order_id": order_result["order_id"], "items_count": len(order_data.items)}
-        )
-    
-    logger.info(f"홈쇼핑 주문 생성 완료: user_id={current_user.user_id}, order_id={order_result['order_id']}")
-    return order_result
-
-
 # ================================
 # 스트리밍 관련 API
 # ================================
@@ -437,6 +399,43 @@ async def get_liked_products(
     
     logger.info(f"홈쇼핑 찜한 상품 조회 완료: user_id={current_user.user_id}, 결과 수={len(liked_products)}")
     return {"liked_products": liked_products}
+
+
+# ================================
+# 주문 관련 API
+# ================================
+
+@router.post("/order", response_model=HomeshoppingOrderResponse)
+async def create_order(
+        order_data: HomeshoppingOrderRequest,
+        current_user: UserOut = Depends(get_current_user),
+        background_tasks: BackgroundTasks = None,
+        db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    홈쇼핑 주문 생성
+    """
+    logger.info(f"홈쇼핑 주문 생성 요청: user_id={current_user.user_id}, items_count={len(order_data.items)}")
+    
+    order_result = await create_homeshopping_order(
+        db, 
+        current_user.user_id, 
+        [{"product_id": item.product_id, "quantity": item.quantity} for item in order_data.items],
+        order_data.delivery_address,
+        order_data.delivery_phone
+    )
+    
+    # 주문 생성 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="homeshopping_order_create", 
+            event_data={"order_id": order_result["order_id"], "items_count": len(order_data.items)}
+        )
+    
+    logger.info(f"홈쇼핑 주문 생성 완료: user_id={current_user.user_id}, order_id={order_result['order_id']}")
+    return order_result
 
 
 # ================================
