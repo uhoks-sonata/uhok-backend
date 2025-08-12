@@ -15,7 +15,8 @@ from services.kok.models.kok_model import (
     KokPriceInfo, 
     KokSearchHistory,
     KokLikes,
-    KokCart
+    KokCart,
+    KokNotification
 )
 
 from services.order.models.order_model import KokOrder, Order
@@ -432,10 +433,10 @@ async def get_kok_unpurchased(
     # 구매한 상품 ID 목록 추출 (price_id를 통해 상품 정보 조회)
     purchased_product_ids = []
     for kok_order, order in purchased_orders:
-        # price_id를 통해 상품 정보 조회
+        # kok_price_id를 통해 상품 정보 조회
         product_stmt = (
             select(KokPriceInfo.kok_product_id)
-            .where(KokPriceInfo.kok_price_id == kok_order.price_id)
+            .where(KokPriceInfo.kok_price_id == kok_order.kok_price_id)
         )
         product_result = await db.execute(product_stmt)
         product_id = product_result.scalar_one_or_none()
@@ -471,7 +472,7 @@ async def get_kok_unpurchased(
 
 async def get_kok_store_best_items(
         db: AsyncSession,
-        user_id: int,
+        user_id: Optional[int] = None,
         sort_by: str = "review_count"  # "review_count" 또는 "rating"
 ) -> List[dict]:
     """
@@ -479,60 +480,97 @@ async def get_kok_store_best_items(
     
     Args:
         db: 데이터베이스 세션
-        user_id: 사용자 ID
+        user_id: 사용자 ID (None이면 전체 베스트 상품 반환)
         sort_by: 정렬 기준 ("review_count": 리뷰 개수 순, "rating": 별점 평균 순)
     """
     logger.info(f"스토어 베스트 상품 조회 시작: user_id={user_id}, sort_by={sort_by}")
     
-    # 1. 사용자가 구매한 주문에서 price_id를 통해 상품 정보 조회
-    stmt = (
-        select(KokOrder, KokPriceInfo, KokProductInfo)
-        .join(KokPriceInfo, KokOrder.price_id == KokPriceInfo.kok_price_id)
-        .join(KokProductInfo, KokPriceInfo.kok_product_id == KokProductInfo.kok_product_id)
-        .join(Order, KokOrder.order_id == Order.order_id)
-        .where(Order.user_id == user_id)
-        .distinct()
-    )
-    results = (await db.execute(stmt)).all()
-    
-    if not results:
-        logger.warning(f"사용자가 구매한 상품이 없음: user_id={user_id}")
-        return []
-    
-    # 2. 구매한 상품들의 판매자 정보 수집
-    store_names = set()
-    for order, price, product in results:
-        if product.kok_store_name:
-            store_names.add(product.kok_store_name)
-    
-    if not store_names:
-        logger.warning(f"구매한 상품의 판매자 정보가 없음: user_id={user_id}")
-        return []
-    
-    # 3. 해당 판매자들이 판매중인 상품 중 정렬 기준에 따라 조회
-    if sort_by == "rating":
-        # 별점 평균 순으로 정렬 (리뷰가 있는 상품만)
-        store_best_stmt = (
-            select(KokProductInfo, KokPriceInfo)
-            .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
-            .where(KokProductInfo.kok_store_name.in_(store_names))
-            .where(KokProductInfo.kok_review_cnt > 0)
-            .where(KokProductInfo.kok_review_score > 0)
-            .order_by(KokProductInfo.kok_review_score.desc(), KokProductInfo.kok_review_cnt.desc())
-            .limit(10)
+    if user_id:
+        # 1. 사용자가 구매한 주문에서 price_id를 통해 상품 정보 조회
+        stmt = (
+            select(KokOrder, KokPriceInfo, KokProductInfo)
+            .join(KokPriceInfo, KokOrder.kok_price_id == KokPriceInfo.kok_price_id)
+            .join(KokProductInfo, KokPriceInfo.kok_product_id == KokProductInfo.kok_product_id)
+            .join(Order, KokOrder.order_id == Order.order_id)
+            .where(Order.user_id == user_id)
+            .distinct()
         )
+        results = (await db.execute(stmt)).all()
+        
+        if not results:
+            logger.warning(f"사용자가 구매한 상품이 없음: user_id={user_id}")
+            return []
+        
+        logger.info(f"사용자 구매 상품 조회 결과: user_id={user_id}, 구매 상품 수={len(results)}")
+        
+        # 2. 구매한 상품들의 판매자 정보 수집
+        store_names = set()
+        for order, price, product in results:
+            if product.kok_store_name:
+                store_names.add(product.kok_store_name)
+                logger.debug(f"구매 상품: {product.kok_product_name}, 판매자: {product.kok_store_name}")
+            else:
+                logger.warning(f"구매 상품의 판매자 정보 누락: product_id={product.kok_product_id}, product_name={product.kok_product_name}")
+        
+        logger.info(f"구매한 상품들의 판매자 정보: {store_names}, 판매자 수={len(store_names)}")
+        
+        if not store_names:
+            logger.warning(f"구매한 상품의 판매자 정보가 없음: user_id={user_id}")
+            return []
+        
+        # 3. 해당 판매자들이 판매중인 상품 중 정렬 기준에 따라 조회
+        if sort_by == "rating":
+            # 별점 평균 순으로 정렬 (리뷰가 있는 상품만)
+            store_best_stmt = (
+                select(KokProductInfo, KokPriceInfo)
+                .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
+                .where(KokProductInfo.kok_store_name.in_(store_names))
+                .where(KokProductInfo.kok_review_cnt > 0)
+                .where(KokProductInfo.kok_review_score > 0)
+                .order_by(KokProductInfo.kok_review_score.desc(), KokProductInfo.kok_review_cnt.desc())
+                .limit(10)
+            )
+        else:
+            # 기본값: 리뷰 개수 순으로 정렬
+            store_best_stmt = (
+                select(KokProductInfo, KokPriceInfo)
+                .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
+                .where(KokProductInfo.kok_store_name.in_(store_names))
+                .where(KokProductInfo.kok_review_cnt > 0)
+                .order_by(KokProductInfo.kok_review_cnt.desc(), KokProductInfo.kok_review_score.desc())
+                .limit(10)
+            )
     else:
-        # 기본값: 리뷰 개수 순으로 정렬
-        store_best_stmt = (
-            select(KokProductInfo, KokPriceInfo)
-            .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
-            .where(KokProductInfo.kok_store_name.in_(store_names))
-            .where(KokProductInfo.kok_review_cnt > 0)
-            .order_by(KokProductInfo.kok_review_cnt.desc(), KokProductInfo.kok_review_score.desc())
-            .limit(10)
-        )
+        # user_id가 없으면 전체 베스트 상품 조회
+        logger.info("전체 베스트 상품 조회 모드 (user_id 없음)")
+        
+        if sort_by == "rating":
+            # 별점 평균 순으로 정렬 (리뷰가 있는 상품만)
+            store_best_stmt = (
+                select(KokProductInfo, KokPriceInfo)
+                .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
+                .where(KokProductInfo.kok_review_cnt > 0)
+                .where(KokProductInfo.kok_review_score > 0)
+                .order_by(KokProductInfo.kok_review_score.desc(), KokProductInfo.kok_review_cnt.desc())
+                .limit(10)
+            )
+            logger.debug("정렬 기준: 별점 높은 순 → 리뷰 개수 순")
+        else:
+            # 기본값: 리뷰 개수 순으로 정렬
+            store_best_stmt = (
+                select(KokProductInfo, KokPriceInfo)
+                .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
+                .where(KokProductInfo.kok_review_cnt > 0)
+                .order_by(KokProductInfo.kok_review_cnt.desc(), KokProductInfo.kok_review_score.desc())
+                .limit(10)
+            )
+            logger.debug("정렬 기준: 리뷰 개수 순 → 별점 순")
     
     store_results = (await db.execute(store_best_stmt)).all()
+    
+    logger.info(f"해당 판매자들의 현재 판매 상품 수: {len(store_results)}")
+    if store_results:
+        logger.debug(f"첫 번째 상품 정보: {store_results[0][0].kok_product_name}, 판매자: {store_results[0][0].kok_store_name}, 리뷰 수: {store_results[0][0].kok_review_cnt}")
     
     store_best_products = []
     for product, price_info in store_results:
@@ -555,6 +593,14 @@ async def get_kok_store_best_items(
         })
     
     logger.info(f"스토어 베스트 상품 조회 완료: user_id={user_id}, sort_by={sort_by}, 결과 수={len(store_best_products)}")
+    
+    # 최종 결과 요약 로그
+    if store_best_products:
+        logger.info(f"반환된 상품들의 판매자 분포: {list(set([p['kok_store_name'] for p in store_best_products]))}")
+        logger.info(f"반환된 상품들의 리뷰 수 범위: {min([p['kok_review_cnt'] for p in store_best_products])} ~ {max([p['kok_review_cnt'] for p in store_best_products])}")
+    else:
+        logger.warning(f"빈 결과 반환 - 가능한 원인: 구매 이력 없음, 판매자 정보 누락, 해당 판매자 상품 없음, 리뷰 조건 불충족")
+    
     return store_best_products
 
 
@@ -766,10 +812,9 @@ async def toggle_kok_likes(
     logger.info(f"찜 토글 시작: user_id={user_id}, product_id={kok_product_id}")
     
     # 기존 찜 확인
-    stmt = (
-        select(KokLikes)
-        .where(KokLikes.user_id == user_id)
-        .where(KokLikes.kok_product_id == kok_product_id)
+    stmt = select(KokLikes).where(
+        KokLikes.user_id == user_id,
+        KokLikes.kok_product_id == kok_product_id
     )
     result = await db.execute(stmt)
     existing_like = result.scalar_one_or_none()
@@ -783,7 +828,7 @@ async def toggle_kok_likes(
     else:
         # 찜 등록
         from datetime import datetime
-        created_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        created_at = datetime.now()
         
         new_like = KokLikes(
             user_id=user_id,
@@ -897,54 +942,46 @@ async def add_kok_cart(
     """
     장바구니에 상품 추가
     """
-    logger.info(f"장바구니 추가 시작: user_id={user_id}, product_id={kok_product_id}, quantity={kok_quantity}, recipe_id={recipe_id}")
+    logger.info(f"장바구니 추가 시작: user_id={user_id}, product_id={kok_product_id}, quantity={kok_quantity}")
     
     # 기존 장바구니 항목 확인
-    stmt = (
-        select(KokCart)
-        .where(KokCart.user_id == user_id)
-        .where(KokCart.kok_product_id == kok_product_id)
+    stmt = select(KokCart).where(
+        KokCart.user_id == user_id,
+        KokCart.kok_product_id == kok_product_id
     )
     result = await db.execute(stmt)
     existing_cart = result.scalar_one_or_none()
     
     if existing_cart:
-        # 이미 장바구니에 있는 경우 추가하지 않음
-        logger.info(f"이미 장바구니에 존재: user_id={user_id}, product_id={kok_product_id}, cart_id={existing_cart.kok_cart_id}")
+        # 수량 업데이트
+        existing_cart.kok_quantity += kok_quantity
+        await db.commit()
+        logger.info(f"장바구니 수량 업데이트 완료: cart_id={existing_cart.kok_cart_id}, new_quantity={existing_cart.kok_quantity}")
         return {
             "kok_cart_id": existing_cart.kok_cart_id,
-            "message": "이미 장바구니에 있습니다."
+            "message": f"장바구니 수량이 {existing_cart.kok_quantity}개로 업데이트되었습니다."
         }
     else:
-        # 새로운 상품 추가
+        # 새 항목 추가
         from datetime import datetime
-        created_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        created_at = datetime.now()
         
-        # 레시피 FK 유효성 검증: 0, 음수, 존재하지 않으면 None 처리
-        valid_recipe_id: Optional[int] = None
-        if recipe_id and recipe_id > 0:
-            recipe_exists = (
-                await db.execute(select(Recipe.recipe_id).where(Recipe.recipe_id == recipe_id))
-            ).scalar_one_or_none()
-            if recipe_exists:
-                valid_recipe_id = recipe_id
-
         new_cart = KokCart(
             user_id=user_id,
             kok_product_id=kok_product_id,
             kok_quantity=kok_quantity,
             kok_created_at=created_at,
-            recipe_id=valid_recipe_id
+            recipe_id=recipe_id
         )
         
         db.add(new_cart)
         await db.commit()
         await db.refresh(new_cart)
         
-        logger.info(f"장바구니 추가 완료: user_id={user_id}, product_id={kok_product_id}, cart_id={new_cart.kok_cart_id}")
+        logger.info(f"장바구니 새 항목 추가 완료: cart_id={new_cart.kok_cart_id}")
         return {
             "kok_cart_id": new_cart.kok_cart_id,
-            "message": "장바구니에 추가되었습니다."
+            "message": "장바구니에 상품이 추가되었습니다."
         }
 
 
@@ -1211,8 +1248,7 @@ async def add_kok_search_history(
     logger.info(f"검색 이력 추가 시작: user_id={user_id}, keyword='{keyword}'")
     
     from datetime import datetime
-    
-    searched_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    searched_at = datetime.now()
     
     new_history = KokSearchHistory(
         user_id=user_id,
@@ -1224,8 +1260,7 @@ async def add_kok_search_history(
     await db.commit()
     await db.refresh(new_history)
     
-    logger.info(f"검색 이력 추가 완료: user_id={user_id}, keyword='{keyword}', history_id={new_history.kok_history_id}")
-    
+    logger.info(f"검색 이력 추가 완료: history_id={new_history.kok_history_id}")
     return {
         "kok_history_id": new_history.kok_history_id,
         "user_id": new_history.user_id,
@@ -1269,11 +1304,8 @@ async def get_kok_notifications(
     limit: int = 50
 ) -> List[dict]:
     """
-    사용자의 콕 알림 내역을 조회
-    - 주문완료, 배송출발, 배송완료 등의 알림을 조회
+    사용자의 알림 목록 조회
     """
-    from services.kok.models.kok_model import KokNotification
-    
     stmt = (
         select(KokNotification)
         .where(KokNotification.user_id == user_id)
@@ -1281,21 +1313,21 @@ async def get_kok_notifications(
         .limit(limit)
     )
     
-    result = await db.execute(stmt)
-    notifications = result.scalars().all()
+    results = (await db.execute(stmt)).scalars().all()
     
-    return [
-        {
+    notifications = []
+    for notification in results:
+        notifications.append({
             "notification_id": notification.notification_id,
             "user_id": notification.user_id,
             "kok_order_id": notification.kok_order_id,
             "status_id": notification.status_id,
             "title": notification.title,
             "message": notification.message,
-            "created_at": notification.created_at.strftime("%Y-%m-%d %H:%M:%S") if notification.created_at else None
-        }
-        for notification in notifications
-    ]
+            "created_at": notification.created_at
+        })
+    
+    return notifications
 
 
 async def get_ingredients_from_selected_cart_items(

@@ -7,6 +7,7 @@
 
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict
+from datetime import datetime
 
 # -----------------------------
 # 이미지 정보 스키마
@@ -325,7 +326,7 @@ class KokLikes(BaseModel):
     kok_like_id: int
     user_id: int
     kok_product_id: int
-    kok_created_at: str
+    kok_created_at: datetime
     
     class Config:
         from_attributes = True
@@ -366,7 +367,7 @@ class KokCart(BaseModel):
     user_id: int
     kok_product_id: int
     kok_quantity: int
-    kok_created_at: Optional[str] = None
+    kok_created_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
@@ -443,7 +444,7 @@ class KokSearchHistory(BaseModel):
     kok_history_id: int
     user_id: int
     kok_keyword: str
-    kok_searched_at: str
+    kok_searched_at: datetime
     
     class Config:
         from_attributes = True
@@ -502,7 +503,7 @@ class KokNotification(BaseModel):
     status_id: int
     title: str
     message: str
-    created_at: str
+    created_at: datetime
     
     class Config:
         from_attributes = True
