@@ -344,45 +344,6 @@ async def get_kok_order_with_status(
         current_status=current_status
     )
 
-@router.post("/kok/{kok_order_id}/auto-update", status_code=status.HTTP_200_OK)
-async def start_auto_status_update_api(
-    kok_order_id: int,
-    background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_maria_service_db),
-    user=Depends(get_current_user)
-):
-    """
-    특정 주문의 자동 상태 업데이트 시작 (테스트용)
-    """
-    # 사용자 권한 확인
-    kok_order_result = await db.execute(
-        select(KokOrder).where(KokOrder.kok_order_id == kok_order_id)
-    )
-    kok_order = kok_order_result.scalars().first()
-    if not kok_order:
-        raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
-    
-    order_result = await db.execute(
-        select(Order).where(Order.order_id == kok_order.order_id)
-    )
-    order = order_result.scalars().first()
-    if not order or order.user_id != user.user_id:
-        raise HTTPException(status_code=403, detail="해당 주문에 대한 권한이 없습니다.")
-    
-    # 자동 상태 업데이트 시작
-    if background_tasks:
-        background_tasks.add_task(
-            start_auto_status_update,
-            kok_order_id=kok_order_id,
-            db_session_generator=get_maria_service_db()
-        )
-    
-    return {"message": f"주문 {kok_order_id}의 자동 상태 업데이트가 시작되었습니다."}
-
-# ================================
-# 알림 관리 API
-# ================================
-
 # 결제 확인(테스트/웹훅용): PAYMENT_REQUESTED -> PAYMENT_COMPLETED
 # - 결제 모듈/PG사 콜백과 연동할 때 주문 단건 기준으로 호출하는 API입니다.
 @router.post("/kok/{kok_order_id}/payment/confirm")
@@ -473,23 +434,44 @@ async def confirm_payment_by_order(
         logger.error(f"주문 단위 결제 확인 실패: order_id={order_id}, error={str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
-# @router.patch("/kok/notifications/{notification_id}/read")
-# async def mark_notification_as_read_api(
-#     notification_id: int,
-#     user: User = Depends(get_current_user),
-#     db: AsyncSession = Depends(get_maria_service_db)
-# ):
-#     """
-#     알림 읽음 처리
-#     """
-#     from services.order.crud.order_crud import mark_notification_as_read
-#     
-#     success = await mark_notification_as_read(db, notification_id, user.user_id)
-#     
-#     if not success:
-#         raise HTTPException(status_code=404, detail="알림을 찾을 수 없습니다")
-#     
-#     return {"message": "알림이 읽음 처리되었습니다"}
+@router.post("/kok/{kok_order_id}/auto-update", status_code=status.HTTP_200_OK)
+async def start_auto_status_update_api(
+    kok_order_id: int,
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db),
+    user=Depends(get_current_user)
+):
+    """
+    특정 주문의 자동 상태 업데이트 시작 (테스트용)
+    """
+    # 사용자 권한 확인
+    kok_order_result = await db.execute(
+        select(KokOrder).where(KokOrder.kok_order_id == kok_order_id)
+    )
+    kok_order = kok_order_result.scalars().first()
+    if not kok_order:
+        raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+    
+    order_result = await db.execute(
+        select(Order).where(Order.order_id == kok_order.order_id)
+    )
+    order = order_result.scalars().first()
+    if not order or order.user_id != user.user_id:
+        raise HTTPException(status_code=403, detail="해당 주문에 대한 권한이 없습니다.")
+    
+    # 자동 상태 업데이트 시작
+    if background_tasks:
+        background_tasks.add_task(
+            start_auto_status_update,
+            kok_order_id=kok_order_id,
+            db_session_generator=get_maria_service_db()
+        )
+    
+    return {"message": f"주문 {kok_order_id}의 자동 상태 업데이트가 시작되었습니다."}
+
+# -------------------------
+# 알림 관련 APi
+# -------------------------
 
 @router.get("/kok/notifications/history", response_model=KokNotificationListResponse)
 async def get_kok_order_notifications_history_api(
@@ -524,3 +506,21 @@ async def get_kok_order_notifications_history_api(
         notifications=notifications,
         total_count=total_count
     )
+
+# @router.patch("/kok/notifications/{notification_id}/read")
+# async def mark_notification_as_read_api(
+#     notification_id: int,
+#     user: User = Depends(get_current_user),
+#     db: AsyncSession = Depends(get_maria_service_db)
+# ):
+#     """
+#     알림 읽음 처리
+#     """
+#     from services.order.crud.order_crud import mark_notification_as_read
+#     
+#     success = await mark_notification_as_read(db, notification_id, user.user_id)
+#     
+#     if not success:
+#         raise HTTPException(status_code=404, detail="알림을 찾을 수 없습니다")
+#     
+#     return {"message": "알림이 읽음 처리되었습니다"}
