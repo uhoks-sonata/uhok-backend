@@ -11,29 +11,36 @@ api_url = settings.log_api_url   # .env에서 불러옴
 
 def check_log_service_health():
     """
-    로그 서비스 상태 확인
+    로그 서비스 상태 확인 (선택적)
     """
     try:
         # 헬스체크 엔드포인트가 있다면 사용
         health_url = api_url.replace('/log/', '/log/health')
-        response = requests.get(health_url, timeout=5)
-        return response.status_code == 200
-    except:
-        # 헬스체크가 없다면 기본 엔드포인트로 확인
-        try:
-            response = requests.get(api_url, timeout=5)
-            return response.status_code in [200, 405]  # 405는 Method Not Allowed (POST만 허용)
-        except:
+        response = requests.get(health_url, timeout=3)  # 3초로 단축
+        if response.status_code == 200:
+            logger.debug("로그 서비스 헬스체크 성공")
+            return True
+        else:
+            logger.debug(f"로그 서비스 헬스체크 실패: {response.status_code}")
             return False
+    except requests.exceptions.Timeout:
+        logger.debug("로그 서비스 헬스체크 타임아웃")
+        return False
+    except requests.exceptions.ConnectionError:
+        logger.debug("로그 서비스 헬스체크 연결 실패")
+        return False
+    except Exception:
+        logger.debug("로그 서비스 헬스체크 예외 발생")
+        return False
 
 def send_user_log(user_id: int, event_type: str, event_data: dict = None):
     """
     사용자 행동 로그를 로그 서비스로 전송 (BackgroundTasks)
     """
-    # 로그 서비스 상태 확인
-    if not check_log_service_health():
-        logger.warning(f"로그 서비스가 응답하지 않음: user_id={user_id}, event_type={event_type}")
-        return None
+    # 헬스체크는 선택적으로 수행 (실패해도 로그 전송 시도)
+    health_check_passed = check_log_service_health()
+    if not health_check_passed:
+        logger.debug(f"로그 서비스 헬스체크 실패했지만 로그 전송을 시도합니다: user_id={user_id}, event_type={event_type}")
     
     log_payload = {
         "user_id": user_id,
@@ -43,7 +50,7 @@ def send_user_log(user_id: int, event_type: str, event_data: dict = None):
     
     # 재시도 설정
     max_retries = 3
-    timeout = 10  # 2초에서 10초로 증가
+    timeout = 10  # 10초 타임아웃
     
     for attempt in range(max_retries):
         try:

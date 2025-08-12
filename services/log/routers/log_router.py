@@ -4,13 +4,15 @@
 """
 from fastapi import APIRouter, Depends, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from services.log.schemas.log_schema import UserLogCreate, UserLogRead
 from services.log.crud.log_crud import create_user_log, get_user_logs
 from common.database.postgres_log import get_postgres_log_db
 from common.errors import BadRequestException, InternalServerErrorException
+from common.log_utils import send_user_log
+
 from sqlalchemy.exc import SQLAlchemyError
 from typing import List
-from common.log_utils import send_user_log
 
 # 로그 관련 API 라우터
 # - prefix="/log" : 이 라우터에 포함된 모든 경로 앞에 "/log"가 자동으로 붙는다
@@ -20,6 +22,18 @@ router = APIRouter(
     prefix="/log",   # 이 라우터의 모든 엔드포인트 URL 앞에 "/log"를 자동으로 추가
     tags=["log"]     # API 문서(Swagger)에서 'log' 그룹으로 분류
 )
+
+
+@router.get("/health")
+async def health_check():
+    """
+    로그 서비스 헬스체크
+    """
+    return {
+        "status": "healthy",
+        "service": "log",
+        "message": "로그 서비스가 정상적으로 작동 중입니다."
+    }
 
 
 @router.post("/", response_model=UserLogRead, status_code=status.HTTP_201_CREATED)
