@@ -11,7 +11,8 @@ from services.recipe.schemas.recipe_schema import (
     RecipeUrlResponse,
     RecipeRatingCreate,
     RecipeRatingResponse,
-    RecipeByIngredientsListResponse
+    RecipeByIngredientsListResponse,
+    RecipeIngredientStatusResponse
 )
 from services.recipe.crud.recipe_crud import (
     get_recipe_detail,
@@ -19,7 +20,8 @@ from services.recipe.crud.recipe_crud import (
     recommend_recipes_by_ingredients,
     search_recipes_by_keyword,
     get_recipe_rating,
-    set_recipe_rating
+    set_recipe_rating,
+    get_recipe_ingredients_status
 )
 from services.kok.crud.kok_crud import get_kok_products_by_ingredient
 from common.database.mariadb_service import get_maria_service_db
@@ -267,6 +269,23 @@ async def get_kok_products(
         )
     
     return products
+
+
+@router.get("/{recipe_id}/status", response_model=RecipeIngredientStatusResponse)
+async def get_recipe_ingredients_status(
+    recipe_id: int,
+    user_id: int = Query(..., description="사용자 ID"),
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    레시피의 식재료 상태 조회 (보유/장바구니/미보유)
+    """
+    try:
+        result = await get_recipe_ingredients_status(db, recipe_id, user_id)
+        return result
+    except Exception as e:
+        logger.error(f"레시피 식재료 상태 조회 실패: {e}")
+        raise HTTPException(status_code=500, detail="레시피 식재료 상태 조회 중 오류가 발생했습니다.")
 
 
 ###########################################################
