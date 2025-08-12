@@ -433,10 +433,10 @@ async def get_kok_unpurchased(
     # 구매한 상품 ID 목록 추출 (price_id를 통해 상품 정보 조회)
     purchased_product_ids = []
     for kok_order, order in purchased_orders:
-        # price_id를 통해 상품 정보 조회
+        # kok_price_id를 통해 상품 정보 조회
         product_stmt = (
             select(KokPriceInfo.kok_product_id)
-            .where(KokPriceInfo.kok_price_id == kok_order.price_id)
+            .where(KokPriceInfo.kok_price_id == kok_order.kok_price_id)
         )
         product_result = await db.execute(product_stmt)
         product_id = product_result.scalar_one_or_none()
@@ -489,7 +489,7 @@ async def get_kok_store_best_items(
         # 1. 사용자가 구매한 주문에서 price_id를 통해 상품 정보 조회
         stmt = (
             select(KokOrder, KokPriceInfo, KokProductInfo)
-            .join(KokPriceInfo, KokOrder.price_id == KokPriceInfo.kok_price_id)
+            .join(KokPriceInfo, KokOrder.kok_price_id == KokPriceInfo.kok_price_id)
             .join(KokProductInfo, KokPriceInfo.kok_product_id == KokProductInfo.kok_product_id)
             .join(Order, KokOrder.order_id == Order.order_id)
             .where(Order.user_id == user_id)
@@ -501,11 +501,18 @@ async def get_kok_store_best_items(
             logger.warning(f"사용자가 구매한 상품이 없음: user_id={user_id}")
             return []
         
+        logger.info(f"사용자 구매 상품 조회 결과: user_id={user_id}, 구매 상품 수={len(results)}")
+        
         # 2. 구매한 상품들의 판매자 정보 수집
         store_names = set()
         for order, price, product in results:
             if product.kok_store_name:
                 store_names.add(product.kok_store_name)
+                logger.debug(f"구매 상품: {product.kok_product_name}, 판매자: {product.kok_store_name}")
+            else:
+                logger.warning(f"구매 상품의 판매자 정보 누락: product_id={product.kok_product_id}, product_name={product.kok_product_name}")
+        
+        logger.info(f"구매한 상품들의 판매자 정보: {store_names}, 판매자 수={len(store_names)}")
         
         if not store_names:
             logger.warning(f"구매한 상품의 판매자 정보가 없음: user_id={user_id}")
@@ -535,6 +542,8 @@ async def get_kok_store_best_items(
             )
     else:
         # user_id가 없으면 전체 베스트 상품 조회
+        logger.info("전체 베스트 상품 조회 모드 (user_id 없음)")
+        
         if sort_by == "rating":
             # 별점 평균 순으로 정렬 (리뷰가 있는 상품만)
             store_best_stmt = (
@@ -545,6 +554,7 @@ async def get_kok_store_best_items(
                 .order_by(KokProductInfo.kok_review_score.desc(), KokProductInfo.kok_review_cnt.desc())
                 .limit(10)
             )
+            logger.debug("정렬 기준: 별점 높은 순 → 리뷰 개수 순")
         else:
             # 기본값: 리뷰 개수 순으로 정렬
             store_best_stmt = (
@@ -554,8 +564,13 @@ async def get_kok_store_best_items(
                 .order_by(KokProductInfo.kok_review_cnt.desc(), KokProductInfo.kok_review_score.desc())
                 .limit(10)
             )
+            logger.debug("정렬 기준: 리뷰 개수 순 → 별점 순")
     
     store_results = (await db.execute(store_best_stmt)).all()
+    
+    logger.info(f"해당 판매자들의 현재 판매 상품 수: {len(store_results)}")
+    if store_results:
+        logger.debug(f"첫 번째 상품 정보: {store_results[0][0].kok_product_name}, 판매자: {store_results[0][0].kok_store_name}, 리뷰 수: {store_results[0][0].kok_review_cnt}")
     
     store_best_products = []
     for product, price_info in store_results:
@@ -578,6 +593,14 @@ async def get_kok_store_best_items(
         })
     
     logger.info(f"스토어 베스트 상품 조회 완료: user_id={user_id}, sort_by={sort_by}, 결과 수={len(store_best_products)}")
+    
+    # 최종 결과 요약 로그
+    if store_best_products:
+        logger.info(f"반환된 상품들의 판매자 분포: {list(set([p['kok_store_name'] for p in store_best_products]))}")
+        logger.info(f"반환된 상품들의 리뷰 수 범위: {min([p['kok_review_cnt'] for p in store_best_products])} ~ {max([p['kok_review_cnt'] for p in store_best_products])}")
+    else:
+        logger.warning(f"빈 결과 반환 - 가능한 원인: 구매 이력 없음, 판매자 정보 누락, 해당 판매자 상품 없음, 리뷰 조건 불충족")
+    
     return store_best_products
 
 

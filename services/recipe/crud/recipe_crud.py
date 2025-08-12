@@ -411,7 +411,7 @@ async def search_recipes_by_keyword(
     db: AsyncSession,
     keyword: str,
     page: int = 1,
-    size: int = 5,
+    size: int = 15,
     method: str = "recipe",
 ) -> Tuple[List[dict], int]:
     """
