@@ -15,7 +15,7 @@ from common.logger import get_logger
 
 router = APIRouter(
     prefix="/user-activity",
-    tags=["user-activity"]
+    tags=["UserActivity"]
 )
 
 logger = get_logger("user_activity_router")

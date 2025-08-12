@@ -87,7 +87,7 @@ from common.database.mariadb_service import get_maria_service_db
 from common.log_utils import send_user_log
 from common.logger import get_logger
 
-router = APIRouter(prefix="/api/kok", tags=["kok"])
+router = APIRouter(prefix="/api/kok", tags=["Kok"])
 logger = get_logger("kok_router")
 
 

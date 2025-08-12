@@ -20,7 +20,7 @@ from typing import List
 # - tags=["log"] : Swagger 문서에서 log 그룹으로 분류
 router = APIRouter(
     prefix="/log",   # 이 라우터의 모든 엔드포인트 URL 앞에 "/log"를 자동으로 추가
-    tags=["log"]     # API 문서(Swagger)에서 'log' 그룹으로 분류
+    tags=["Log"]     # API 문서(Swagger)에서 'log' 그룹으로 분류
 )
 
 

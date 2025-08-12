@@ -27,7 +27,7 @@ from common.dependencies import get_current_user
 from common.log_utils import send_user_log
 from common.logger import get_logger
 
-router = APIRouter(prefix="/api/user", tags=["user"])
+router = APIRouter(prefix="/api/user", tags=["User"])
 logger = get_logger("user_router")
 
 
