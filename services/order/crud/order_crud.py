@@ -14,6 +14,7 @@ logger = get_logger("order_crud")
 
 # 상태 코드 상수 정의
 STATUS_CODES = {
+    "ORDER_RECEIVED": "주문 생성", 
     "PAYMENT_REQUESTED": "결제 요청",
     "PAYMENT_COMPLETED": "결제완료",
     "PREPARING": "상품준비중",
@@ -26,6 +27,7 @@ STATUS_CODES = {
 
 # 알림 제목 매핑
 NOTIFICATION_TITLES = {
+    "ORDER_RECEIVED": "주문 생성",
     "PAYMENT_REQUESTED": "결제 요청",
     "PAYMENT_COMPLETED": "주문 완료",
     "PREPARING": "상품 준비 시작",
@@ -38,6 +40,7 @@ NOTIFICATION_TITLES = {
 
 # 알림 메시지 매핑
 NOTIFICATION_MESSAGES = {
+    "ORDER_RECEIVED": "주문이 생성되었습니다.",
     "PAYMENT_REQUESTED": "결제가 요청되었습니다.",
     "PAYMENT_COMPLETED": "주문이 성공적으로 완료되었습니다.",
     "PREPARING": "상품 준비를 시작합니다.",

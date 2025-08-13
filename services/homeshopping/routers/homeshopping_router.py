@@ -418,29 +418,41 @@ async def create_order(
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    홈쇼핑 주문 생성
+    홈쇼핑 주문 생성 (단건 주문)
     """
-    logger.info(f"홈쇼핑 주문 생성 요청: user_id={current_user.user_id}, items_count={len(order_data.items)}")
+    logger.info(f"홈쇼핑 주문 생성 요청: user_id={current_user.user_id}, product_id={order_data.product_id}, quantity={order_data.quantity}")
     
-    order_result = await create_homeshopping_order(
-        db, 
-        current_user.user_id, 
-        [{"product_id": item.product_id, "quantity": item.quantity} for item in order_data.items],
-        order_data.delivery_address,
-        order_data.delivery_phone
-    )
-    
-    # 주문 생성 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="homeshopping_order_create", 
-            event_data={"order_id": order_result["order_id"], "items_count": len(order_data.items)}
+    try:
+        order_result = await create_homeshopping_order(
+            db, 
+            current_user.user_id, 
+            order_data.product_id,
+            order_data.quantity
         )
-    
-    logger.info(f"홈쇼핑 주문 생성 완료: user_id={current_user.user_id}, order_id={order_result['order_id']}")
-    return order_result
+        
+        # 주문 생성 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="homeshopping_order_create", 
+                event_data={
+                    "order_id": order_result["order_id"], 
+                    "product_id": order_data.product_id,
+                    "quantity": order_data.quantity
+                }
+            )
+        
+        logger.info(f"홈쇼핑 주문 생성 완료: user_id={current_user.user_id}, order_id={order_result['order_id']}")
+        return order_result
+        
+    except ValueError as e:
+        logger.warning(f"홈쇼핑 주문 생성 실패 (검증 오류): user_id={current_user.user_id}, error={str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    except Exception as e:
+        logger.error(f"홈쇼핑 주문 생성 실패: user_id={current_user.user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="주문 생성 중 오류가 발생했습니다.")
 
 
 # ================================

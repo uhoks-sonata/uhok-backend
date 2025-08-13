@@ -18,87 +18,6 @@ from typing import List
 
 logger = get_logger(__name__)
 
-async def create_kok_order(
-        db: AsyncSession,
-        user_id: int,
-        kok_price_id: int,
-        kok_product_id: int,
-        quantity: int = 1,
-        recipe_id: int | None = None
-) -> Order:
-    """
-    콕 상품 주문 생성 및 할인 가격 반영
-    - kok_price_id로 할인 가격 조회 후 quantity 곱해서 order_price 자동계산
-    - 기본 상태는 'PAYMENT_COMPLETED'로 설정
-    - 주문 생성 시 초기 알림도 생성
-    """
-    try:
-        # 0. 사용자 ID 유효성 검증
-        if not await validate_user_exists(user_id, db):
-            raise Exception("유효하지 않은 사용자 ID입니다")
-        
-        # 1. 할인 가격 조회
-        result = await db.execute(
-            select(KokPriceInfo.kok_discounted_price)
-            .where(KokPriceInfo.kok_price_id == kok_price_id) # type: ignore
-        )
-        discounted_price = result.scalar_one_or_none()
-        if discounted_price is None:
-            raise Exception(f"해당 kok_price_id({kok_price_id})에 해당하는 할인 가격 없음")
-
-        # 2. 주문가격 계산
-        order_price = discounted_price * quantity
-
-        # 3. 결제완료 상태 조회
-        payment_completed_status = await get_status_by_code(db, "PAYMENT_COMPLETED")
-        if not payment_completed_status:
-            raise Exception("결제완료 상태 코드를 찾을 수 없습니다")
-
-        # 4. 주문 데이터 생성 (트랜잭션)
-        # 4-1. 상위 주문 생성
-        new_order = Order(
-            user_id=user_id,
-            order_time=datetime.now()
-        )
-        db.add(new_order)
-        await db.flush()  # order_id 생성
-
-        # 4-2. 콕 주문 상세 생성
-        new_kok_order = KokOrder(
-            order_id=new_order.order_id,
-            kok_price_id=kok_price_id,
-            kok_product_id=kok_product_id,
-            quantity=quantity,
-            order_price=order_price,
-            recipe_id=recipe_id
-        )
-        db.add(new_kok_order)
-        await db.flush()  # kok_order_id 생성
-
-        # 4-3. 상태 변경 이력 생성 (초기 상태)
-        status_history = KokOrderStatusHistory(
-            kok_order_id=new_kok_order.kok_order_id,
-            status_id=payment_completed_status.status_id,
-            changed_by=user_id
-        )
-        db.add(status_history)
-
-        # 4-4. 초기 알림 생성
-        await create_kok_notification_for_status_change(
-            db=db,
-            kok_order_id=new_kok_order.kok_order_id,
-            status_id=payment_completed_status.status_id,
-            user_id=user_id
-        )
-
-        await db.commit()
-        await db.refresh(new_order)
-        return new_order
-        
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"주문 생성 실패: {str(e)}")
-        raise e
 
 async def get_kok_current_status(db: AsyncSession, kok_order_id: int) -> KokOrderStatusHistory:
     """
@@ -334,3 +253,124 @@ async def get_kok_order_notifications_history(
     notifications = result.scalars().all()
     
     return notifications, total_count
+
+
+# ------------------------------------------------------------------------------------------------
+# 콕 주문 생성 함수
+# ------------------------------------------------------------------------------------------------  
+# async def create_kok_order(
+#         db: AsyncSession,
+#         user_id: int,
+#         kok_price_id: int,
+#         kok_product_id: int,
+#         quantity: int = 1,
+#         recipe_id: int | None = None
+# ) -> Order:
+#     """
+#     콕 상품 주문 생성 및 할인 가격 반영
+#     - kok_price_id로 할인 가격 조회 후 quantity 곱해서 order_price 자동계산
+#     - 기본 상태는 'PAYMENT_COMPLETED'로 설정
+#     - 주문 생성 시 초기 알림도 생성
+#     """
+#     try:
+#         # 0. 사용자 ID 유효성 검증
+#         if not await validate_user_exists(user_id, db):
+#             raise Exception("유효하지 않은 사용자 ID입니다")
+        
+#         # 1. 할인 가격 조회
+#         result = await db.execute(
+#             select(KokPriceInfo.kok_discounted_price)
+#             .where(KokPriceInfo.kok_price_id == kok_price_id) # type: ignore
+#         )
+#         discounted_price = result.scalar_one_or_none()
+#         if discounted_price is None:
+#             raise Exception(f"해당 kok_price_id({kok_price_id})에 해당하는 할인 가격 없음")
+
+#         # 2. 주문가격 계산
+#         order_price = discounted_price * quantity
+
+#         # 3. 주문접수 상태 조회
+#         order_received_status = await get_status_by_code(db, "ORDER_RECEIVED")
+#         if not order_received_status:
+#             raise Exception("주문접수 상태 코드를 찾을 수 없습니다")
+
+#         # 4. 주문 데이터 생성 (트랜잭션)
+#         # 4-1. 상위 주문 생성
+#         new_order = Order(
+#             user_id=user_id,
+#             order_time=datetime.now()
+#         )
+#         db.add(new_order)
+#         await db.flush()  # order_id 생성
+
+#         # 4-2. 콕 주문 상세 생성
+#         new_kok_order = KokOrder(
+#             order_id=new_order.order_id,
+#             kok_price_id=kok_price_id,
+#             kok_product_id=kok_product_id,
+#             quantity=quantity,
+#             order_price=order_price,
+#             recipe_id=recipe_id
+#         )
+#         db.add(new_kok_order)
+#         await db.flush()  # kok_order_id 생성
+
+#         # 4-3. 상태 변경 이력 생성 (초기 상태: ORDER_RECEIVED)
+#         status_history = KokOrderStatusHistory(
+#             kok_order_id=new_kok_order.kok_order_id,
+#             status_id=order_received_status.status_id,
+#             changed_by=user_id
+#         )
+#         db.add(status_history)
+
+#         # 4-4. 초기 알림 생성 (ORDER_RECEIVED)
+#         await create_kok_notification_for_status_change(
+#             db=db,
+#             kok_order_id=new_kok_order.kok_order_id,
+#             status_id=order_received_status.status_id,
+#             user_id=user_id
+#         )
+
+#         await db.commit()
+        
+#         # 5. 1초 후 PAYMENT_REQUESTED 상태로 변경 (백그라운드 작업)
+#         async def update_status_to_payment_requested():
+#             await asyncio.sleep(1)  # 1초 대기
+            
+#             try:
+#                 # PAYMENT_REQUESTED 상태 조회
+#                 payment_requested_status = await get_status_by_code(db, "PAYMENT_REQUESTED")
+#                 if payment_requested_status:
+#                     # 상태 이력 추가
+#                     new_status_history = KokOrderStatusHistory(
+#                         kok_order_id=new_kok_order.kok_order_id,
+#                         status_id=payment_requested_status.status_id,
+#                         changed_by=user_id
+#                     )
+                    
+#                     # 결제 요청 알림 생성
+#                     await create_kok_notification_for_status_change(
+#                         db=db,
+#                         kok_order_id=new_kok_order.kok_order_id,
+#                         status_id=payment_requested_status.status_id,
+#                         user_id=user_id
+#                     )
+                    
+#                     db.add(new_status_history)
+#                     await db.commit()
+                    
+#                     logger.info(f"콕 주문 상태 변경 완료: order_id={new_order.order_id}, status=PAYMENT_REQUESTED")
+                    
+#             except Exception as e:
+#                 logger.error(f"콕 주문 상태 변경 실패: order_id={new_order.order_id}, error={str(e)}")
+        
+#         # 백그라운드에서 상태 변경 실행
+#         asyncio.create_task(update_status_to_payment_requested())
+        
+#         await db.refresh(new_order)
+#         return new_order
+        
+#     except Exception as e:
+#         await db.rollback()
+#         logger.error(f"주문 생성 실패: {str(e)}")
+#         raise e

@@ -7,7 +7,9 @@ from sqlalchemy import select, func
 from typing import Optional, List, Tuple
 from datetime import datetime
 
-from services.order.models.order_model import Order, KokOrder
+from services.order.models.order_model import (
+    Order, KokOrder, KokOrderStatusHistory
+)
 from services.kok.models.kok_model import (
     KokProductInfo, 
     KokImageInfo, 
@@ -1113,8 +1115,6 @@ async def create_orders_from_selected_carts(
         await db.flush()
         total_created += 1
 
-        # 상태 이력 기록 (결제요청)
-        from services.order.models.order_model import KokOrderStatusHistory
         status_history = KokOrderStatusHistory(
             kok_order_id=new_kok_order.kok_order_id,
             status_id=payment_requested_status.status_id,
