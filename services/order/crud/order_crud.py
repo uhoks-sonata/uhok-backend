@@ -4,7 +4,7 @@ ORDERS + 서비스별 주문 상세를 트랜잭션으로 한 번에 생성/조�
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from services.order.models.order_model import (
-    Order, KokOrder, StatusMaster
+    Order, KokOrder, HomeShoppingOrder, StatusMaster
 )
 
 from common.database.mariadb_auth import get_maria_auth_db
@@ -113,6 +113,12 @@ async def get_order_by_id(db: AsyncSession, order_id: int) -> dict:
     )
     kok_orders = kok_result.scalars().all()
     
+    # 홈쇼핑 주문 정보 조회
+    homeshopping_result = await db.execute(
+        select(HomeShoppingOrder).where(HomeShoppingOrder.order_id == order.order_id)
+    )
+    homeshopping_orders = homeshopping_result.scalars().all()
+    
     # 딕셔너리 형태로 반환
     return {
         "order_id": order.order_id,
@@ -120,5 +126,45 @@ async def get_order_by_id(db: AsyncSession, order_id: int) -> dict:
         "order_time": order.order_time,
         "cancel_time": order.cancel_time,
         "kok_orders": kok_orders,
-        "homeshopping_order": None
+        "homeshopping_orders": homeshopping_orders
     }
+
+
+async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offset: int = 0) -> list:
+    """
+    사용자별 주문 목록 조회 (공통 정보 + 서비스별 상세)
+    """
+    # 주문 기본 정보 조회
+    result = await db.execute(
+        select(Order)
+        .where(Order.user_id == user_id)
+        .order_by(Order.order_time.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    orders = result.scalars().all()
+    
+    order_list = []
+    for order in orders:
+        # 콕 주문 정보 조회
+        kok_result = await db.execute(
+            select(KokOrder).where(KokOrder.order_id == order.order_id)
+        )
+        kok_orders = kok_result.scalars().all()
+        
+        # 홈쇼핑 주문 정보 조회
+        homeshopping_result = await db.execute(
+            select(HomeShoppingOrder).where(HomeShoppingOrder.order_id == order.order_id)
+        )
+        homeshopping_orders = homeshopping_result.scalars().all()
+        
+        order_list.append({
+            "order_id": order.order_id,
+            "user_id": order.user_id,
+            "order_time": order.order_time,
+            "cancel_time": order.cancel_time,
+            "kok_orders": kok_orders,
+            "homeshopping_orders": homeshopping_orders
+        })
+    
+    return order_list

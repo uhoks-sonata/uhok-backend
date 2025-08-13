@@ -15,7 +15,7 @@ from services.user.routers.user_router import router as user_router
 from services.log.routers.log_router import router as log_router
 from services.order.routers.order_router import router as order_router
 from services.homeshopping.routers.homeshopping_router import router as homeshopping_router
-
+from services.order.routers.hs_order_router import router as hs_order_router
 from services.kok.routers.kok_router import router as kok_router
 from services.order.routers.kok_order_router import router as kok_order_router
 from services.recipe.routers.recipe_router import router as recipe_router
@@ -69,6 +69,9 @@ logger.debug("홈쇼핑 라우터 포함 중...")
 app.include_router(homeshopping_router)
 logger.info("홈쇼핑 라우터 포함 완료")
 
+logger.debug("홈쇼핑 주문 라우터 포함 중...")
+app.include_router(hs_order_router)
+logger.info("홈쇼핑 주문 라우터 포함 완료")
 
 logger.debug("콕 라우터 포함 중...")
 app.include_router(kok_router)

@@ -6,15 +6,7 @@ from typing import Optional, List
 from datetime import datetime
 
 from services.order.schemas.kok_order_schema import KokOrderSchema
-
-class StatusMasterSchema(BaseModel):
-    """상태 마스터 스키마"""
-    status_id: int
-    status_code: str
-    status_name: str
-    
-    class Config:
-        from_attributes = True
+from services.order.schemas.hs_order_schema import HomeshoppingOrderSchema
 
 class OrderRead(BaseModel):
     order_id: int
@@ -22,10 +14,8 @@ class OrderRead(BaseModel):
     order_time: datetime
     cancel_time: Optional[datetime]
     kok_orders: List[KokOrderSchema] = []
-    # homeshopping_order: Optional[HomeShoppingOrderSchema] = None
-    
-    # kok_orders는 빈 리스트 허용
-    
+    homeshopping_orders: List[HomeshoppingOrderSchema] = []
+        
     class Config:
         from_attributes = True
 

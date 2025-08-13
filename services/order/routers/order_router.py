@@ -7,13 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta
 from typing import List
 
-from services.order.models.order_model import Order, KokOrder
+from services.order.models.order_model import Order, KokOrder, HomeShoppingOrder
 
 from services.order.schemas.order_schema import (
     OrderRead, 
     OrderCountResponse, 
 )
-from services.order.crud.order_crud import get_order_by_id
+from services.order.crud.order_crud import get_order_by_id, get_user_orders
 
 from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
@@ -33,36 +33,7 @@ async def list_orders(
     """
     내 주문 리스트 (공통+서비스별 상세 포함)
     """
-    # from services.order.models.order_model import HomeShoppingOrder
-
-    # 주문 기본 정보 조회
-    result = await db.execute(
-        select(Order)
-        .where(Order.user_id == user.user_id)
-        .order_by(Order.order_time.desc())
-        .limit(limit)
-    )
-    orders = result.scalars().all()
-    
-    # 각 주문에 대한 상세 정보 조회
-    order_list = []
-    for order in orders:
-        # 콕 주문 정보 조회
-        kok_result = await db.execute(
-            select(KokOrder).where(KokOrder.order_id == order.order_id)
-        )
-        kok_orders = kok_result.scalars().all()
-        
-        # OrderRead 형태로 변환
-        order_data = {
-            "order_id": order.order_id,
-            "user_id": order.user_id,
-            "order_time": order.order_time,
-            "cancel_time": order.cancel_time,
-            "kok_orders": kok_orders,
-            "homeshopping_order": None
-        }
-        order_list.append(order_data)
+    order_list = await get_user_orders(db, user.user_id, limit, 0)
     
     # 주문 목록 조회 로그 기록
     if background_tasks:
@@ -111,38 +82,16 @@ async def recent_orders(
     """
     최근 N일간 주문 내역 리스트 조회
     """
-    from services.order.models.order_model import Order, KokOrder
-    # from services.order.models.order_model import HomeShoppingOrder
     since = datetime.now() - timedelta(days=days)
     
-    # 주문 기본 정보 조회
-    result = await db.execute(
-        select(Order)
-        .where(Order.user_id == user.user_id)
-        .where(Order.order_time >= since)
-        .order_by(desc(Order.order_time))
-    )
-    orders = result.scalars().all()
+    # 최근 N일간 주문 조회 (get_user_orders 사용)
+    order_list = await get_user_orders(db, user.user_id, 100, 0)  # 충분히 큰 limit
     
-    # 각 주문에 대한 상세 정보 조회
-    order_list = []
-    for order in orders:
-        # 콕 주문 정보 조회
-        kok_result = await db.execute(
-            select(KokOrder).where(KokOrder.order_id == order.order_id)
-        )
-        kok_orders = kok_result.scalars().all()
-        
-        # OrderRead 형태로 변환
-        order_data = {
-            "order_id": order.order_id,
-            "user_id": order.user_id,
-            "order_time": order.order_time,
-            "cancel_time": order.cancel_time,
-            "kok_orders": kok_orders,
-            "homeshopping_order": None
-        }
-        order_list.append(order_data)
+    # 날짜 필터링
+    filtered_orders = [
+        order for order in order_list 
+        if order["order_time"] >= since
+    ]
     
     # 최근 주문 조회 로그 기록
     if background_tasks:
@@ -150,10 +99,10 @@ async def recent_orders(
             send_user_log, 
             user_id=user.user_id, 
             event_type="recent_orders_view", 
-            event_data={"days": days, "order_count": len(order_list)}
+            event_data={"days": days, "order_count": len(filtered_orders)}
         )
     
-    return order_list
+    return filtered_orders
 
 
 @router.get("/{order_id}", response_model=OrderRead)
