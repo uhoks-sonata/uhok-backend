@@ -4,7 +4,10 @@
 - DB 데이터 정의서 기반으로 변수명 통일
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, Text, BigInteger, Enum, ForeignKey, SMALLINT
+from sqlalchemy import (
+    Column, Integer, String, DateTime, Text, BigInteger, 
+    Enum, ForeignKey, SMALLINT, Date, Time
+)
 from sqlalchemy.orm import relationship
 
 from common.database.base_mariadb import MariaBase
@@ -33,14 +36,12 @@ class HomeshoppingList(MariaBase):
     
     live_id = Column("LIVE_ID", Integer, primary_key=True, autoincrement=True, comment="라이브 인덱스")
     homeshopping_id = Column("HOMESHOPPING_ID", SMALLINT, ForeignKey("HOMESHOPPING_INFO.HOMESHOPPING_ID"), comment="홈쇼핑 인덱스")
-    live_date = Column("LIVE_DATE", DateTime, comment="방영일")
-    live_time = Column("LIVE_TIME", String(20), comment="방영시간")
+    live_date = Column("LIVE_DATE", Date, comment="방영일")
+    live_start_time = Column("LIVE_START_TIME", Time, comment="방영 시작 시간")
+    live_end_time = Column("LIVE_END_TIME", Time, comment="방영 종료 시간")
     promotion_type = Column("PROMOTION_TYPE", Enum('main', 'sub', name='promotion_type_enum'), comment="main/sub")
-    live_title = Column("LIVE_TITLE", Text, nullable=True, comment="방송제목")
-    product_id = Column("PRODUCT_ID", String(20), comment="제품 코드")
+    product_id = Column("PRODUCT_ID", BigInteger, comment="제품 코드")
     product_name = Column("PRODUCT_NAME", Text, comment="제품명")
-    dc_price = Column("DC_PRICE", BigInteger, comment="할인가")
-    dc_rate = Column("DC_RATE", BigInteger, comment="할인율")
     thumb_img_url = Column("THUMB_IMG_URL", Text, comment="썸네일 URL")
 
     # 홈쇼핑 정보와 N:1 관계 설정
@@ -87,20 +88,19 @@ class HomeshoppingProductInfo(MariaBase):
     """홈쇼핑 제품 정보 테이블"""
     __tablename__ = "FCT_HOMESHOPPING_PRODUCT_INFO"
     
-    product_id = Column("PRODUCT_ID", String(20), ForeignKey("FCT_HOMESHOPPING_LIST.PRODUCT_ID"), primary_key=True, comment="제품코드")
-    store_name = Column("STORE_NAME", Text, comment="판매자 정보")
+    product_id = Column("PRODUCT_ID", BigInteger, primary_key=True, comment="제품코드")
+    store_name = Column("STORE_NAME", String(1000), comment="판매자 정보")
     sale_price = Column("SALE_PRICE", BigInteger, comment="원가")
-    return_exchange = Column("RETURN_EXCHANGE", Text, comment="교환/반품 정보")
-    term = Column("TERM", Text, comment="소비기한")
+    dc_rate = Column("DC_RATE", Integer, comment="할인율")
+    dc_price = Column("DC_PRICE", BigInteger, comment="할인가")
 
-    # 홈쇼핑 라이브 목록과 N:1 관계 설정 (FK 제약 조건)
+    # 홈쇼핑 라이브 목록과 1:1 관계 설정
     live_list = relationship(
         "HomeshoppingList",
         back_populates="product_info",
+        uselist=False,
         lazy="select"
     )
-
-
 
 
 class HomeshoppingDetailInfo(MariaBase):
@@ -108,8 +108,8 @@ class HomeshoppingDetailInfo(MariaBase):
     __tablename__ = "FCT_HOMESHOPPING_DETAIL_INFO"
     
     detail_id = Column("DETAIL_ID", Integer, primary_key=True, autoincrement=True, comment="상세정보 인덱스")
-    product_id = Column("PRODUCT_ID", String(20), ForeignKey("FCT_HOMESHOPPING_LIST.PRODUCT_ID"), comment="제품 코드")
-    detail_col = Column("DETAIL_COL", Text, comment="상세정보 컬럼명")
+    product_id = Column("PRODUCT_ID", BigInteger, ForeignKey("FCT_HOMESHOPPING_PRODUCT_INFO.PRODUCT_ID"), comment="제품 코드")
+    detail_col = Column("DETAIL_COL", String(1000), comment="상세정보 컬럼명")
     detail_val = Column("DETAIL_VAL", Text, comment="상세정보 텍스트")
 
     # 홈쇼핑 라이브 목록과 N:1 관계 설정
@@ -119,12 +119,13 @@ class HomeshoppingDetailInfo(MariaBase):
         lazy="select"
     )
 
+
 class HomeshoppingImgUrl(MariaBase):
     """홈쇼핑 이미지 URL 테이블"""
     __tablename__ = "FCT_HOMESHOPPING_IMG_URL"
     
     img_id = Column("IMG_ID", Integer, primary_key=True, autoincrement=True, comment="이미지 인덱스")
-    product_id = Column("PRODUCT_ID", String(20), ForeignKey("FCT_HOMESHOPPING_LIST.PRODUCT_ID"), comment="제품코드")
+    product_id = Column("PRODUCT_ID", BigInteger, ForeignKey("FCT_HOMESHOPPING_PRODUCT_INFO.PRODUCT_ID"), comment="제품코드")
     sort_order = Column("SORT_ORDER", SMALLINT, comment="이미지 순서")
     img_url = Column("IMG_URL", Text, comment="이미지 URL")
 
@@ -134,6 +135,7 @@ class HomeshoppingImgUrl(MariaBase):
         back_populates="images",
         lazy="select"
     )
+
 
 class HomeshoppingSearchHistory(MariaBase):
     """홈쇼핑 검색 이력 테이블"""
@@ -151,8 +153,8 @@ class HomeshoppingLikes(MariaBase):
     
     homeshopping_like_id = Column("HOMESHOPPING_LIKE_ID", Integer, primary_key=True, autoincrement=True, comment="찜 ID (PK)")
     user_id = Column("USER_ID", Integer, nullable=False, comment="사용자 ID (회원 PK 참조)")
-    product_id = Column("PRODUCT_ID", String(20), ForeignKey("FCT_HOMESHOPPING_LIST.PRODUCT_ID", ondelete="RESTRICT"), nullable=False, comment="제품 ID (FK)")
-    homeshopping_created_at = Column("HOMESHOPPING_CREATED_AT", DateTime, nullable=False, comment="찜한 시간")
+    product_id = Column("PRODUCT_ID", BigInteger, ForeignKey("FCT_HOMESHOPPING_PRODUCT_INFO.PRODUCT_ID", ondelete="RESTRICT"), nullable=False, comment="제품 ID (FK)")
+    homeshopping_like_created_at = Column("HOMESHOPPING_LIKE_CREATED_AT", DateTime, nullable=False, comment="찜한 시간")
 
     # 홈쇼핑 라이브 목록과 N:1 관계 설정
     live_list = relationship(
@@ -160,6 +162,7 @@ class HomeshoppingLikes(MariaBase):
         back_populates="likes",
         lazy="select"
     )
+
 
 class HomeshoppingNotification(MariaBase):
     """홈쇼핑 알림 테이블"""

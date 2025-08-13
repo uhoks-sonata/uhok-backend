@@ -3,12 +3,13 @@
 - 편성표 조회, 상품 검색, 찜 기능, 주문 등 홈쇼핑 관련 기능
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.dependencies import get_current_user
+
 from services.user.schemas.user_schema import UserOut
-from services.home_shopping.schemas.home_shopping_schema import (
+from services.homeshopping.schemas.homeshopping_schema import (
     # 편성표 관련 스키마
     HomeshoppingScheduleResponse,
     
@@ -44,7 +45,7 @@ from services.home_shopping.schemas.home_shopping_schema import (
     HomeshoppingNotificationHistoryResponse
 )
 
-from services.home_shopping.crud.home_shopping_crud import (
+from services.homeshopping.crud.homeshopping_crud import (
     # 편성표 관련 CRUD
     get_homeshopping_schedule,
     
@@ -81,7 +82,7 @@ from common.log_utils import send_user_log
 from common.logger import get_logger
 
 router = APIRouter(prefix="/api/homeshopping", tags=["HomeShopping"])
-logger = get_logger("home_shopping_router")
+logger = get_logger("homeshopping_router")
 
 
 # ================================

@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 from datetime import datetime
 
-
 # -----------------------------
 # 편성표 관련 스키마
 # -----------------------------

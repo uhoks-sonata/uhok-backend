@@ -4,11 +4,11 @@
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import Optional, List, Tuple, Dict
+from typing import Optional, List, Tuple
 from datetime import datetime
 from common.logger import get_logger
 
-from services.home_shopping.models.home_shopping_model import (
+from services.homeshopping.models.homeshopping_model import (
     HomeshoppingInfo,
     HomeshoppingList,
     HomeshoppingProductInfo,
@@ -19,8 +19,7 @@ from services.home_shopping.models.home_shopping_model import (
     HomeshoppingNotification
 )
 
-logger = get_logger("home_shopping_crud")
-
+logger = get_logger("homeshopping_crud")
 
 # -----------------------------
 # 편성표 관련 CRUD 함수
