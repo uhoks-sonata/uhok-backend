@@ -72,13 +72,14 @@ class HomeShoppingOrder(MariaBase):
 
     homeshopping_order_id = Column("HOMESHOPPING_ORDER_ID", Integer, primary_key=True, autoincrement=True, comment="홈쇼핑 주문 상세 고유번호(PK)")
     order_id = Column("ORDER_ID", Integer, ForeignKey("ORDERS.ORDER_ID", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False, comment="상위 주문 고유번호(FK: ORDERS.ORDER_ID)")
-    product_id = Column("PRODUCT_ID", BigInteger(20), ForeignKey("FCT_HOMESHOPPING_PRODUCT_INFO.PRODUCT_ID", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False, comment="제품 ID (FK: FCT_HOMESHOPPING_PRODUCT_INFO.PRODUCT_ID)")
-    dc_price = Column("DC_PRICE", BigInteger(20), nullable=False, comment="할인가(당시 기준 금액 스냅샷)")
+    product_id = Column("PRODUCT_ID", BigInteger, ForeignKey("FCT_HOMESHOPPING_PRODUCT_INFO.PRODUCT_ID", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False, comment="제품 ID (FK: FCT_HOMESHOPPING_PRODUCT_INFO.PRODUCT_ID)")
+    dc_price = Column("DC_PRICE", BigInteger, nullable=False, comment="할인가(당시 기준 금액 스냅샷)")
     quantity = Column("QUANTITY", Integer, nullable=False, comment="주문 수량")
-    order_price = Column("ORDER_PRICE", BigInteger(20), nullable=True, comment="주문 금액(합계 또는 개별 기준, 비즈니스 룰에 따름)")
+    order_price = Column("ORDER_PRICE", BigInteger, nullable=True, comment="주문 금액(합계 또는 개별 기준, 비즈니스 룰에 따름)")
 
     order = relationship("Order", back_populates="homeshopping_orders", lazy="noload")
     status_history = relationship("HomeShoppingOrderStatusHistory", back_populates="homeshopping_order", lazy="noload")
+    notifications = relationship("HomeshoppingNotification", back_populates="homeshopping_order", lazy="noload")
 
 
 class HomeShoppingOrderStatusHistory(MariaBase):

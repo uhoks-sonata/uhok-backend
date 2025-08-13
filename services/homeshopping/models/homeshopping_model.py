@@ -134,8 +134,12 @@ class HomeshoppingNotification(MariaBase):
     
     notification_id = Column("NOTIFICATION_ID", BigInteger, primary_key=True, autoincrement=True, comment="알림 고유번호 (PK)")
     user_id = Column("USER_ID", Integer, nullable=False, comment="알림 대상 사용자 ID (논리 FK, 외래키 제약 없음)")
-    homeshopping_order_id = Column("HOMESHOPPING_ORDER_ID", Integer, nullable=False, comment="관련 주문 상세 ID")
-    status_id = Column("STATUS_ID", Integer, nullable=False, comment="상태 코드 ID(알림 트리거)")
+    homeshopping_order_id = Column("HOMESHOPPING_ORDER_ID", Integer, ForeignKey("HOMESHOPPING_ORDERS.HOMESHOPPING_ORDER_ID", ondelete="CASCADE", onupdate="CASCADE"), nullable=False, comment="관련 주문 상세 ID (FK: HOMESHOPPING_ORDERS.HOMESHOPPING_ORDER_ID)")
+    status_id = Column("STATUS_ID", Integer, ForeignKey("STATUS_MASTER.STATUS_ID", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False, comment="상태 코드 ID (알림 트리거, FK: STATUS_MASTER.STATUS_ID)")
     title = Column("TITLE", String(100), nullable=False, comment="알림 제목")
     message = Column("MESSAGE", String(255), nullable=False, comment="알림 메시지(상세)")
     created_at = Column("CREATED_AT", DateTime, nullable=False, server_default='current_timestamp()', comment='알림 생성 시각')
+    
+    # 관계 설정
+    homeshopping_order = relationship("HomeShoppingOrder", back_populates="notifications", lazy="noload")
+    status = relationship("StatusMaster", lazy="noload")

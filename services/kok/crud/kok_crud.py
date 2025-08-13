@@ -2,10 +2,11 @@
 콕 쇼핑몰 DB 접근(CRUD) 함수 (MariaDB)
 """
 
+import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 from typing import Optional, List, Tuple
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from services.order.models.order_model import (
     Order, KokOrder, KokOrderStatusHistory
@@ -424,7 +425,6 @@ async def get_kok_unpurchased(
     미구매 상품 목록 조회 (최근 구매 상품과 중복되지 않는 상품)
     """
     # 1. 사용자의 최근 구매 상품 ID 목록 조회 (최근 30일)
-    from datetime import datetime, timedelta
     thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S")
     
     # Order와 KokOrder를 통해 구매한 상품 조회
@@ -833,7 +833,6 @@ async def toggle_kok_likes(
         return False
     else:
         # 찜 등록
-        from datetime import datetime
         created_at = datetime.now()
         
         new_like = KokLikes(
@@ -974,7 +973,6 @@ async def add_kok_cart(
         }
     else:
         # 새 항목 추가
-        from datetime import datetime
         created_at = datetime.now()
         
         new_cart = KokCart(
@@ -1136,12 +1134,10 @@ async def create_orders_from_selected_carts(
     await db.flush()
 
     # 선택된 장바구니 삭제
-    from sqlalchemy import delete
     await db.execute(delete(KokCart).where(KokCart.kok_cart_id.in_(cart_ids)))
     await db.commit()
     
     # 1초 후 PAYMENT_REQUESTED 상태로 변경 (백그라운드 작업)
-    import asyncio
     
     async def update_status_to_payment_requested():
         await asyncio.sleep(1)  # 1초 대기
@@ -1276,7 +1272,6 @@ async def add_kok_search_history(
     """
     logger.info(f"검색 이력 추가 시작: user_id={user_id}, keyword='{keyword}'")
     
-    from datetime import datetime
     searched_at = datetime.now()
     
     new_history = KokSearchHistory(

@@ -1,12 +1,11 @@
 """
 홈쇼핑 관련 DB 접근(CRUD) 함수 (MariaDB)
 """
-
+import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional, List, Tuple
 from datetime import datetime, date, time
-from common.logger import get_logger
 
 from services.homeshopping.models.homeshopping_model import (
     HomeshoppingInfo,
@@ -24,6 +23,9 @@ from services.order.models.order_model import (
     HomeShoppingOrderStatusHistory,
     StatusMaster
 )
+from services.order.crud.hs_order_crud import update_hs_order_status
+
+from common.logger import get_logger
 
 logger = get_logger("homeshopping_crud")
 
@@ -600,43 +602,21 @@ async def create_homeshopping_order(
         await db.commit()
         
         # 9. 1초 후 PAYMENT_REQUESTED 상태로 변경 (백그라운드 작업)
-        import asyncio
         
         async def update_status_to_payment_requested():
             await asyncio.sleep(1)  # 1초 대기
             
             try:
-                # PAYMENT_REQUESTED 상태 조회
-                payment_status_stmt = select(StatusMaster).where(
-                    StatusMaster.status_code == "PAYMENT_REQUESTED"
+                # update_hs_order_status 함수 사용하여 상태 변경 및 알림 생성
+                await update_hs_order_status(
+                    db=db,
+                    homeshopping_order_id=new_homeshopping_order.homeshopping_order_id,
+                    new_status_code="PAYMENT_REQUESTED",
+                    changed_by=user_id
                 )
-                payment_status_result = await db.execute(payment_status_stmt)
-                payment_status = payment_status_result.scalar_one_or_none()
                 
-                if payment_status:
-                    # 상태 이력 추가
-                    new_payment_status_history = HomeShoppingOrderStatusHistory(
-                        homeshopping_order_id=new_homeshopping_order.homeshopping_order_id,
-                        status_id=payment_status.status_id,
-                        changed_at=datetime.now(),
-                        changed_by=user_id
-                    )
-                    
-                    # 결제 요청 알림 생성
-                    payment_notification = HomeshoppingNotification(
-                        user_id=user_id,
-                        homeshopping_order_id=new_homeshopping_order.homeshopping_order_id,
-                        status_id=payment_status.status_id,
-                        title="결제가 요청되었습니다",
-                        message=f"{product_name} 주문에 대한 결제가 요청되었습니다."
-                    )
-                    
-                    db.add(new_payment_status_history)
-                    db.add(payment_notification)
-                    await db.commit()
-                    
-                    logger.info(f"홈쇼핑 주문 상태 변경 완료: order_id={new_order.order_id}, status=PAYMENT_REQUESTED")
-                    
+                logger.info(f"홈쇼핑 주문 상태 변경 완료: order_id={new_order.order_id}, status=PAYMENT_REQUESTED")
+                
             except Exception as e:
                 logger.error(f"홈쇼핑 주문 상태 변경 실패: order_id={new_order.order_id}, error={str(e)}")
         
