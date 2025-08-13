@@ -32,8 +32,6 @@ from services.kok.schemas.kok_schema import (
     
     # 장바구니 관련 스키마
     KokCartItemsResponse,
-    KokCartOrderRequest,
-    KokCartOrderResponse,
     KokCartAddRequest,
     KokCartAddResponse,
     KokCartUpdateRequest,
@@ -70,7 +68,6 @@ from services.kok.crud.kok_crud import (
     
     # 장바구니 관련 CRUD
     get_kok_cart_items,
-    create_orders_from_selected_carts,
     add_kok_cart,
     update_kok_cart_quantity,
     delete_kok_cart_item,
@@ -696,46 +693,6 @@ async def delete_cart_item(
         return KokCartDeleteResponse(message="장바구니에서 상품이 삭제되었습니다.")
     else:
         raise HTTPException(status_code=404, detail="장바구니 항목을 찾을 수 없습니다.")
-    
-
-# ================================
-# 주문 관련 API
-# ================================
-
-# 단일 상품 주문 API는 사용하지 않습니다. (멀티 카트 주문 API 사용)
-
-@router.post("/carts/order", response_model=KokCartOrderResponse, status_code=status.HTTP_201_CREATED)
-async def order_from_selected_carts(
-    request: KokCartOrderRequest,
-    current_user: UserOut = Depends(get_current_user),
-    background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_maria_service_db),
-):
-    logger.info(f"장바구니 주문 시작: user_id={current_user.user_id}, selected_items_count={len(request.selected_items)}")
-    
-    if not request.selected_items:
-        logger.warning(f"선택된 항목이 없음: user_id={current_user.user_id}")
-        raise HTTPException(status_code=400, detail="선택된 항목이 없습니다.")
-
-    result = await create_orders_from_selected_carts(
-        db, current_user.user_id, [i.model_dump() for i in request.selected_items]
-    )
-
-    logger.info(f"장바구니 주문 완료: user_id={current_user.user_id}, order_id={result['order_id']}, order_count={result['order_count']}")
-
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log,
-            user_id=current_user.user_id,
-            event_type="cart_order_create",
-            event_data=result,
-        )
-
-    return KokCartOrderResponse(
-        order_id=result["order_id"],
-        order_count=result["order_count"],
-        message=result["message"],
-    )
 
 
 @router.post("/carts/recipe-recommend", response_model=KokCartRecipeRecommendResponse)

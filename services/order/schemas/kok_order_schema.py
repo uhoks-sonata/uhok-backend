@@ -1,14 +1,28 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 
 from services.order.schemas.common_schema import StatusMasterSchema
 
-class KokOrderCreate(BaseModel):
-    kok_price_id: int
-    kok_product_id: int
-    quantity: int = 1
-    recipe_id: Optional[int] = None
+# -----------------------------
+# 장바구니 선택 주문 스키마
+# -----------------------------
+
+class KokCartOrderItem(BaseModel):
+    cart_id: int = Field(..., description="장바구니 ID")
+    quantity: int = Field(..., ge=1, description="주문 수량")
+
+class KokCartOrderRequest(BaseModel):
+    selected_items: List[KokCartOrderItem]
+
+class KokCartOrderResponse(BaseModel):
+    order_id: int
+    order_count: int
+    message: str
+
+# -----------------------------
+# 주문 상태 관련 스키마
+# -----------------------------
 
 class KokOrderSchema(BaseModel):
     kok_order_id: int
@@ -74,3 +88,9 @@ class KokNotificationListResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+# class KokOrderCreate(BaseModel):
+#     kok_price_id: int
+#     kok_product_id: int
+#     quantity: int = 1
+#     recipe_id: Optional[int] = None

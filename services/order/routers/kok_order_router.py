@@ -9,7 +9,10 @@ from common.logger import get_logger
 
 from services.order.models.order_model import Order, KokOrder, KokOrderStatusHistory, StatusMaster
 
+from services.user.schemas.user_schema import UserOut
 from services.order.schemas.kok_order_schema import (
+    KokCartOrderRequest,
+    KokCartOrderResponse,
     KokOrderStatusUpdate,
     KokOrderStatusResponse,
     KokOrderWithStatusResponse,
@@ -17,18 +20,57 @@ from services.order.schemas.kok_order_schema import (
 )
 
 from services.order.crud.kok_order_crud import (
+    create_orders_from_selected_carts,
     update_kok_order_status,
-    get_kok_current_status,
-    get_status_by_code,
     get_kok_order_with_current_status,
     get_kok_order_status_history,
     start_auto_kok_order_status_update,
     get_kok_order_notifications_history
 )
 
-
 router = APIRouter(prefix="/api/orders/kok", tags=["Kok Orders"])
 logger = get_logger("kok_order_router")
+
+
+# ================================
+# 주문 관련 API
+# ================================
+
+# 단일 상품 주문 API는 사용하지 않습니다. (멀티 카트 주문 API 사용)
+
+@router.post("/carts/order", response_model=KokCartOrderResponse, status_code=status.HTTP_201_CREATED)
+async def order_from_selected_carts(
+    request: KokCartOrderRequest,
+    current_user: UserOut = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db),
+):
+    logger.info(f"장바구니 주문 시작: user_id={current_user.user_id}, selected_items_count={len(request.selected_items)}")
+    
+    if not request.selected_items:
+        logger.warning(f"선택된 항목이 없음: user_id={current_user.user_id}")
+        raise HTTPException(status_code=400, detail="선택된 항목이 없습니다.")
+
+    result = await create_orders_from_selected_carts(
+        db, current_user.user_id, [i.model_dump() for i in request.selected_items]
+    )
+
+    logger.info(f"장바구니 주문 완료: user_id={current_user.user_id}, order_id={result['order_id']}, order_count={result['order_count']}")
+
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log,
+            user_id=current_user.user_id,
+            event_type="cart_order_create",
+            event_data=result,
+        )
+
+    return KokCartOrderResponse(
+        order_id=result["order_id"],
+        order_count=result["order_count"],
+        message=result["message"],
+    )
+
 
 # ================================
 # 콕 주문 상태 관리 API
