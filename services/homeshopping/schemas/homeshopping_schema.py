@@ -6,7 +6,7 @@
 
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
-from datetime import datetime
+from datetime import datetime, date, time
 
 # -----------------------------
 # 편성표 관련 스키마
@@ -15,16 +15,15 @@ from datetime import datetime
 class HomeshoppingScheduleItem(BaseModel):
     """홈쇼핑 편성표 항목"""
     live_id: int
-    homeshopping_channel_name: str
-    homeshopping_channel_number: int
-    live_date: datetime
-    live_time: str
+    homeshopping_id: int
+    homeshopping_name: str
+    homeshopping_channel: int
+    live_date: date
+    live_start_time: time
+    live_end_time: time
     promotion_type: str
-    live_title: Optional[str] = None
-    product_id: str
+    product_id: int
     product_name: str
-    dc_price: int
-    dc_rate: int
     thumb_img_url: str
     
     class Config:
@@ -49,15 +48,16 @@ class HomeshoppingSearchRequest(BaseModel):
 
 class HomeshoppingSearchProduct(BaseModel):
     """검색 결과 상품 정보"""
-    product_id: str
+    product_id: int
     product_name: str
-    store_name: str
-    sale_price: int
-    dc_price: int
-    dc_rate: int
+    store_name: Optional[str] = None
+    sale_price: Optional[int] = None
+    dc_price: Optional[int] = None
+    dc_rate: Optional[int] = None
     thumb_img_url: str
-    live_date: datetime
-    live_time: str
+    live_date: date
+    live_start_time: time
+    live_end_time: time
     
     class Config:
         from_attributes = True
@@ -112,18 +112,35 @@ class HomeshoppingSearchHistoryDeleteResponse(BaseModel):
 
 class HomeshoppingProductDetail(BaseModel):
     """홈쇼핑 상품 상세 정보"""
-    product_id: str
+    product_id: int
     product_name: str
-    store_name: str
-    sale_price: int
-    dc_price: int
-    dc_rate: int
-    return_exchange: str
-    term: str
-    live_date: datetime
-    live_time: str
+    store_name: Optional[str] = None
+    sale_price: Optional[int] = None
+    dc_price: Optional[int] = None
+    dc_rate: Optional[int] = None
+    live_date: date
+    live_start_time: time
+    live_end_time: time
     thumb_img_url: str
     is_liked: bool = False
+    
+    class Config:
+        from_attributes = True
+
+
+class HomeshoppingProductImage(BaseModel):
+    """상품 이미지 정보"""
+    img_url: str
+    sort_order: int
+    
+    class Config:
+        from_attributes = True
+
+
+class HomeshoppingProductDetailInfo(BaseModel):
+    """상품 상세 정보"""
+    detail_col: str
+    detail_val: str
     
     class Config:
         from_attributes = True
@@ -132,8 +149,8 @@ class HomeshoppingProductDetail(BaseModel):
 class HomeshoppingProductDetailResponse(BaseModel):
     """상품 상세 조회 응답"""
     product: HomeshoppingProductDetail
-    detail_infos: List[Dict[str, str]] = Field(default_factory=list)
-    images: List[Dict[str, str]] = Field(default_factory=list)
+    detail_infos: List[HomeshoppingProductDetailInfo] = Field(default_factory=list)
+    images: List[HomeshoppingProductImage] = Field(default_factory=list)
 
 
 # -----------------------------
@@ -142,7 +159,7 @@ class HomeshoppingProductDetailResponse(BaseModel):
 
 class HomeshoppingProductRecommendation(BaseModel):
     """상품 추천 정보"""
-    product_id: str
+    product_id: int
     product_name: str
     recommendation_type: str  # "ingredient" 또는 "recipe"
     reason: str
@@ -162,7 +179,7 @@ class HomeshoppingProductRecommendationsResponse(BaseModel):
 
 class HomeshoppingOrderItem(BaseModel):
     """홈쇼핑 주문 항목"""
-    product_id: str = Field(..., description="상품 ID")
+    product_id: int = Field(..., description="상품 ID")
     quantity: int = Field(..., ge=1, description="주문 수량")
 
 
@@ -185,11 +202,11 @@ class HomeshoppingOrderResponse(BaseModel):
 
 class HomeshoppingStreamResponse(BaseModel):
     """홈쇼핑 라이브 스트리밍 응답"""
-    product_id: str
+    product_id: int
     stream_url: str
     is_live: bool
-    live_start_time: Optional[datetime] = None
-    live_end_time: Optional[datetime] = None
+    live_start_time: Optional[time] = None
+    live_end_time: Optional[time] = None
 
 
 # -----------------------------
@@ -198,7 +215,7 @@ class HomeshoppingStreamResponse(BaseModel):
 
 class HomeshoppingLikesToggleRequest(BaseModel):
     """찜 등록/해제 요청"""
-    product_id: str = Field(..., description="상품 ID")
+    product_id: int = Field(..., description="상품 ID")
 
 
 class HomeshoppingLikesToggleResponse(BaseModel):
@@ -209,13 +226,13 @@ class HomeshoppingLikesToggleResponse(BaseModel):
 
 class HomeshoppingLikedProduct(BaseModel):
     """찜한 상품 정보"""
-    product_id: str
+    product_id: int
     product_name: str
-    store_name: str
-    dc_price: int
-    dc_rate: int
+    store_name: Optional[str] = None
+    dc_price: Optional[int] = None
+    dc_rate: Optional[int] = None
     thumb_img_url: str
-    homeshopping_created_at: datetime
+    homeshopping_like_created_at: datetime
     
     class Config:
         from_attributes = True

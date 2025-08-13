@@ -6,7 +6,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from common.dependencies import get_current_user
+from common.dependencies import get_current_user, get_current_user_optional
 
 from services.user.schemas.user_schema import UserOut
 from services.homeshopping.schemas.homeshopping_schema import (
@@ -93,19 +93,20 @@ logger = get_logger("homeshopping_router")
 async def get_schedule(
         page: int = Query(1, ge=1, description="페이지 번호"),
         size: int = Query(20, ge=1, le=100, description="페이지 크기"),
-        current_user: UserOut = Depends(get_current_user),
+        current_user: UserOut = Depends(get_current_user_optional),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
     홈쇼핑 편성표 조회
     """
-    logger.info(f"홈쇼핑 편성표 조회 요청: user_id={current_user.user_id}, page={page}, size={size}")
+    user_id = current_user.user_id if current_user else None
+    logger.info(f"홈쇼핑 편성표 조회 요청: user_id={user_id}, page={page}, size={size}")
     
     schedules = await get_homeshopping_schedule(db, page=page, size=size)
     
-    # 편성표 조회 로그 기록
-    if background_tasks:
+    # 편성표 조회 로그 기록 (인증된 사용자인 경우에만)
+    if current_user and background_tasks:
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
@@ -113,8 +114,106 @@ async def get_schedule(
             event_data={"page": page, "size": size}
         )
     
-    logger.info(f"홈쇼핑 편성표 조회 완료: user_id={current_user.user_id}, 결과 수={len(schedules)}")
+    logger.info(f"홈쇼핑 편성표 조회 완료: user_id={user_id}, 결과 수={len(schedules)}")
     return {"schedules": schedules}
+
+# ================================
+# 상품 상세 관련 API
+# ================================
+
+@router.get("/product/{product_id}", response_model=HomeshoppingProductDetailResponse)
+async def get_product_detail(
+        product_id: int,
+        current_user: UserOut = Depends(get_current_user_optional),
+        background_tasks: BackgroundTasks = None,
+        db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    홈쇼핑 상품 상세 조회
+    """
+    user_id = current_user.user_id if current_user else None
+    logger.info(f"홈쇼핑 상품 상세 조회 요청: user_id={user_id}, product_id={product_id}")
+    
+    product_detail = await get_homeshopping_product_detail(db, product_id, user_id)
+    if not product_detail:
+        raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
+    
+    # 상품 상세 조회 로그 기록 (인증된 사용자인 경우에만)
+    if current_user and background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="homeshopping_product_detail_view", 
+            event_data={"product_id": product_id}
+        )
+    
+    logger.info(f"홈쇼핑 상품 상세 조회 완료: user_id={user_id}, product_id={product_id}")
+    return product_detail
+
+
+# ================================
+# 상품 추천 관련 API
+# ================================
+
+@router.get("/product/{product_id}/recommendations", response_model=HomeshoppingProductRecommendationsResponse)
+async def get_product_recommendations(
+        product_id: int,
+        current_user: UserOut = Depends(get_current_user_optional),
+        background_tasks: BackgroundTasks = None,
+        db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    홈쇼핑 상품 추천 조회
+    """
+    user_id = current_user.user_id if current_user else None
+    logger.info(f"홈쇼핑 상품 추천 조회 요청: user_id={user_id}, product_id={product_id}")
+    
+    recommendations = await get_homeshopping_product_recommendations(db, product_id)
+    
+    # 상품 추천 조회 로그 기록 (인증된 사용자인 경우에만)
+    if current_user and background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="homeshopping_product_recommendations_view", 
+            event_data={"product_id": product_id, "recommendations_count": len(recommendations)}
+        )
+    
+    logger.info(f"홈쇼핑 상품 추천 조회 완료: user_id={user_id}, product_id={product_id}, 추천 수={len(recommendations)}")
+    return {"recommendations": recommendations}
+
+# ================================
+# 스트리밍 관련 API
+# ================================
+
+@router.get("/product/{product_id}/stream", response_model=HomeshoppingStreamResponse)
+async def get_stream_info(
+        product_id: int,
+        current_user: UserOut = Depends(get_current_user_optional),
+        background_tasks: BackgroundTasks = None,
+        db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    홈쇼핑 라이브 영상 URL 조회
+    """
+    user_id = current_user.user_id if current_user else None
+    logger.info(f"홈쇼핑 스트리밍 정보 조회 요청: user_id={user_id}, product_id={product_id}")
+    
+    stream_info = await get_homeshopping_stream_info(db, product_id)
+    if not stream_info:
+        raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
+    
+    # 스트리밍 정보 조회 로그 기록 (인증된 사용자인 경우에만)
+    if current_user and background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="homeshopping_stream_info_view", 
+            event_data={"product_id": product_id, "is_live": stream_info["is_live"]}
+        )
+    
+    logger.info(f"홈쇼핑 스트리밍 정보 조회 완료: user_id={user_id}, product_id={product_id}")
+    return stream_info
 
 
 # ================================
@@ -126,19 +225,20 @@ async def search_products(
         keyword: str = Query(..., description="검색 키워드"),
         page: int = Query(1, ge=1, description="페이지 번호"),
         size: int = Query(20, ge=1, le=100, description="페이지 크기"),
-        current_user: UserOut = Depends(get_current_user),
+        current_user: UserOut = Depends(get_current_user_optional),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
     홈쇼핑 상품 검색
     """
-    logger.info(f"홈쇼핑 상품 검색 요청: user_id={current_user.user_id}, keyword='{keyword}', page={page}, size={size}")
+    user_id = current_user.user_id if current_user else None
+    logger.info(f"홈쇼핑 상품 검색 요청: user_id={user_id}, keyword='{keyword}', page={page}, size={size}")
     
     products, total = await search_homeshopping_products(db, keyword, page, size)
     
-    # 검색 로그 기록
-    if background_tasks:
+    # 검색 로그 기록 (인증된 사용자인 경우에만)
+    if current_user and background_tasks:
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
@@ -146,7 +246,7 @@ async def search_products(
             event_data={"keyword": keyword, "page": page, "size": size, "total": total}
         )
     
-    logger.info(f"홈쇼핑 상품 검색 완료: user_id={current_user.user_id}, keyword='{keyword}', 결과 수={len(products)}")
+    logger.info(f"홈쇼핑 상품 검색 완료: user_id={user_id}, keyword='{keyword}', 결과 수={len(products)}")
     return {
         "total": total,
         "page": page,
@@ -241,102 +341,6 @@ async def delete_search_history(
     
     logger.info(f"홈쇼핑 검색 이력 삭제 완료: user_id={current_user.user_id}, history_id={delete_data.homeshopping_history_id}")
     return {"message": "검색 이력이 삭제되었습니다."}
-
-
-# ================================
-# 상품 상세 관련 API
-# ================================
-
-@router.get("/product/{product_id}", response_model=HomeshoppingProductDetailResponse)
-async def get_product_detail(
-        product_id: str,
-        current_user: UserOut = Depends(get_current_user),
-        background_tasks: BackgroundTasks = None,
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    홈쇼핑 상품 상세 조회
-    """
-    logger.info(f"홈쇼핑 상품 상세 조회 요청: user_id={current_user.user_id}, product_id={product_id}")
-    
-    product_detail = await get_homeshopping_product_detail(db, product_id, current_user.user_id)
-    if not product_detail:
-        raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
-    
-    # 상품 상세 조회 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="homeshopping_product_detail_view", 
-            event_data={"product_id": product_id}
-        )
-    
-    logger.info(f"홈쇼핑 상품 상세 조회 완료: user_id={current_user.user_id}, product_id={product_id}")
-    return product_detail
-
-
-# ================================
-# 상품 추천 관련 API
-# ================================
-
-@router.get("/product/{product_id}/recommendations", response_model=HomeshoppingProductRecommendationsResponse)
-async def get_product_recommendations(
-        product_id: str,
-        current_user: UserOut = Depends(get_current_user),
-        background_tasks: BackgroundTasks = None,
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    홈쇼핑 상품 추천 조회
-    """
-    logger.info(f"홈쇼핑 상품 추천 조회 요청: user_id={current_user.user_id}, product_id={product_id}")
-    
-    recommendations = await get_homeshopping_product_recommendations(db, product_id)
-    
-    # 상품 추천 조회 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="homeshopping_product_recommendations_view", 
-            event_data={"product_id": product_id, "recommendations_count": len(recommendations)}
-        )
-    
-    logger.info(f"홈쇼핑 상품 추천 조회 완료: user_id={current_user.user_id}, product_id={product_id}, 추천 수={len(recommendations)}")
-    return {"recommendations": recommendations}
-
-# ================================
-# 스트리밍 관련 API
-# ================================
-
-@router.get("/product/{product_id}/stream", response_model=HomeshoppingStreamResponse)
-async def get_stream_info(
-        product_id: str,
-        current_user: UserOut = Depends(get_current_user),
-        background_tasks: BackgroundTasks = None,
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    홈쇼핑 라이브 영상 URL 조회
-    """
-    logger.info(f"홈쇼핑 스트리밍 정보 조회 요청: user_id={current_user.user_id}, product_id={product_id}")
-    
-    stream_info = await get_homeshopping_stream_info(db, product_id)
-    if not stream_info:
-        raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
-    
-    # 스트리밍 정보 조회 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="homeshopping_stream_info_view", 
-            event_data={"product_id": product_id, "is_live": stream_info["is_live"]}
-        )
-    
-    logger.info(f"홈쇼핑 스트리밍 정보 조회 완료: user_id={current_user.user_id}, product_id={product_id}")
-    return stream_info
 
 
 # ================================

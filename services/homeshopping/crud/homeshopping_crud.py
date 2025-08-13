@@ -5,7 +5,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional, List, Tuple
-from datetime import datetime
+from datetime import datetime, date, time
 from common.logger import get_logger
 
 from services.homeshopping.models.homeshopping_model import (
@@ -40,7 +40,7 @@ async def get_homeshopping_schedule(
     stmt = (
         select(HomeshoppingList, HomeshoppingInfo)
         .join(HomeshoppingInfo, HomeshoppingList.homeshopping_id == HomeshoppingInfo.homeshopping_id)
-        .order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_time.asc())
+        .order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.asc())
         .offset(offset)
         .limit(size)
     )
@@ -52,16 +52,15 @@ async def get_homeshopping_schedule(
     for live, info in schedules:
         schedule_list.append({
             "live_id": live.live_id,
-            "homeshopping_channel_name": info.homeshopping_channel_name,
-            "homeshopping_channel_number": info.homeshopping_channel_number,
+            "homeshopping_id": live.homeshopping_id,
+            "homeshopping_name": info.homeshopping_name,
+            "homeshopping_channel": info.homeshopping_channel,
             "live_date": live.live_date,
-            "live_time": live.live_time,
+            "live_start_time": live.live_start_time,
+            "live_end_time": live.live_end_time,
             "promotion_type": live.promotion_type,
-            "live_title": live.live_title,
             "product_id": live.product_id,
             "product_name": live.product_name,
-            "dc_price": live.dc_price,
-            "dc_rate": live.dc_rate,
             "thumb_img_url": live.thumb_img_url
         })
     
@@ -121,11 +120,12 @@ async def search_homeshopping_products(
             "product_name": live.product_name,
             "store_name": product.store_name,
             "sale_price": product.sale_price,
-            "dc_price": live.dc_price,
-            "dc_rate": live.dc_rate,
+            "dc_price": product.dc_price,
+            "dc_rate": product.dc_rate,
             "thumb_img_url": live.thumb_img_url,
             "live_date": live.live_date,
-            "live_time": live.live_time
+            "live_start_time": live.live_start_time,
+            "live_end_time": live.live_end_time
         })
     
     logger.info(f"홈쇼핑 상품 검색 완료: keyword='{keyword}', page={page}, size={size}, 결과 수={len(product_list)}")
@@ -146,11 +146,20 @@ async def add_homeshopping_search_history(
     """
     logger.info(f"홈쇼핑 검색 이력 추가 시작: user_id={user_id}, keyword='{keyword}'")
     
+    # user_id와 keyword 검증
+    if user_id <= 0:
+        logger.warning(f"유효하지 않은 user_id: {user_id}")
+        raise ValueError("유효하지 않은 user_id입니다.")
+    
+    if not keyword or not keyword.strip():
+        logger.warning("빈 검색 키워드")
+        raise ValueError("검색 키워드를 입력해주세요.")
+    
     searched_at = datetime.now()
     
     new_history = HomeshoppingSearchHistory(
         user_id=user_id,
-        homeshopping_keyword=keyword,
+        homeshopping_keyword=keyword.strip(),
         homeshopping_searched_at=searched_at
     )
     
@@ -176,6 +185,15 @@ async def get_homeshopping_search_history(
     홈쇼핑 검색 이력 조회
     """
     logger.info(f"홈쇼핑 검색 이력 조회 시작: user_id={user_id}, limit={limit}")
+    
+    # user_id와 limit 검증
+    if user_id <= 0:
+        logger.warning(f"유효하지 않은 user_id: {user_id}")
+        return []
+    
+    if limit <= 0 or limit > 100:
+        logger.warning(f"유효하지 않은 limit: {limit}")
+        limit = 5  # 기본값으로 설정
     
     stmt = (
         select(HomeshoppingSearchHistory)
@@ -210,6 +228,15 @@ async def delete_homeshopping_search_history(
     """
     logger.info(f"홈쇼핑 검색 이력 삭제 시작: user_id={user_id}, history_id={homeshopping_history_id}")
     
+    # user_id와 history_id 검증
+    if user_id <= 0:
+        logger.warning(f"유효하지 않은 user_id: {user_id}")
+        return False
+    
+    if homeshopping_history_id <= 0:
+        logger.warning(f"유효하지 않은 history_id: {homeshopping_history_id}")
+        return False
+    
     stmt = select(HomeshoppingSearchHistory).where(
         HomeshoppingSearchHistory.homeshopping_history_id == homeshopping_history_id,
         HomeshoppingSearchHistory.user_id == user_id
@@ -235,7 +262,7 @@ async def delete_homeshopping_search_history(
 
 async def get_homeshopping_product_detail(
     db: AsyncSession,
-    product_id: str,
+    product_id: int,
     user_id: Optional[int] = None
 ) -> Optional[dict]:
     """
@@ -292,14 +319,13 @@ async def get_homeshopping_product_detail(
         "product": {
             "product_id": live.product_id,
             "product_name": live.product_name,
-            "store_name": product.store_name,
-            "sale_price": product.sale_price,
-            "dc_price": live.dc_price,
-            "dc_rate": live.dc_rate,
-            "return_exchange": product.return_exchange,
-            "term": product.term,
+            "store_name": product.store_name if product.store_name else None,
+            "sale_price": product.sale_price if product.sale_price else None,
+            "dc_price": product.dc_price if product.dc_price else None,
+            "dc_rate": product.dc_rate if product.dc_rate else None,
             "live_date": live.live_date,
-            "live_time": live.live_time,
+            "live_start_time": live.live_start_time,
+            "live_end_time": live.live_end_time,
             "thumb_img_url": live.thumb_img_url,
             "is_liked": is_liked
         },
@@ -329,7 +355,7 @@ async def get_homeshopping_product_detail(
 
 async def get_homeshopping_product_recommendations(
     db: AsyncSession,
-    product_id: str
+    product_id: int
 ) -> List[dict]:
     """
     홈쇼핑 상품 추천 조회
@@ -360,7 +386,7 @@ async def get_homeshopping_product_recommendations(
         # 식재료인 경우 -> 어울리는 요리나 다른 식재료 추천
         # 실제로는 레시피 DB와 연동하여 추천 로직 구현
         recommendations.append({
-            "product_id": "REC001",
+            "product_id": 1001,
             "product_name": "고기 요리용 양념 세트",
             "recommendation_type": "recipe",
             "reason": "이 재료와 어울리는 양념 세트"
@@ -368,7 +394,7 @@ async def get_homeshopping_product_recommendations(
     else:
         # 완제품인 경우 -> 관련 식재료 추천
         recommendations.append({
-            "product_id": "ING001",
+            "product_id": 2001,
             "product_name": "신선한 채소 세트",
             "recommendation_type": "ingredient",
             "reason": "이 상품과 함께 사용할 수 있는 신선한 재료"
@@ -385,12 +411,21 @@ async def get_homeshopping_product_recommendations(
 async def toggle_homeshopping_likes(
     db: AsyncSession,
     user_id: int,
-    product_id: str
+    product_id: int
 ) -> bool:
     """
     홈쇼핑 찜 등록/해제 토글
     """
     logger.info(f"홈쇼핑 찜 토글 시작: user_id={user_id}, product_id={product_id}")
+    
+    # user_id와 product_id 검증
+    if user_id <= 0:
+        logger.warning(f"유효하지 않은 user_id: {user_id}")
+        return False
+    
+    if product_id <= 0:
+        logger.warning(f"유효하지 않은 product_id: {product_id}")
+        return False
     
     # 기존 찜 확인
     stmt = select(HomeshoppingLikes).where(
@@ -413,7 +448,7 @@ async def toggle_homeshopping_likes(
         new_like = HomeshoppingLikes(
             user_id=user_id,
             product_id=product_id,
-            homeshopping_created_at=created_at
+            homeshopping_like_created_at=created_at
         )
         
         db.add(new_like)
@@ -432,12 +467,17 @@ async def get_homeshopping_liked_products(
     """
     logger.info(f"홈쇼핑 찜한 상품 조회 시작: user_id={user_id}, limit={limit}")
     
+    # user_id 검증 (논리 FK이므로 실제 USERS 테이블 존재 여부는 확인하지 않음)
+    if user_id <= 0:
+        logger.warning(f"유효하지 않은 user_id: {user_id}")
+        return []
+    
     stmt = (
         select(HomeshoppingLikes, HomeshoppingList, HomeshoppingProductInfo)
         .join(HomeshoppingList, HomeshoppingLikes.product_id == HomeshoppingList.product_id)
         .join(HomeshoppingProductInfo, HomeshoppingList.product_id == HomeshoppingProductInfo.product_id)
         .where(HomeshoppingLikes.user_id == user_id)
-        .order_by(HomeshoppingLikes.homeshopping_created_at.desc())
+        .order_by(HomeshoppingLikes.homeshopping_like_created_at.desc())
         .limit(limit)
     )
     
@@ -449,11 +489,11 @@ async def get_homeshopping_liked_products(
         product_list.append({
             "product_id": live.product_id,
             "product_name": live.product_name,
-            "store_name": product.store_name,
-            "dc_price": live.dc_price,
-            "dc_rate": live.dc_rate,
+            "store_name": product.store_name if product.store_name else None,
+            "dc_price": product.dc_price if product.dc_price else None,
+            "dc_rate": product.dc_rate if product.dc_rate else None,
             "thumb_img_url": live.thumb_img_url,
-            "homeshopping_created_at": like.homeshopping_created_at
+            "homeshopping_like_created_at": like.homeshopping_like_created_at
         })
     
     logger.info(f"홈쇼핑 찜한 상품 조회 완료: user_id={user_id}, 결과 수={len(product_list)}")
@@ -494,7 +534,7 @@ async def create_homeshopping_order(
 
 async def get_homeshopping_stream_info(
     db: AsyncSession,
-    product_id: str
+    product_id: int
 ) -> Optional[dict]:
     """
     홈쇼핑 라이브 스트리밍 정보 조회 (기본 구조)
@@ -516,16 +556,17 @@ async def get_homeshopping_stream_info(
     is_live = False
     
     if live_date:
-        # 간단한 라이브 판단 로직 (실제로는 더 복잡한 로직 필요)
-        time_diff = abs((now - live_date).total_seconds())
+        # date를 datetime으로 변환하여 연산
+        live_datetime = datetime.combine(live_date, datetime.min.time())
+        time_diff = abs((now - live_datetime).total_seconds())
         is_live = time_diff < 3600  # 1시간 이내면 라이브로 간주
     
     stream_info = {
         "product_id": product_id,
         "stream_url": f"https://stream.example.com/live/{product_id}",  # 임시 URL
         "is_live": is_live,
-        "live_start_time": product.live_date,
-        "live_end_time": None  # 실제로는 라이브 종료 시간 필요
+        "live_start_time": product.live_start_time,
+        "live_end_time": product.live_end_time
     }
     
     logger.info(f"홈쇼핑 스트리밍 정보 조회 완료: product_id={product_id}, is_live={is_live}")
