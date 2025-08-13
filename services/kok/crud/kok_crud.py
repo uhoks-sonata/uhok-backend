@@ -24,7 +24,7 @@ from services.kok.models.kok_model import (
 from services.recipe.models.recipe_model import Recipe
 
 from services.order.crud.order_crud import get_status_by_code
-from services.order.crud.kok_order_crud import create_kok_notification_for_status_change
+from services.order.crud.kok_order_crud import create_kok_notification_for_status_change, update_kok_order_status
 
 from common.logger import get_logger
 
@@ -1086,10 +1086,10 @@ async def create_orders_from_selected_carts(
     if not rows:
         raise ValueError("선택된 장바구니 항목을 찾을 수 없습니다.")
 
-    # 초기 상태: 결제요청
-    payment_requested_status = await get_status_by_code(db, "PAYMENT_REQUESTED")
-    if not payment_requested_status:
-        raise ValueError("결제 요청 상태 코드를 찾을 수 없습니다.")
+    # 초기 상태: 주문접수
+    order_received_status = await get_status_by_code(db, "ORDER_RECEIVED")
+    if not order_received_status:
+        raise ValueError("주문접수 상태 코드를 찾을 수 없습니다.")
 
     total_created = 0
     created_kok_order_ids: List[int] = []
@@ -1115,18 +1115,19 @@ async def create_orders_from_selected_carts(
         await db.flush()
         total_created += 1
 
+        # 상태 이력 기록 (주문접수)
         status_history = KokOrderStatusHistory(
             kok_order_id=new_kok_order.kok_order_id,
-            status_id=payment_requested_status.status_id,
+            status_id=order_received_status.status_id,
             changed_by=user_id,
         )
         db.add(status_history)
 
-        # 초기 알림 생성 (결제요청)
+        # 초기 알림 생성 (주문접수)
         await create_kok_notification_for_status_change(
             db=db,
             kok_order_id=new_kok_order.kok_order_id,
-            status_id=payment_requested_status.status_id,
+            status_id=order_received_status.status_id,
             user_id=user_id,
         )
 
@@ -1138,6 +1139,30 @@ async def create_orders_from_selected_carts(
     from sqlalchemy import delete
     await db.execute(delete(KokCart).where(KokCart.kok_cart_id.in_(cart_ids)))
     await db.commit()
+    
+    # 1초 후 PAYMENT_REQUESTED 상태로 변경 (백그라운드 작업)
+    import asyncio
+    
+    async def update_status_to_payment_requested():
+        await asyncio.sleep(1)  # 1초 대기
+        
+        try:
+            # 각 주문에 대해 상태 변경 및 알림 생성
+            for kok_order_id in created_kok_order_ids:
+                await update_kok_order_status(
+                    db=db,
+                    kok_order_id=kok_order_id,
+                    new_status_code="PAYMENT_REQUESTED",
+                    changed_by=user_id
+                )
+            
+            logger.info(f"콕 주문 상태 변경 완료: order_id={main_order.order_id}, status=PAYMENT_REQUESTED, count={len(created_kok_order_ids)}")
+                
+        except Exception as e:
+            logger.error(f"콕 주문 상태 변경 실패: order_id={main_order.order_id}, error={str(e)}")
+    
+    # 백그라운드에서 상태 변경 실행
+    asyncio.create_task(update_status_to_payment_requested())
 
     return {
         "order_id": main_order.order_id,
