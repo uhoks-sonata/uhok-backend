@@ -16,6 +16,7 @@ from services.log.routers.log_router import router as log_router
 from services.home_shopping.routers.home_shopping_router import router as home_shopping_router
 from services.kok.routers.kok_router import router as kok_router
 from services.order.routers.order_router import router as order_router
+from services.order.routers.kok_order_router import router as kok_order_router
 from services.recipe.routers.recipe_router import router as recipe_router
 
 # TODO: 다른 서비스(router) import 추가 (recommend 등)
@@ -71,11 +72,15 @@ logger.debug("주문 라우터 포함 중...")
 app.include_router(order_router)
 logger.info("주문 라우터 포함 완료")
 
+logger.debug("콕 주문 라우터 포함 중...")
+app.include_router(kok_order_router)
+logger.info("콕 주문 라우터 포함 완료")
+
 logger.debug("레시피 라우터 포함 중...")
 app.include_router(recipe_router)
 logger.info("레시피 라우터 포함 완료")
 
-logger.info("API Gateway 시작 완료")
+logger.info("API Gateway 시작 완료")    
 logger.info(f"앱 제목: {settings.app_name}")
 logger.info(f"디버그 모드: {settings.debug}")
 logger.info("모든 서비스 라우터 등록 완료")

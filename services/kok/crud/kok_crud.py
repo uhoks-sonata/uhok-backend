@@ -5,8 +5,9 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional, List, Tuple
-from common.logger import get_logger
+from datetime import datetime
 
+from services.order.models.order_model import Order, KokOrder
 from services.kok.models.kok_model import (
     KokProductInfo, 
     KokImageInfo, 
@@ -18,9 +19,12 @@ from services.kok.models.kok_model import (
     KokCart,
     KokNotification
 )
-
-from services.order.models.order_model import KokOrder, Order
 from services.recipe.models.recipe_model import Recipe
+
+from services.order.crud.order_crud import get_status_by_code
+from services.order.crud.kok_order_crud import create_kok_notification_for_status_change
+
+from common.logger import get_logger
 
 logger = get_logger("kok_crud")
 
@@ -1039,11 +1043,6 @@ async def create_orders_from_selected_carts(
     if not selected_items:
         raise ValueError("선택된 항목이 없습니다.")
 
-    # 상위 주문 생성
-    from services.order.models.order_model import Order, KokOrder
-    from services.order.crud.order_crud import get_status_by_code, create_notification_for_status_change
-    from datetime import datetime
-
     main_order = Order(user_id=user_id, order_time=datetime.now())
     db.add(main_order)
     await db.flush()
@@ -1101,7 +1100,7 @@ async def create_orders_from_selected_carts(
         db.add(status_history)
 
         # 초기 알림 생성 (결제요청)
-        await create_notification_for_status_change(
+        await create_kok_notification_for_status_change(
             db=db,
             kok_order_id=new_kok_order.kok_order_id,
             status_id=payment_requested_status.status_id,
