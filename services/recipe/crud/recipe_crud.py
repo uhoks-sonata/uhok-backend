@@ -13,7 +13,6 @@ import copy
 from services.recipe.models.recipe_model import Recipe, Material, RecipeRating, RecipeVector
 from services.homeshopping.models.homeshopping_model import HomeshoppingList, HomeshoppingProductInfo, HomeshoppingImgUrl
 
-from common.database.mariadb_service import get_maria_service_db
 from common.logger import get_logger
 
 # 로거 초기화
