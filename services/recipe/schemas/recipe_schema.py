@@ -172,6 +172,28 @@ class IngredientNotOwnedStatus(BaseModel):
         from_attributes = True
 
 
+class HomeshoppingProductInfo(BaseModel):
+    """홈쇼핑 상품 정보 스키마"""
+    product_id: int = Field(..., description="상품 ID")
+    product_name: str = Field(..., description="상품명")
+    brand_name: Optional[str] = Field(None, description="브랜드명")
+    price: int = Field(..., description="가격")
+    image_url: Optional[str] = Field(None, description="상품 이미지 URL")
+    
+    class Config:
+        from_attributes = True
+
+
+class HomeshoppingProductsResponse(BaseModel):
+    """홈쇼핑 상품 목록 응답 스키마"""
+    ingredient: str = Field(..., description="검색한 식재료명")
+    products: List[HomeshoppingProductInfo] = Field(default_factory=list, description="상품 목록")
+    total_count: int = Field(..., description="총 상품 개수")
+    
+    class Config:
+        from_attributes = True
+
+
 class RecipeIngredientStatusDetailResponse(BaseModel):
     """레시피 식재료 상태 상세 응답 스키마"""
     recipe_id: int

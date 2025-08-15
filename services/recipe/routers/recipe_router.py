@@ -12,7 +12,8 @@ from services.recipe.schemas.recipe_schema import (
     RecipeRatingCreate,
     RecipeRatingResponse,
     RecipeByIngredientsListResponse,
-    RecipeIngredientStatusDetailResponse
+    RecipeIngredientStatusDetailResponse,
+    HomeshoppingProductsResponse
 )
 from services.recipe.crud.recipe_crud import (
     get_recipe_detail,
@@ -21,7 +22,8 @@ from services.recipe.crud.recipe_crud import (
     search_recipes_by_keyword,
     get_recipe_rating,
     set_recipe_rating,
-    get_recipe_ingredients_status
+    get_recipe_ingredients_status,
+    get_homeshopping_products_by_ingredient
 )
 from services.kok.crud.kok_crud import get_kok_products_by_ingredient
 from common.database.mariadb_service import get_maria_service_db
@@ -315,6 +317,50 @@ async def get_kok_products(
         )
     
     return products
+
+
+@router.get("/homeshopping", response_model=HomeshoppingProductsResponse)
+async def get_homeshopping_products(
+    ingredient: str = Query(..., description="검색할 식재료명(예: 감자, 양파 등)"),
+    current_user = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    재료와 관련된 홈쇼핑 내 관련 상품 정보(상품이미지, 상품명, 브랜드명, 가격)를 조회한다.
+    """
+    logger.info(f"홈쇼핑 상품 검색 API 호출: user_id={current_user.user_id}, ingredient={ingredient}")
+    
+    try:
+        products = await get_homeshopping_products_by_ingredient(db, ingredient)
+        
+        # 홈쇼핑 상품 검색 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="homeshopping_product_search", 
+                event_data={
+                    "ingredient": ingredient,
+                    "product_count": len(products)
+                }
+            )
+        
+        logger.info(f"홈쇼핑 상품 검색 완료: ingredient={ingredient}, 상품 개수={len(products)}")
+        
+        return {
+            "ingredient": ingredient,
+            "products": products,
+            "total_count": len(products)
+        }
+        
+    except Exception as e:
+        logger.error(f"홈쇼핑 상품 검색 실패: ingredient={ingredient}, user_id={current_user.user_id}, error={e}")
+        raise HTTPException(
+            status_code=500, 
+            detail="홈쇼핑 상품 검색 중 오류가 발생했습니다."
+        )
+
 
 ###########################################################
 # @router.get("/{recipe_id}/comments", response_model=RecipeCommentListResponse)

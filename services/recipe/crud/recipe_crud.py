@@ -11,6 +11,8 @@ import pandas as pd
 import copy
 
 from services.recipe.models.recipe_model import Recipe, Material, RecipeRating, RecipeVector
+from services.homeshopping.models.homeshopping_model import HomeshoppingList, HomeshoppingProductInfo, HomeshoppingImgUrl
+
 from common.database.mariadb_service import get_maria_service_db
 from common.logger import get_logger
 
@@ -945,3 +947,56 @@ async def get_recipe_ingredients_status(
     
     logger.info(f"레시피 식재료 상태 조회 완료: {summary}")
     return result
+
+
+async def get_homeshopping_products_by_ingredient(
+    db: AsyncSession, 
+    ingredient: str
+) -> List[Dict]:
+    """
+    홈쇼핑 쇼핑몰 내 ingredient(식재료명) 관련 상품 정보 조회
+    - 상품 이미지, 상품명, 브랜드명, 가격 포함
+    """
+    logger.info(f"홈쇼핑 상품 검색 시작: ingredient={ingredient}")
+    
+    try:
+        
+        # 홈쇼핑 라이브 목록과 제품 정보를 조인하여 식재료명과 유사한 상품 검색
+        # 상품명에 식재료명이 포함된 상품들을 조회
+        stmt = (
+            select(
+                HomeshoppingList.product_id,
+                HomeshoppingList.product_name,
+                HomeshoppingList.thumb_img_url,
+                HomeshoppingProductInfo.dc_price,
+                HomeshoppingProductInfo.sale_price
+            )
+            .join(
+                HomeshoppingProductInfo, 
+                HomeshoppingList.product_id == HomeshoppingProductInfo.product_id
+            )
+            .where(HomeshoppingList.product_name.contains(ingredient))
+            .order_by(HomeshoppingList.product_name)
+        )
+        
+        result = await db.execute(stmt)
+        products = result.all()
+        
+        # 결과를 딕셔너리 리스트로 변환
+        product_list = []
+        for product in products:
+            product_dict = {
+                "product_id": product.product_id,
+                "product_name": product.product_name,
+                "brand_name": None,  # 홈쇼핑 모델에 브랜드명 필드가 없음
+                "price": product.dc_price or product.sale_price or 0,
+                "image_url": product.thumb_img_url
+            }
+            product_list.append(product_dict)
+        
+        logger.info(f"홈쇼핑 상품 검색 완료: ingredient={ingredient}, 상품 개수={len(product_list)}")
+        return product_list
+        
+    except Exception as e:
+        logger.error(f"홈쇼핑 상품 검색 실패: ingredient={ingredient}, error={e}")
+        return []
