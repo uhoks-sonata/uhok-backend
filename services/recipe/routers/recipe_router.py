@@ -5,6 +5,7 @@
 from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
+import pandas as pd
 
 from services.recipe.schemas.recipe_schema import (
     RecipeDetailResponse,
@@ -19,14 +20,20 @@ from services.recipe.crud.recipe_crud import (
     get_recipe_detail,
     get_recipe_url,
     recommend_recipes_by_ingredients,
-    search_recipes_by_keyword,
+    recommend_by_recipe_pgvector,
     get_recipe_rating,
     set_recipe_rating,
     get_recipe_ingredients_status,
     get_homeshopping_products_by_ingredient
 )
 from services.kok.crud.kok_crud import get_kok_products_by_ingredient
+
+from services.recommend.recommend_service import get_db_vector_searcher
+from services.recommend.ports import VectorSearcherPort
+
 from common.database.mariadb_service import get_maria_service_db
+from common.database.postgres_recommend import get_postgres_recommend_db
+
 from common.dependencies import get_current_user
 from common.log_utils import send_user_log
 from common.logger import get_logger
@@ -90,50 +97,73 @@ async def by_ingredients(
     }
 
 
-# 하이브리드 검색 엔드포인트 제거됨
-
-
 @router.get("/search")
 async def search_recipe(
     recipe: str = Query(..., description="레시피명 또는 식재료 키워드"),
-    page: int = Query(1, ge=1, description="페이지 번호 (1부터 시작)"),
-    size: int = Query(5, ge=1, le=50, description="페이지당 결과 개수"),
+    page: int = Query(1, ge=1),
+    size: int = Query(5, ge=1, le=50),   # 이 함수는 top_k 중심이라 page/size는 외부에서 활용
     method: str = Query("recipe", pattern="^(recipe|ingredient)$", description="검색 방식: recipe|ingredient"),
     current_user = Depends(get_current_user),
+    mariadb: AsyncSession = Depends(get_maria_service_db),
+    postgres: AsyncSession = Depends(get_postgres_recommend_db),
+    vector_searcher: VectorSearcherPort = Depends(get_db_vector_searcher),
+
     background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    레시피명(키워드) 기반 유사 레시피 추천 (페이지네이션)
-    - 모델에서 유사 recipe_id 추천받아 상세조회 및 결과 반환
-    - 응답: recipes(추천 목록), page(현재 페이지), total(전체 결과 개수)
+    검색/추천 엔드포인트 (페이지네이션 정확 반영).
+    - 내부 recomemnd_by_recipe는 top_k만 지원하므로, 여기서 (page*size + 1)개를 요청해
+      '다음 페이지가 있는지'를 감지한 뒤, 현재 페이지 구간으로 슬라이스해서 반환한다.
+    - method='recipe'일 때만 벡터 유사도(앱 내부 코사인) 사용. 'ingredient'는 DB 검색만.
     """
-    logger.info(f"레시피 키워드 검색 API 호출: user_id={current_user.user_id}, keyword={recipe}, method={method}, 페이지={page}, 크기={size}")
+    # 1) 현재 페이지를 포함한 영역 + 다음 페이지 유무 감지를 위해 1개 더 요청
+    requested_top_k = page * size + 1    
     
-    recipes, total = await search_recipes_by_keyword(db, recipe, page=page, size=size, method=method)
-    
-    logger.info(f"레시피 키워드 검색 완료: 총 {total}개, 현재 페이지 {len(recipes)}개")
-    
-    # 레시피 키워드 검색 로그 기록
+    logger.info(f"레시피 검색 호출: uid={current_user.user_id}, kw={recipe}, method={method}, p={page}, s={size}")
+
+    df: pd.DataFrame = await recommend_by_recipe_pgvector(
+        mariadb=mariadb,
+        postgres=postgres,
+        query=recipe,
+        method=method,
+        top_k=requested_top_k,
+        vector_searcher=vector_searcher,
+    )
+
+    # 2) 현재 페이지 구간 슬라이싱
+    start, end = (page - 1) * size, page * size
+    has_more = len(df) > end
+    page_df = df.iloc[start:end] if not df.empty else df
+
+    # 3) total 근사값 계산 (기존 정책과 동일하게 근사)
+    #    현재까지 집계된 개수 + (다음 페이지가 존재하면 +1)
+    total_approx = (page - 1) * size + len(page_df) + (1 if has_more else 0)
+
     if background_tasks:
+        """
+        비동기로 사용자 로그를 적재한다.
+        """
         background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="recipe_search_by_keyword", 
+            send_user_log,
+            user_id=current_user.user_id,
+            event_type="recipe_search_by_keyword_pgvector",
             event_data={
                 "keyword": recipe,
                 "page": page,
                 "size": size,
                 "method": method,
-                "total_results": total
-            }
+                "row_count": int(len(page_df)),
+                "has_more": has_more,
+            },
         )
-    
+
+    # DataFrame → JSON
     return {
-        "recipes": recipes,
+        "recipes": page_df.to_dict(orient="records"),
         "page": page,
-        "total": total
+        "total": total_approx,
     }
+
 
 @router.get("/{recipe_id}", response_model=RecipeDetailResponse)
 async def get_recipe(

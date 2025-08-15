@@ -203,7 +203,7 @@ class RecipeIngredientStatusDetailResponse(BaseModel):
     
     class Config:
         from_attributes = True
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "recipe_id": 123,
                 "user_id": 456,
