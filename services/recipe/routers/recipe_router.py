@@ -12,7 +12,7 @@ from services.recipe.schemas.recipe_schema import (
     RecipeRatingCreate,
     RecipeRatingResponse,
     RecipeByIngredientsListResponse,
-    RecipeIngredientStatusResponse
+    RecipeIngredientStatusDetailResponse
 )
 from services.recipe.crud.recipe_crud import (
     get_recipe_detail,
@@ -187,6 +187,52 @@ async def get_recipe_url_api(
     return {"url": url}
 
 
+@router.get("/{recipe_id}/status", response_model=RecipeIngredientStatusDetailResponse)
+async def get_recipe_ingredients_status(
+    recipe_id: int,
+    current_user = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    레시피의 식재료 상태(보유 / 장바구니 / 미보유)를 조회한다.
+    - 보유 : 최근 7일 내 주문한 상품 / 재고 소진에 입력한 식재료
+    - 장바구니 : 현재 장바구니에 담긴 상품
+    - 미보유 : 레시피 식재료 중 보유 / 장바구니 상태를 제외한 식재료
+    """
+    logger.info(f"레시피 식재료 상태 조회 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}")
+    
+    try:
+        result = await get_recipe_ingredients_status(db, recipe_id, current_user.user_id)
+        
+        # 레시피 식재료 상태 조회 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="recipe_ingredients_status_view", 
+                event_data={
+                    "recipe_id": recipe_id,
+                    "summary": result.get("summary", {}),
+                    "ingredients_status": {
+                        "owned_count": result.get("summary", {}).get("owned_count", 0),
+                        "cart_count": result.get("summary", {}).get("cart_count", 0),
+                        "not_owned_count": result.get("summary", {}).get("not_owned_count", 0)
+                    }
+                }
+            )
+        
+        logger.info(f"레시피 식재료 상태 조회 완료: recipe_id={recipe_id}, user_id={current_user.user_id}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"레시피 식재료 상태 조회 실패: recipe_id={recipe_id}, user_id={current_user.user_id}, error={e}")
+        raise HTTPException(
+            status_code=500, 
+            detail="레시피 식재료 상태 조회 중 오류가 발생했습니다."
+        )
+
+
 @router.get("/{recipe_id}/rating", response_model=RecipeRatingResponse)
 async def get_rating(
         recipe_id: int,
@@ -269,24 +315,6 @@ async def get_kok_products(
         )
     
     return products
-
-
-@router.get("/{recipe_id}/status", response_model=RecipeIngredientStatusResponse)
-async def get_recipe_ingredients_status(
-    recipe_id: int,
-    user_id: int = Query(..., description="사용자 ID"),
-    db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    레시피의 식재료 상태 조회 (보유/장바구니/미보유)
-    """
-    try:
-        result = await get_recipe_ingredients_status(db, recipe_id, user_id)
-        return result
-    except Exception as e:
-        logger.error(f"레시피 식재료 상태 조회 실패: {e}")
-        raise HTTPException(status_code=500, detail="레시피 식재료 상태 조회 중 오류가 발생했습니다.")
-
 
 ###########################################################
 # @router.get("/{recipe_id}/comments", response_model=RecipeCommentListResponse)

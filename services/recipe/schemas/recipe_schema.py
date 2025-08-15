@@ -143,14 +143,17 @@ class RecipeIngredientStatusResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class IngredientOwnedStatus(BaseModel):
     """보유 중인 식재료 상태"""
     material_name: str
     order_date: datetime
     order_id: int
+    order_type: str = Field(..., description="주문 유형: 'kok' 또는 'homeshopping'")
     
     class Config:
         from_attributes = True
+
 
 class IngredientCartStatus(BaseModel):
     """장바구니에 있는 식재료 상태"""
@@ -160,9 +163,52 @@ class IngredientCartStatus(BaseModel):
     class Config:
         from_attributes = True
 
+
 class IngredientNotOwnedStatus(BaseModel):
     """미보유 식재료 상태"""
     material_name: str
     
     class Config:
         from_attributes = True
+
+
+class RecipeIngredientStatusDetailResponse(BaseModel):
+    """레시피 식재료 상태 상세 응답 스키마"""
+    recipe_id: int
+    user_id: int
+    ingredients_status: Dict[str, List[Dict[str, Any]]] = Field(..., description="식재료 상태별 분류")
+    summary: Dict[str, int] = Field(..., description="상태별 요약 정보")
+    
+    class Config:
+        from_attributes = True
+        schema_extra = {
+            "example": {
+                "recipe_id": 123,
+                "user_id": 456,
+                "ingredients_status": {
+                    "owned": [
+                        {
+                            "material_name": "감자",
+                            "order_date": "2024-01-15T10:30:00",
+                            "order_id": 789,
+                            "order_type": "kok"
+                        }
+                    ],
+                    "cart": [
+                        {
+                            "material_name": "양파",
+                            "cart_id": 101
+                        }
+                    ],
+                    "not_owned": [
+                        {"material_name": "당근"}
+                    ]
+                },
+                "summary": {
+                    "total_ingredients": 3,
+                    "owned_count": 1,
+                    "cart_count": 1,
+                    "not_owned_count": 1
+                }
+            }
+        }

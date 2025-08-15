@@ -814,9 +814,9 @@ async def get_recipe_ingredients_status(
 ) -> Dict:
     """
     레시피의 식재료 상태 조회 (보유/장바구니/미보유)
-    - 보유: 최근 7일 내 주문한 상품
+    - 보유: 최근 7일 내 주문한 상품 / 재고 소진에 입력한 식재료
     - 장바구니: 현재 장바구니에 담긴 상품
-    - 미보유: 보유/장바구니 상태를 제외한 식재료
+    - 미보유: 레시피 식재료 중 보유/장바구니 상태를 제외한 식재료
     """
     logger.info(f"레시피 식재료 상태 조회 시작: recipe_id={recipe_id}, user_id={user_id}")
     
@@ -831,18 +831,19 @@ async def get_recipe_ingredients_status(
             "recipe_id": recipe_id,
             "user_id": user_id,
             "ingredients_status": {"owned": [], "cart": [], "not_owned": []},
-            "summary": {"total_ingredients": 0, "owned_count": 0, "cart_count": 0, "not_owned_count": 0}
+            "summary": {"total_ingredients": len(materials), "owned_count": 0, "cart_count": 0, "not_owned_count": 0}
         }
     
     # 2. 최근 7일 내 주문한 상품 조회 (보유 상태)
     from datetime import datetime, timedelta
-    from services.order.models.order_model import Order, KokOrder
+    from services.order.models.order_model import Order, KokOrder, HomeShoppingOrder
     from services.kok.models.kok_model import KokProductInfo
+    from services.homeshopping.models.homeshopping_model import HomeshoppingProductInfo
     
     seven_days_ago = datetime.now() - timedelta(days=7)
     
-    # 주문 테이블에서 최근 7일 내 주문 조회 (상품명 포함)
-    recent_orders_stmt = (
+    # 콕 주문에서 최근 7일 내 주문 조회
+    kok_orders_stmt = (
         select(
             Order.order_id, 
             Order.order_time,
@@ -856,18 +857,51 @@ async def get_recipe_ingredients_status(
         .where(Order.cancel_time.is_(None))  # 취소되지 않은 주문만
     )
     
+    # 홈쇼핑 주문에서 최근 7일 내 주문 조회
+    homeshopping_orders_stmt = (
+        select(
+            Order.order_id,
+            Order.order_time,
+            HomeShoppingOrder.homeshopping_order_id,
+            HomeshoppingProductInfo.product_name
+        )
+        .join(HomeShoppingOrder, Order.order_id == HomeShoppingOrder.order_id)
+        .join(HomeshoppingProductInfo, HomeShoppingOrder.product_id == HomeshoppingProductInfo.product_id)
+        .where(Order.user_id == user_id)
+        .where(Order.order_time >= seven_days_ago)
+        .where(Order.cancel_time.is_(None))  # 취소되지 않은 주문만
+    )
+    
     try:
-        recent_orders_result = await db.execute(recent_orders_stmt)
-        recent_orders = recent_orders_result.all()
+        # 콕 주문 조회
+        kok_orders_result = await db.execute(kok_orders_stmt)
+        kok_orders = kok_orders_result.all()
+        
+        # 홈쇼핑 주문 조회
+        homeshopping_orders_result = await db.execute(homeshopping_orders_stmt)
+        homeshopping_orders = homeshopping_orders_result.all()
         
         # 주문한 상품명으로 보유 재료 구성
         owned_materials = []
-        for order_id, order_time, kok_order_id, product_name in recent_orders:
+        
+        # 콕 주문 처리
+        for order_id, order_time, kok_order_id, product_name in kok_orders:
             owned_materials.append({
                 "material_name": product_name,
                 "order_date": order_time,
-                "order_id": order_id
+                "order_id": order_id,
+                "order_type": "kok"
             })
+        
+        # 홈쇼핑 주문 처리
+        for order_id, order_time, homeshopping_order_id, product_name in homeshopping_orders:
+            owned_materials.append({
+                "material_name": product_name,
+                "order_date": order_time,
+                "order_id": order_id,
+                "order_type": "homeshopping"
+            })
+            
     except Exception as e:
         logger.warning(f"주문 정보 조회 실패, 빈 리스트로 처리: {e}")
         owned_materials = []
