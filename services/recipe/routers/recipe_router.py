@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 import pandas as pd
+import time
 
 from services.recipe.schemas.recipe_schema import (
     RecipeDetailResponse,
@@ -116,6 +117,9 @@ async def search_recipe(
       '다음 페이지가 있는지'를 감지한 뒤, 현재 페이지 구간으로 슬라이스해서 반환한다.
     - method='recipe'일 때만 벡터 유사도(앱 내부 코사인) 사용. 'ingredient'는 DB 검색만.
     """
+    # 기능 시간 체크 시작
+    start_time = time.time()
+    
     # 1) 현재 페이지를 포함한 영역 + 다음 페이지 유무 감지를 위해 1개 더 요청
     requested_top_k = page * size + 1    
     
@@ -139,6 +143,10 @@ async def search_recipe(
     #    현재까지 집계된 개수 + (다음 페이지가 존재하면 +1)
     total_approx = (page - 1) * size + len(page_df) + (1 if has_more else 0)
 
+    # 기능 시간 체크 완료 및 로깅
+    execution_time = time.time() - start_time
+    logger.info(f"레시피 검색 완료: uid={current_user.user_id}, kw={recipe}, method={method}, 실행시간={execution_time:.3f}초, 결과수={len(page_df)}")
+
     if background_tasks:
         """
         비동기로 사용자 로그를 적재한다.
@@ -154,6 +162,7 @@ async def search_recipe(
                 "method": method,
                 "row_count": int(len(page_df)),
                 "has_more": has_more,
+                "execution_time_seconds": round(execution_time, 3),  # 실행 시간 추가
             },
         )
 

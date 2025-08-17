@@ -2,6 +2,7 @@ import asyncio
 from typing import Optional
 import pandas as pd
 import numpy as np
+import time
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from common.logger import get_logger
@@ -21,14 +22,21 @@ async def get_model() -> SentenceTransformer:
     if _model is not None:
         logger.debug("캐시된 SentenceTransformer 모델 사용 중")
         return _model
+    
+    # 모델 로딩 시간 체크 시작
+    start_time = time.time()
+    
     async with _model_lock:
         if _model is None:
             logger.info("SentenceTransformer 모델 로드 중: paraphrase-multilingual-MiniLM-L12-v2")
             try:
                 _model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2", device="cpu")
-                logger.info("SentenceTransformer 모델 로드 완료")
+                # 모델 로딩 시간 체크 완료 및 로깅
+                loading_time = time.time() - start_time
+                logger.info(f"SentenceTransformer 모델 로드 완료: 로딩시간={loading_time:.3f}초")
             except Exception as e:
-                logger.error(f"SentenceTransformer 모델 로드 실패: {str(e)}")
+                loading_time = time.time() - start_time
+                logger.error(f"SentenceTransformer 모델 로드 실패: 로딩시간={loading_time:.3f}초, error={str(e)}")
                 raise
         else:
             logger.debug("다른 코루틴에서 모델 로드 완료")
@@ -40,31 +48,46 @@ async def recommend_by_recipe_name_core(df: pd.DataFrame, query: str, top_k: int
     - 입력 df: 최소 ['RECIPE_ID','VECTOR_NAME'] 필요, 있으면 'COOKING_NAME' 사용
     - 반환: RANK_TYPE(0=일치, 1=유사도) 포함 DataFrame
     """
+    # 기능 시간 체크 시작
+    start_time = time.time()
+    
     logger.info(f"레시피 추천 시작: query='{query}', top_k={top_k}, df={len(df)}행")
 
     if "RECIPE_ID" not in df.columns:
         raise ValueError("입력 df에 'RECIPE_ID' 컬럼이 필요합니다.")
 
     try:
+        # 모델 로딩 시간 체크
+        model_start_time = time.time()
         model = await get_model()
+        model_loading_time = time.time() - model_start_time
+        
+        # 쿼리 인코딩 시간 체크
+        encoding_start_time = time.time()
         query_vec = model.encode(query, normalize_embeddings=True)
-        logger.debug(f"쿼리 인코딩 완료, shape={np.array(query_vec).shape}")
+        encoding_time = time.time() - encoding_start_time
+        
+        logger.debug(f"쿼리 인코딩 완료, shape={np.array(query_vec).shape}, 인코딩시간={encoding_time:.3f}초")
 
         # [1] COOKING_NAME 부분/정확 일치 우선
+        exact_start_time = time.time()
         if "COOKING_NAME" in df.columns:
             exact_df = df[df["COOKING_NAME"].astype(str).str.contains(query, case=False, na=False)].copy()
             exact_df["RANK_TYPE"] = 0
             exact_k = min(len(exact_df), top_k)
             exact_df = exact_df.head(exact_k)
             seen_ids = set(exact_df["RECIPE_ID"])
-            logger.info(f"제목 일치 {len(exact_df)}개")
+            exact_time = time.time() - exact_start_time
+            logger.info(f"제목 일치 {len(exact_df)}개, 처리시간={exact_time:.3f}초")
         else:
             exact_df = pd.DataFrame()
             seen_ids = set()
             exact_k = 0
-            logger.warning("COOKING_NAME 컬럼 없음 → 유사도만 사용")
+            exact_time = time.time() - exact_start_time
+            logger.warning("COOKING_NAME 컬럼 없음 → 유사도만 사용, 처리시간={exact_time:.3f}초")
 
         # [2] 임베딩 유사도 보완
+        similar_start_time = time.time()
         remaining_k = top_k - exact_k
         similar_df = pd.DataFrame()
         if remaining_k > 0 and "VECTOR_NAME" in df.columns:
@@ -87,11 +110,14 @@ async def recommend_by_recipe_name_core(df: pd.DataFrame, query: str, top_k: int
                 )
                 similar_df = rest.sort_values(by="SIMILARITY", ascending=False).head(remaining_k)
                 similar_df["RANK_TYPE"] = 1
-                logger.info(f"유사도 보완 {len(similar_df)}개")
+                similar_time = time.time() - similar_start_time
+                logger.info(f"유사도 보완 {len(similar_df)}개, 처리시간={similar_time:.3f}초")
         else:
-            logger.debug("유사도 보완 없이 종료")
+            similar_time = time.time() - similar_start_time
+            logger.debug("유사도 보완 없이 종료, 처리시간={similar_time:.3f}초")
 
         # [3] 합치기 + 정리
+        merge_start_time = time.time()
         out = pd.concat([exact_df, similar_df], ignore_index=True)
         if not out.empty and "VECTOR_ARRAY" in out.columns:
             out = out.drop(columns=["VECTOR_ARRAY"])
@@ -99,9 +125,16 @@ async def recommend_by_recipe_name_core(df: pd.DataFrame, query: str, top_k: int
             out = out.drop_duplicates(subset=["RECIPE_ID"]).sort_values(by="RANK_TYPE").reset_index(drop=True)
         else:
             logger.warning("최종 추천 결과 없음")
+        
+        merge_time = time.time() - merge_start_time
+        
+        # 전체 실행 시간 체크 완료 및 로깅
+        total_execution_time = time.time() - start_time
+        logger.info(f"레시피 추천 완료: query='{query}', top_k={top_k}, 전체실행시간={total_execution_time:.3f}초, 모델로딩={model_loading_time:.3f}초, 인코딩={encoding_time:.3f}초, 정확일치={exact_time:.3f}초, 유사도={similar_time:.3f}초, 병합={merge_time:.3f}초, 결과수={len(out)}")
 
         return out
 
     except Exception as e:
-        logger.error(f"레시피 추천 실패: query='{query}', error={str(e)}")
+        total_execution_time = time.time() - start_time
+        logger.error(f"레시피 추천 실패: query='{query}', 전체실행시간={total_execution_time:.3f}초, error={str(e)}")
         raise
