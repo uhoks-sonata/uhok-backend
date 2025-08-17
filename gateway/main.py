@@ -78,6 +78,15 @@ logger.info(f"앱 제목: {settings.app_name}")
 logger.info(f"디버그 모드: {settings.debug}")
 logger.info("모든 서비스 라우터 등록 완료")
 
+@app.get("/healthz")
+async def healthz():
+    """
+    서비스 헬스체크 엔드포인트.
+    - 컨테이너/오케스트레이션의 상태 점검용으로 사용
+    - DB 연결까지 점검하려면 간단 쿼리를 추가해서 True/False 반환하도록 확장 가능
+    """
+    return {"status": "ok"}
+
 # TODO: 다른 서비스 라우터도 아래와 같이 추가
 # from services.recommend.routers.recommend_router import router as recommend_router
 # app.include_router(recommend_router)
