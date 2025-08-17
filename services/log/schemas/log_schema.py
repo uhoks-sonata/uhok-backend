@@ -2,7 +2,7 @@
 사용자 로그 적재 요청/응답용 스키마
 """
 from datetime import datetime
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 
 class UserLogCreate(BaseModel):

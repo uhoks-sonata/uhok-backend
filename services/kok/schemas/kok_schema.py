@@ -419,21 +419,6 @@ class KokCartItemsResponse(BaseModel):
     """장바구니 상품 목록 응답"""
     cart_items: List[KokCartItem] = Field(default_factory=list)
 
-# -----------------------------
-# 장바구니 선택 주문 스키마
-# -----------------------------
-
-class KokCartOrderItem(BaseModel):
-    cart_id: int = Field(..., description="장바구니 ID")
-    quantity: int = Field(..., ge=1, description="주문 수량")
-
-class KokCartOrderRequest(BaseModel):
-    selected_items: List[KokCartOrderItem]
-
-class KokCartOrderResponse(BaseModel):
-    order_id: int
-    order_count: int
-    message: str
 
 # -----------------------------
 # 검색 관련 스키마

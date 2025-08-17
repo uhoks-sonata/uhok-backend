@@ -4,7 +4,6 @@ USER_LOG (PostgreSQL) ORM 모델
 """
 from sqlalchemy import Column, Integer, String, DateTime, JSON, text
 from common.database.base_postgres import PostgresBase
-from common.utils import now_str
 
 class UserLog(PostgresBase):
     """
