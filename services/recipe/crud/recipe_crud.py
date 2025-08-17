@@ -10,6 +10,10 @@ from sqlalchemy import select, desc, func, text
 from typing import List, Optional, Dict, Tuple
 import pandas as pd
 import copy
+from datetime import datetime, timedelta
+
+from services.order.models.order_model import Order, KokOrder, HomeShoppingOrder
+from services.kok.models.kok_model import KokProductInfo
 
 from services.recipe.models.recipe_model import (
     Recipe, Material, RecipeRating, RecipeVector
@@ -616,12 +620,6 @@ async def get_recipe_ingredients_status(
             "ingredients_status": {"owned": [], "cart": [], "not_owned": []},
             "summary": {"total_ingredients": len(materials), "owned_count": 0, "cart_count": 0, "not_owned_count": 0}
         }
-    
-    # 2. 최근 7일 내 주문한 상품 조회 (보유 상태)
-    from datetime import datetime, timedelta
-    from services.order.models.order_model import Order, KokOrder, HomeShoppingOrder
-    from services.kok.models.kok_model import KokProductInfo
-    from services.homeshopping.models.homeshopping_model import HomeshoppingProductInfo
     
     seven_days_ago = datetime.now() - timedelta(days=7)
     

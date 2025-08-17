@@ -19,7 +19,6 @@ from typing import List
 
 logger = get_logger(__name__)
 
-
 async def create_orders_from_selected_carts(
     db: AsyncSession,
     user_id: int,
