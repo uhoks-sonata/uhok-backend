@@ -70,14 +70,18 @@ async def get_kok_product_full_detail(
     )
     price_infos = (await db.execute(price_stmt)).scalars().all()
     
+    # 할인율과 할인가격은 price_infos에서 가져오기
+    discount_rate = price_infos[0].kok_discount_rate if price_infos else None
+    discounted_price = price_infos[0].kok_discounted_price if price_infos else None
+    
     return {
         "kok_product_id": product.kok_product_id,
         "kok_product_name": product.kok_product_name,
         "kok_store_name": product.kok_store_name,
         "kok_thumbnail": product.kok_thumbnail,
         "kok_product_price": product.kok_product_price,
-        "kok_discount_rate": product.kok_discount_rate,
-        "kok_discounted_price": product.kok_discounted_price,
+        "kok_discount_rate": discount_rate,
+        "kok_discounted_price": discounted_price,
         "kok_review_cnt": product.kok_review_cnt,
         "kok_review_score": product.kok_review_score,
         "kok_5_ratio": product.kok_5_ratio,

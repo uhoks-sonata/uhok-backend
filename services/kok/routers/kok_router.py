@@ -96,7 +96,7 @@ logger = get_logger("kok_router")
 async def get_discounted_products(
         request: Request,
         page: int = Query(1, ge=1, description="페이지 번호"),
-        size: int = Query(1, ge=1, le=100, description="페이지 크기"),
+        size: int = Query(20, ge=1, le=100, description="페이지 크기"),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
