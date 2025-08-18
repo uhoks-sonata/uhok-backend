@@ -428,28 +428,41 @@ async def recommend_by_recipe_pgvector(
     postgres: AsyncSession,
     query: str,
     method: str = "recipe",
-    top_k: int = 25,
-    vector_searcher: VectorSearcherPort,   # ⬅️ 포트 주입
+    top_k: int = 25,                      # (유지: 호환용, recipe 모드에선 page/size가 우선)
+    vector_searcher: VectorSearcherPort,  # ⬅️ 포트 주입
+    page: int = 1,                        # ⬅️ 추가: 1부터 시작
+    size: int = 10,                       # ⬅️ 추가: 페이지당 개수(무한스크롤 단위)
+    include_materials: bool = False,      # ⬅️ 추가: 재료를 한 컬럼에 리스트로 집계해서 붙일지
 ) -> pd.DataFrame:
     """
-    pgvector 컬럼(Vector(384))을 사용하는 레시피/식재료 추천(비동기).
+    pgvector 컬럼(Vector(384))을 사용하는 레시피/식재료 추천(비동기, 중복 제거, 페이지네이션).
     - method="recipe":
-        1) MariaDB: 제목 부분/정확 일치 우선(RANK_TYPE=0, 인기순)
+        1) MariaDB: 제목 부분/정확 일치 우선(RANK_TYPE=0, 인기순) — 현재 페이지까지 필요한 수량(page*size)만큼 수집
         2) PostgreSQL: pgvector <-> 연산으로 부족분 보완(RANK_TYPE=1, 거리 오름차순)
-        3) MariaDB: 상세 정보 조인 + 재료 붙이기
+        3) MariaDB: 상세 정보 조인
+        4) (옵션) 재료를 레시피당 리스트로 집계하여 한 컬럼으로 붙임(include_materials=True)
+        5) 항상 "레시피당 1행", 페이지네이션(10개 기본)
     - method="ingredient":
-        입력 재료(쉼표 구분)를 모두 포함하는 레시피를 MariaDB에서 조회 (유사도 없음)
-    - 반환: 상세 정보가 포함된 DataFrame (No. 컬럼 포함)
+        쉼표로 구분된 재료명을 모두 포함(AND)하는 레시피를 MariaDB에서 조회(유사도 없음).
+        상세 조인 후 (옵션) 재료 집계.
+    - 반환: 상세 정보가 포함된 DataFrame (No. 컬럼은 해당 페이지 내 1..N)
     """
+    from sqlalchemy import select, desc  # 파일 상단에 있으면 제거 가능
+
     if method not in {"recipe", "ingredient"}:
         raise ValueError("method must be 'recipe' or 'ingredient'")
 
+    page = max(1, int(page))
+    size = max(1, int(size))
+    fetch_upto = page * size  # 현재 페이지까지 필요한 총량
+
     # ========================== method: ingredient ==========================
     if method == "ingredient":
-        ingredients = [i.strip() for i in query.split(",") if i.strip()]
+        ingredients = [i.strip() for i in (query or "").split(",") if i.strip()]
         if not ingredients:
             return pd.DataFrame()
 
+        # AND 포함(모든 재료 포함) — 기존 로직 유지
         from sqlalchemy import func as sa_func
         ids_stmt = (
             select(Material.recipe_id)
@@ -458,11 +471,16 @@ async def recommend_by_recipe_pgvector(
             .having(sa_func.count(sa_func.distinct(Material.material_name)) == len(ingredients))
         )
         ids_rows = await mariadb.execute(ids_stmt)
-        result_ids = [rid for (rid,) in ids_rows.all()]
-        if not result_ids:
+        all_ids = [int(rid) for (rid,) in ids_rows.all()]
+        if not all_ids:
             return pd.DataFrame()
 
-        # 상세
+        # 페이지 슬라이스
+        start = (page - 1) * size
+        page_ids = all_ids[start : start + size]
+        if not page_ids:
+            return pd.DataFrame()
+
         name_col = getattr(Recipe, "cooking_name", None) or getattr(Recipe, "recipe_title")
         detail_stmt = (
             select(
@@ -475,8 +493,7 @@ async def recommend_by_recipe_pgvector(
                 Recipe.number_of_serving.label("NUMBER_OF_SERVING"),
                 Recipe.thumbnail_url.label("THUMBNAIL_URL"),
             )
-            .where(Recipe.recipe_id.in_(result_ids))
-            .order_by(desc(Recipe.scrap_count))
+            .where(Recipe.recipe_id.in_(page_ids))
         )
         detail_rows = (await mariadb.execute(detail_stmt)).all()
         final_df = pd.DataFrame(detail_rows, columns=[
@@ -484,61 +501,74 @@ async def recommend_by_recipe_pgvector(
             "COOKING_INTRODUCTION","NUMBER_OF_SERVING","THUMBNAIL_URL"
         ])
 
-        # 번호 컬럼
+        # 페이지 순서 유지
+        order_map = {rid: i for i, rid in enumerate(page_ids)}
+        final_df["__order__"] = final_df["RECIPE_ID"].map(order_map).fillna(10**9)
+        final_df = final_df.sort_values("__order__").drop(columns="__order__").reset_index(drop=True)
+
+        # 번호 컬럼(페이지 기준)
         final_df.insert(0, "No.", range(1, len(final_df) + 1))
 
-        # 재료 붙이기
-        m_stmt = select(
-            Material.recipe_id, Material.material_name, Material.measure_amount, Material.measure_unit
-        ).where(Material.recipe_id.in_(result_ids))
-        m_rows = (await mariadb.execute(m_stmt)).all()
-        if m_rows:
-            m_df = pd.DataFrame(m_rows, columns=["RECIPE_ID","MATERIAL_NAME","MEASURE_AMOUNT","MEASURE_UNIT"])
-            final_df = final_df.merge(m_df, on="RECIPE_ID", how="left")
+        # (옵션) 재료 집계
+        if include_materials and page_ids:
+            m_stmt = select(
+                Material.recipe_id, Material.material_name, Material.measure_amount, Material.measure_unit
+            ).where(Material.recipe_id.in_(page_ids))
+            m_rows = (await mariadb.execute(m_stmt)).all()
+            if m_rows:
+                m_df = pd.DataFrame(m_rows, columns=["RECIPE_ID","MATERIAL_NAME","MEASURE_AMOUNT","MEASURE_UNIT"])
+                # 레시피당 리스트로 집계
+                mats = (
+                    m_df.groupby("RECIPE_ID")[["MATERIAL_NAME","MEASURE_AMOUNT","MEASURE_UNIT"]]
+                    .apply(lambda g: g.to_dict("records"))
+                    .rename("MATERIALS")
+                    .reset_index()
+                )
+                final_df = final_df.merge(mats, on="RECIPE_ID", how="left")
 
         return final_df
 
     # ============================ method: recipe ============================
-    # 1) 제목 부분/정확 일치(인기순)
+    # 1) 제목 부분/정확 일치(인기순) — 현재 페이지까지 필요한 개수만 수집
     name_col = getattr(Recipe, "cooking_name", None) or getattr(Recipe, "recipe_title")
     base_stmt = (
-        select(Recipe.recipe_id, name_col.label("RECIPE_TITLE"))
+        select(Recipe.recipe_id, name_col.label("RECIPE_TITLE"), Recipe.scrap_count)
         .where(name_col.contains(query))
         .order_by(desc(Recipe.scrap_count))
-        .limit(top_k)
+        .limit(fetch_upto)
     )
     base_rows = (await mariadb.execute(base_stmt)).all()
-    exact_df = pd.DataFrame(base_rows, columns=["RECIPE_ID","RECIPE_TITLE"])
+    exact_df = pd.DataFrame(base_rows, columns=["RECIPE_ID","RECIPE_TITLE","SCRAP_COUNT"]).drop_duplicates("RECIPE_ID")
     exact_df["RANK_TYPE"] = 0
 
-    exact_k = min(len(exact_df), top_k)
-    exact_df = exact_df.head(exact_k)
-    seen_ids = [int(x) for x in exact_df["RECIPE_ID"].tolist()]
-    remaining_k = top_k - exact_k
+    exact_ids = [int(x) for x in exact_df["RECIPE_ID"].tolist()]
+    need_after_exact = max(0, fetch_upto - len(exact_ids))
 
-    # 2) pgvector <-> 보완 — 포트 호출
-    similar_df = pd.DataFrame(columns=["RECIPE_ID","SIMILARITY","RANK_TYPE"])
-    if remaining_k > 0:
+    # 2) pgvector <-> 보완 — 포트 호출(여유분을 더 모아 중복 여지 대비)
+    vec_ids: List[int] = []
+    if need_after_exact > 0:
         pairs = await vector_searcher.find_similar_ids(
             pg_db=postgres,
             query=query,
-            top_k=remaining_k,
-            exclude_ids=seen_ids or None,
+            top_k=need_after_exact + size * 2,  # 버퍼
+            exclude_ids=exact_ids or None,
         )
-        if pairs:
-            tmp = pd.DataFrame(pairs, columns=["RECIPE_ID","DISTANCE"])
-            tmp["SIMILARITY"] = -tmp["DISTANCE"]
-            tmp["RANK_TYPE"] = 1
-            similar_df = tmp[["RECIPE_ID","SIMILARITY","RANK_TYPE"]]
+        vec_ids = [rid for rid, _ in pairs]
 
-    # 3) 합치기
-    final_base = pd.concat([exact_df[["RECIPE_ID","RANK_TYPE"]], similar_df[["RECIPE_ID","RANK_TYPE"]]], ignore_index=True)
-    if final_base.empty:
+    # 3) ID 병합 → 중복 제거 → 페이지 슬라이스
+    merged_ids: List[int] = []
+    seen = set()
+    for rid in exact_ids + vec_ids:
+        if rid not in seen:
+            merged_ids.append(rid)
+            seen.add(rid)
+
+    start = (page - 1) * size
+    page_ids = merged_ids[start : start + size]
+    if not page_ids:
         return pd.DataFrame()
-    final_base = final_base.drop_duplicates(subset=["RECIPE_ID"]).sort_values(by="RANK_TYPE").reset_index(drop=True)
 
-    # 4) 상세 조인
-    ids = [int(x) for x in final_base["RECIPE_ID"].tolist()]
+    # 4) 상세 조인(해당 페이지 ID만)
     detail_stmt = (
         select(
             Recipe.recipe_id.label("RECIPE_ID"),
@@ -550,7 +580,7 @@ async def recommend_by_recipe_pgvector(
             Recipe.number_of_serving.label("NUMBER_OF_SERVING"),
             Recipe.thumbnail_url.label("THUMBNAIL_URL"),
         )
-        .where(Recipe.recipe_id.in_(ids))
+        .where(Recipe.recipe_id.in_(page_ids))
     )
     detail_rows = (await mariadb.execute(detail_stmt)).all()
     detail_df = pd.DataFrame(detail_rows, columns=[
@@ -558,19 +588,183 @@ async def recommend_by_recipe_pgvector(
         "COOKING_INTRODUCTION","NUMBER_OF_SERVING","THUMBNAIL_URL"
     ])
 
-    final_df = final_base.merge(detail_df, on="RECIPE_ID", how="left")
+    # 5) RANK_TYPE 부여(제목일치=0, 유사도=1) + 순서 유지 + 번호
+    exact_set = set(exact_ids)
+    detail_df["RANK_TYPE"] = detail_df["RECIPE_ID"].apply(lambda x: 0 if int(x) in exact_set else 1)
+
+    order_map = {rid: i for i, rid in enumerate(page_ids)}
+    detail_df["__order__"] = detail_df["RECIPE_ID"].map(order_map).fillna(10**9)
+    final_df = detail_df.sort_values("__order__").drop(columns="__order__").reset_index(drop=True)
     final_df.insert(0, "No.", range(1, len(final_df) + 1))
 
-    # 5) 재료 붙이기 (필요시)
-    if ids:
-        m_stmt = select(Material.recipe_id, Material.material_name, Material.measure_amount, Material.measure_unit)\
-                    .where(Material.recipe_id.in_(ids))
+    # 6) (옵션) 재료 집계 — 레시피당 1행 유지
+    if include_materials and page_ids:
+        m_stmt = select(
+            Material.recipe_id, Material.material_name, Material.measure_amount, Material.measure_unit
+        ).where(Material.recipe_id.in_(page_ids))
         m_rows = (await mariadb.execute(m_stmt)).all()
         if m_rows:
             m_df = pd.DataFrame(m_rows, columns=["RECIPE_ID","MATERIAL_NAME","MEASURE_AMOUNT","MEASURE_UNIT"])
-            final_df = final_df.merge(m_df, on="RECIPE_ID", how="left")
+            mats = (
+                m_df.groupby("RECIPE_ID")[["MATERIAL_NAME","MEASURE_AMOUNT","MEASURE_UNIT"]]
+                .apply(lambda g: g.to_dict("records"))
+                .rename("MATERIALS")
+                .reset_index()
+            )
+            final_df = final_df.merge(mats, on="RECIPE_ID", how="left")
 
     return final_df
+
+
+# async def recommend_by_recipe_pgvector(
+#     *,
+#     mariadb: AsyncSession,
+#     postgres: AsyncSession,
+#     query: str,
+#     method: str = "recipe",
+#     top_k: int = 25,
+#     vector_searcher: VectorSearcherPort,   # ⬅️ 포트 주입
+# ) -> pd.DataFrame:
+#     """
+#     pgvector 컬럼(Vector(384))을 사용하는 레시피/식재료 추천(비동기).
+#     - method="recipe":
+#         1) MariaDB: 제목 부분/정확 일치 우선(RANK_TYPE=0, 인기순)
+#         2) PostgreSQL: pgvector <-> 연산으로 부족분 보완(RANK_TYPE=1, 거리 오름차순)
+#         3) MariaDB: 상세 정보 조인 + 재료 붙이기
+#     - method="ingredient":
+#         입력 재료(쉼표 구분)를 모두 포함하는 레시피를 MariaDB에서 조회 (유사도 없음)
+#     - 반환: 상세 정보가 포함된 DataFrame (No. 컬럼 포함)
+#     """
+#     if method not in {"recipe", "ingredient"}:
+#         raise ValueError("method must be 'recipe' or 'ingredient'")
+
+#     # ========================== method: ingredient ==========================
+#     if method == "ingredient":
+#         ingredients = [i.strip() for i in query.split(",") if i.strip()]
+#         if not ingredients:
+#             return pd.DataFrame()
+
+#         from sqlalchemy import func as sa_func
+#         ids_stmt = (
+#             select(Material.recipe_id)
+#             .where(Material.material_name.in_(ingredients))
+#             .group_by(Material.recipe_id)
+#             .having(sa_func.count(sa_func.distinct(Material.material_name)) == len(ingredients))
+#         )
+#         ids_rows = await mariadb.execute(ids_stmt)
+#         result_ids = [rid for (rid,) in ids_rows.all()]
+#         if not result_ids:
+#             return pd.DataFrame()
+
+#         # 상세
+#         name_col = getattr(Recipe, "cooking_name", None) or getattr(Recipe, "recipe_title")
+#         detail_stmt = (
+#             select(
+#                 Recipe.recipe_id.label("RECIPE_ID"),
+#                 name_col.label("RECIPE_TITLE"),
+#                 Recipe.scrap_count.label("SCRAP_COUNT"),
+#                 Recipe.cooking_case_name.label("COOKING_CASE_NAME"),
+#                 Recipe.cooking_category_name.label("COOKING_CATEGORY_NAME"),
+#                 Recipe.cooking_introduction.label("COOKING_INTRODUCTION"),
+#                 Recipe.number_of_serving.label("NUMBER_OF_SERVING"),
+#                 Recipe.thumbnail_url.label("THUMBNAIL_URL"),
+#             )
+#             .where(Recipe.recipe_id.in_(result_ids))
+#             .order_by(desc(Recipe.scrap_count))
+#         )
+#         detail_rows = (await mariadb.execute(detail_stmt)).all()
+#         final_df = pd.DataFrame(detail_rows, columns=[
+#             "RECIPE_ID","RECIPE_TITLE","SCRAP_COUNT","COOKING_CASE_NAME","COOKING_CATEGORY_NAME",
+#             "COOKING_INTRODUCTION","NUMBER_OF_SERVING","THUMBNAIL_URL"
+#         ])
+
+#         # 번호 컬럼
+#         final_df.insert(0, "No.", range(1, len(final_df) + 1))
+
+#         # 재료 붙이기
+#         m_stmt = select(
+#             Material.recipe_id, Material.material_name, Material.measure_amount, Material.measure_unit
+#         ).where(Material.recipe_id.in_(result_ids))
+#         m_rows = (await mariadb.execute(m_stmt)).all()
+#         if m_rows:
+#             m_df = pd.DataFrame(m_rows, columns=["RECIPE_ID","MATERIAL_NAME","MEASURE_AMOUNT","MEASURE_UNIT"])
+#             final_df = final_df.merge(m_df, on="RECIPE_ID", how="left")
+
+#         return final_df
+
+#     # ============================ method: recipe ============================
+#     # 1) 제목 부분/정확 일치(인기순)
+#     name_col = getattr(Recipe, "cooking_name", None) or getattr(Recipe, "recipe_title")
+#     base_stmt = (
+#         select(Recipe.recipe_id, name_col.label("RECIPE_TITLE"))
+#         .where(name_col.contains(query))
+#         .order_by(desc(Recipe.scrap_count))
+#         .limit(top_k)
+#     )
+#     base_rows = (await mariadb.execute(base_stmt)).all()
+#     exact_df = pd.DataFrame(base_rows, columns=["RECIPE_ID","RECIPE_TITLE"])
+#     exact_df["RANK_TYPE"] = 0
+
+#     exact_k = min(len(exact_df), top_k)
+#     exact_df = exact_df.head(exact_k)
+#     seen_ids = [int(x) for x in exact_df["RECIPE_ID"].tolist()]
+#     remaining_k = top_k - exact_k
+
+#     # 2) pgvector <-> 보완 — 포트 호출
+#     similar_df = pd.DataFrame(columns=["RECIPE_ID","SIMILARITY","RANK_TYPE"])
+#     if remaining_k > 0:
+#         pairs = await vector_searcher.find_similar_ids(
+#             pg_db=postgres,
+#             query=query,
+#             top_k=remaining_k,
+#             exclude_ids=seen_ids or None,
+#         )
+#         if pairs:
+#             tmp = pd.DataFrame(pairs, columns=["RECIPE_ID","DISTANCE"])
+#             tmp["SIMILARITY"] = -tmp["DISTANCE"]
+#             tmp["RANK_TYPE"] = 1
+#             similar_df = tmp[["RECIPE_ID","SIMILARITY","RANK_TYPE"]]
+
+#     # 3) 합치기
+#     final_base = pd.concat([exact_df[["RECIPE_ID","RANK_TYPE"]], similar_df[["RECIPE_ID","RANK_TYPE"]]], ignore_index=True)
+#     if final_base.empty:
+#         return pd.DataFrame()
+#     final_base = final_base.drop_duplicates(subset=["RECIPE_ID"]).sort_values(by="RANK_TYPE").reset_index(drop=True)
+
+#     # 4) 상세 조인
+#     ids = [int(x) for x in final_base["RECIPE_ID"].tolist()]
+#     detail_stmt = (
+#         select(
+#             Recipe.recipe_id.label("RECIPE_ID"),
+#             name_col.label("RECIPE_TITLE"),
+#             Recipe.scrap_count.label("SCRAP_COUNT"),
+#             Recipe.cooking_case_name.label("COOKING_CASE_NAME"),
+#             Recipe.cooking_category_name.label("COOKING_CATEGORY_NAME"),
+#             Recipe.cooking_introduction.label("COOKING_INTRODUCTION"),
+#             Recipe.number_of_serving.label("NUMBER_OF_SERVING"),
+#             Recipe.thumbnail_url.label("THUMBNAIL_URL"),
+#         )
+#         .where(Recipe.recipe_id.in_(ids))
+#     )
+#     detail_rows = (await mariadb.execute(detail_stmt)).all()
+#     detail_df = pd.DataFrame(detail_rows, columns=[
+#         "RECIPE_ID","RECIPE_TITLE","SCRAP_COUNT","COOKING_CASE_NAME","COOKING_CATEGORY_NAME",
+#         "COOKING_INTRODUCTION","NUMBER_OF_SERVING","THUMBNAIL_URL"
+#     ])
+
+#     final_df = final_base.merge(detail_df, on="RECIPE_ID", how="left")
+#     final_df.insert(0, "No.", range(1, len(final_df) + 1))
+
+#     # 5) 재료 붙이기 (필요시)
+#     if ids:
+#         m_stmt = select(Material.recipe_id, Material.material_name, Material.measure_amount, Material.measure_unit)\
+#                     .where(Material.recipe_id.in_(ids))
+#         m_rows = (await mariadb.execute(m_stmt)).all()
+#         if m_rows:
+#             m_df = pd.DataFrame(m_rows, columns=["RECIPE_ID","MATERIAL_NAME","MEASURE_AMOUNT","MEASURE_UNIT"])
+#             final_df = final_df.merge(m_df, on="RECIPE_ID", how="left")
+
+#     return final_df
 
 
 async def get_recipe_rating(db: AsyncSession, recipe_id: int) -> float:
@@ -594,7 +788,7 @@ async def set_recipe_rating(db: AsyncSession, recipe_id: int, user_id: int, rati
     return rating
 
 
-async def get_recipe_ingredients_status(
+async def fetch_recipe_ingredients_status(
     db: AsyncSession, 
     recipe_id: int, 
     user_id: int
@@ -629,7 +823,7 @@ async def get_recipe_ingredients_status(
             Order.order_id, 
             Order.order_time,
             KokOrder.kok_order_id,
-            KokProductInfo.product_name
+            KokProductInfo.kok_product_name
         )
         .join(KokOrder, Order.order_id == KokOrder.order_id)
         .join(KokProductInfo, KokOrder.kok_product_id == KokProductInfo.kok_product_id)
@@ -644,10 +838,10 @@ async def get_recipe_ingredients_status(
             Order.order_id,
             Order.order_time,
             HomeShoppingOrder.homeshopping_order_id,
-            HomeshoppingProductInfo.product_name
+            HomeshoppingList.product_name
         )
         .join(HomeShoppingOrder, Order.order_id == HomeShoppingOrder.order_id)
-        .join(HomeshoppingProductInfo, HomeShoppingOrder.product_id == HomeshoppingProductInfo.product_id)
+        .join(HomeshoppingList, HomeShoppingOrder.product_id == HomeshoppingList.product_id)
         .where(Order.user_id == user_id)
         .where(Order.order_time >= seven_days_ago)
         .where(Order.cancel_time.is_(None))  # 취소되지 않은 주문만
@@ -692,9 +886,19 @@ async def get_recipe_ingredients_status(
     # 현재는 빈 리스트로 처리 (장바구니 테이블이 구현되면 수정 필요)
     cart_materials = []
     
-    # 4. 미보유 식재료 계산
+    # 4. 레시피 재료와 주문 상품 매칭하여 실제 보유 재료만 필터링
     all_material_names = {m.material_name for m in materials}
-    owned_material_names = {m["material_name"] for m in owned_materials}
+    
+    # 레시피 재료와 매칭되는 주문 상품만 필터링
+    matched_owned_materials = []
+    for material in owned_materials:
+        # 주문한 상품명이 레시피 재료명과 정확히 일치하거나 포함되는지 확인
+        if any(material["material_name"] in recipe_material or recipe_material in material["material_name"] 
+               for recipe_material in all_material_names):
+            matched_owned_materials.append(material)
+    
+    # 실제 보유 재료명 집합
+    owned_material_names = {m["material_name"] for m in matched_owned_materials}
     cart_material_names = {m["material_name"] for m in cart_materials}
     
     not_owned_materials = [
@@ -705,14 +909,14 @@ async def get_recipe_ingredients_status(
     
     # 5. 결과 구성
     ingredients_status = {
-        "owned": owned_materials,
+        "owned": matched_owned_materials,
         "cart": cart_materials,
         "not_owned": not_owned_materials
     }
     
     summary = {
         "total_ingredients": len(materials),
-        "owned_count": len(owned_materials),
+        "owned_count": len(matched_owned_materials),
         "cart_count": len(cart_materials),
         "not_owned_count": len(not_owned_materials)
     }

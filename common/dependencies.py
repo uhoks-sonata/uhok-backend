@@ -22,7 +22,7 @@ logger = get_logger("dependencies")
 async def get_current_user(
         token: str = Depends(oauth2_scheme),
         db: AsyncSession  = Depends(get_maria_auth_db),
-):
+) -> UserOut:
     """토큰 기반 사용자 인증 후 유저 정보 반환"""
     try:
         # logger.debug(f"Token verification started: {token[:10]}...")
@@ -37,10 +37,16 @@ async def get_current_user(
             logger.warning(f"토큰이 블랙리스트에 등록됨: {token[:10]}...")
             raise InvalidTokenException("로그아웃된 토큰입니다.")
 
-        user_id = payload.get("sub")
-        if not user_id:
+        user_id_raw = payload.get("sub")
+        if not user_id_raw:
             logger.warning("토큰 페이로드에 사용자 ID 누락")
             raise InvalidTokenException("토큰에 사용자 정보가 없습니다.")
+        
+        try:
+            user_id = int(user_id_raw)
+        except (ValueError, TypeError):
+            logger.error(f"토큰의 사용자 ID가 유효하지 않음: {user_id_raw}")
+            raise InvalidTokenException("토큰의 사용자 ID가 유효하지 않습니다.")
 
         user = await get_user_by_id(db, user_id)
         if user is None:
@@ -61,6 +67,9 @@ async def get_current_user(
         
     except Exception as e:
         logger.error(f"인증 실패: {str(e)}")
+        logger.error(f"인증 실패 상세: {type(e).__name__}: {e}")
+        import traceback
+        logger.error(f"스택 트레이스: {traceback.format_exc()}")
         raise
 
 
@@ -115,11 +124,16 @@ async def get_current_user_optional(
             
             return None
         
-        user_id = int(payload.get("sub"))
-        logger.info(f"추출된 user_id: {user_id}")
-        
-        if not user_id:
+        user_id_raw = payload.get("sub")
+        if not user_id_raw:
             logger.warning("user_id가 유효하지 않습니다.")
+            return None
+        
+        try:
+            user_id = int(user_id_raw)
+            logger.info(f"추출된 user_id: {user_id}")
+        except (ValueError, TypeError):
+            logger.error(f"토큰의 사용자 ID가 유효하지 않음: {user_id_raw}")
             return None
         
         # 올바른 UserOut 객체 생성 (필수 필드 포함)
