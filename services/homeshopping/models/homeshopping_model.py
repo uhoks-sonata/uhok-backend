@@ -136,11 +136,11 @@ class HomeshoppingNotification(MariaBase):
     user_id = Column("USER_ID", Integer, nullable=False, comment="알림 대상 사용자 ID (논리 FK, 외래키 제약 없음)")
     
     # 알림 타입 구분
-    notification_type = Column("NOTIFICATION_TYPE", String(50), nullable=False, comment="알림 타입 (broadcast_start, order_status)")
+    notification_type = Column("NOTIFICATION_TYPE", String(50), nullable=False, default="order_status", comment="알림 타입 (broadcast_start, order_status)")
     
     # 관련 엔티티 정보 (방송 찜 또는 주문)
-    related_entity_type = Column("RELATED_ENTITY_TYPE", String(50), nullable=False, comment="관련 엔티티 타입 (product, order)")
-    related_entity_id = Column("RELATED_ENTITY_ID", BigInteger, nullable=False, comment="관련 엔티티 ID (제품 ID 또는 주문 ID)")
+    related_entity_type = Column("RELATED_ENTITY_TYPE", String(50), nullable=False, default="order", comment="관련 엔티티 타입 (product, order)")
+    related_entity_id = Column("RELATED_ENTITY_ID", BigInteger, nullable=False, default=0, comment="관련 엔티티 ID (제품 ID 또는 주문 ID)")
     
     # 방송 찜 알림 관련 필드
     homeshopping_like_id = Column("HOMESHOPPING_LIKE_ID", Integer, ForeignKey("HOMESHOPPING_LIKES.HOMESHOPPING_LIKE_ID", ondelete="CASCADE", onupdate="CASCADE"), nullable=True, comment="관련 찜 ID (FK: HOMESHOPPING_LIKES.HOMESHOPPING_LIKE_ID)")

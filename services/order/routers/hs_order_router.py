@@ -98,8 +98,20 @@ async def get_order_status(
     try:
         # 현재 상태 조회
         current_status = await get_hs_current_status(db, homeshopping_order_id)
+        
+        # 기본 상태 조회 (ORDER_RECEIVED) - 항상 조회
+        default_status_result = await db.execute(
+            select(StatusMaster).where(StatusMaster.status_code == "ORDER_RECEIVED")
+        )
+        default_status = default_status_result.scalars().first()
+        if not default_status:
+            raise HTTPException(status_code=404, detail="기본 상태 정보를 찾을 수 없습니다.")
+        
         if not current_status:
-            raise HTTPException(status_code=404, detail="주문 상태 정보를 찾을 수 없습니다.")
+            # 기본 상태로 current_status 설정
+            current_status = type('obj', (object,), {
+                'status': default_status
+            })()
         
         # 상태 변경 이력 조회
         status_history = await get_hs_order_status_history(db, homeshopping_order_id)
@@ -112,16 +124,45 @@ async def get_order_status(
                 event_type="homeshopping_order_status_view", 
                 event_data={
                     "homeshopping_order_id": homeshopping_order_id,
-                    "current_status": current_status.status.status_code
+                    "current_status": current_status.status.status_code if current_status and current_status.status else "UNKNOWN"
                 }
             )
         
         logger.info(f"홈쇼핑 주문 상태 조회 완료: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
         
+        # 상태 이력을 스키마에 맞게 변환
+        formatted_status_history = []
+        for history_item in status_history:
+            if history_item and history_item.status:
+                formatted_history = {
+                    "history_id": history_item.history_id,
+                    "homeshopping_order_id": history_item.homeshopping_order_id,
+                    "status": history_item.status,
+                    "created_at": history_item.changed_at  # changed_at을 created_at으로 매핑
+                }
+                formatted_status_history.append(formatted_history)
+        
+        # API 명세서에 맞게 current_status가 항상 유효한 값을 가지도록 보장
+        if not current_status or not current_status.status:
+            # 기본 상태 정보 반환
+            return {
+                "homeshopping_order_id": homeshopping_order_id,
+                "current_status": {
+                    "status_id": default_status.status_id,
+                    "status_code": default_status.status_code,
+                    "status_name": default_status.status_name
+                },
+                "status_history": formatted_status_history
+            }
+        
         return {
             "homeshopping_order_id": homeshopping_order_id,
-            "current_status": current_status.status,
-            "status_history": status_history
+            "current_status": {
+                "status_id": current_status.status.status_id,
+                "status_code": current_status.status.status_code,
+                "status_name": current_status.status.status_name
+            },
+            "status_history": formatted_status_history
         }
         
     except HTTPException:
