@@ -482,7 +482,7 @@ async def create_homeshopping_order(
             user_id=user_id,
             homeshopping_order_id=new_homeshopping_order.homeshopping_order_id,
             status_id=status.status_id if status else 1,  # 기본값
-            title="주문이 접수되었습니다",
+            title="주문 생성",
             message="주문이 성공적으로 접수되었습니다."
         )
         
@@ -518,8 +518,8 @@ async def create_homeshopping_order(
                     user_id=user_id,
                     homeshopping_order_id=new_homeshopping_order.homeshopping_order_id,
                     status_id=payment_status.status_id,
-                    title="결제가 요청되었습니다",
-                    message=f"{product_name} 주문에 대한 결제가 요청되었습니다."
+                    title="결제 요청",
+                    message="결제가 요청되었습니다."
                 )
                 db.add(payment_notification)
                 

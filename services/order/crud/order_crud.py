@@ -30,7 +30,7 @@ NOTIFICATION_TITLES = {
     "ORDER_RECEIVED": "주문 생성",
     "PAYMENT_REQUESTED": "결제 요청",
     "PAYMENT_COMPLETED": "주문 완료",
-    "PREPARING": "상품 준비 시작",
+    "PREPARING": "상품 준비",
     "SHIPPING": "배송 시작",
     "DELIVERED": "배송 완료",
     "CANCELLED": "주문 취소",
