@@ -77,6 +77,10 @@ class KokNotificationSchema(BaseModel):
     title: str
     message: str
     created_at: datetime
+    # 추가 정보
+    order_status: Optional[str] = None  # 주문 상태 코드
+    order_status_name: Optional[str] = None  # 주문 상태명
+    product_name: Optional[str] = None  # 상품명
     
     class Config:
         from_attributes = True

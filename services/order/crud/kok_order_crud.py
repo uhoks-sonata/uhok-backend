@@ -339,11 +339,14 @@ async def get_kok_order_notifications_history(
     user_id: int, 
     limit: int = 20, 
     offset: int = 0
-) -> tuple[List[KokNotification], int]:
+) -> tuple[List[dict], int]:
     """
     사용자의 콕 상품 주문 내역 현황 알림 조회
     주문완료, 배송출발, 배송완료 알림만 조회
+    주문상태, 상품이름, NOTIFICATION_MESSAGES, 알림 날짜 포함
     """
+    from services.order.crud.order_crud import NOTIFICATION_MESSAGES
+    
     # 주문 현황 관련 상태 코드들
     order_status_codes = ["PAYMENT_COMPLETED", "SHIPPING", "DELIVERED"]
     
@@ -356,17 +359,42 @@ async def get_kok_order_notifications_history(
     )
     total_count = count_result.scalar()
     
-    # 알림 목록 조회 (주문 현황 관련 알림만)
+    # 알림 목록 조회 (주문 현황 관련 알림만) - 상품 정보와 함께
     result = await db.execute(
-        select(KokNotification)
+        select(
+            KokNotification,
+            StatusMaster.status_code,
+            StatusMaster.status_name,
+            KokProductInfo.kok_product_name
+        )
         .join(StatusMaster, KokNotification.status_id == StatusMaster.status_id)
+        .join(KokOrder, KokNotification.kok_order_id == KokOrder.kok_order_id)
+        .join(KokProductInfo, KokOrder.kok_product_id == KokProductInfo.kok_product_id)
         .where(KokNotification.user_id == user_id)
         .where(StatusMaster.status_code.in_(order_status_codes))
         .order_by(desc(KokNotification.created_at))
         .limit(limit)
         .offset(offset)
     )
-    notifications = result.scalars().all()
+    
+    # 결과를 딕셔너리로 변환하여 추가 정보 포함
+    notifications = []
+    for row in result.all():
+        notification, status_code, status_name, product_name = row
+        
+        notification_dict = {
+            "notification_id": notification.notification_id,
+            "user_id": notification.user_id,
+            "kok_order_id": notification.kok_order_id,
+            "status_id": notification.status_id,
+            "title": notification.title,
+            "message": notification.message,
+            "created_at": notification.created_at,
+            "order_status": status_code,
+            "order_status_name": status_name,
+            "product_name": product_name
+        }
+        notifications.append(notification_dict)
     
     return notifications, total_count
 

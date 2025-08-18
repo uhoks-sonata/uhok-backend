@@ -16,6 +16,7 @@ from services.order.schemas.kok_order_schema import (
     KokOrderStatusUpdate,
     KokOrderStatusResponse,
     KokOrderWithStatusResponse,
+    KokNotificationSchema,
     KokNotificationListResponse
 )
 
@@ -435,7 +436,24 @@ async def get_kok_order_notifications_history_api(
             }
         )
     
+    # 딕셔너리 리스트를 Pydantic 모델로 변환
+    notification_schemas = []
+    for notification_dict in notifications:
+        notification_schema = KokNotificationSchema(
+            notification_id=notification_dict["notification_id"],
+            user_id=notification_dict["user_id"],
+            kok_order_id=notification_dict["kok_order_id"],
+            status_id=notification_dict["status_id"],
+            title=notification_dict["title"],
+            message=notification_dict["message"],
+            created_at=notification_dict["created_at"],
+            order_status=notification_dict["order_status"],
+            order_status_name=notification_dict["order_status_name"],
+            product_name=notification_dict["product_name"]
+        )
+        notification_schemas.append(notification_schema)
+    
     return KokNotificationListResponse(
-        notifications=notifications,
+        notifications=notification_schemas,
         total_count=total_count
     )
