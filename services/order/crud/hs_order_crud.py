@@ -483,7 +483,7 @@ async def create_homeshopping_order(
             homeshopping_order_id=new_homeshopping_order.homeshopping_order_id,
             status_id=status.status_id if status else 1,  # 기본값
             title="주문이 접수되었습니다",
-            message=f"{product_name} 주문이 성공적으로 접수되었습니다."
+            message="주문이 성공적으로 접수되었습니다."
         )
         
         db.add(new_notification)
