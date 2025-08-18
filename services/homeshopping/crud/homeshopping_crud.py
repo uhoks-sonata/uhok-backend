@@ -766,6 +766,23 @@ async def get_notifications_with_filter(
         notifications = []
         
         for notification in result.scalars().all():
+            # 주문 알림인 경우 상품명 조회
+            product_name = None
+            if notification.homeshopping_order_id:
+                try:
+                    # HomeShoppingOrder와 HomeshoppingList를 조인하여 상품명 조회
+                    product_query = select(HomeshoppingList.product_name).join(
+                        HomeShoppingOrder, 
+                        HomeShoppingOrder.product_id == HomeshoppingList.product_id
+                    ).where(
+                        HomeShoppingOrder.homeshopping_order_id == notification.homeshopping_order_id
+                    )
+                    product_result = await db.execute(product_query)
+                    product_name = product_result.scalar_one_or_none()
+                except Exception as e:
+                    logger.warning(f"상품명 조회 실패: notification_id={notification.notification_id}, error={str(e)}")
+                    product_name = None
+            
             notifications.append({
                 "notification_id": notification.notification_id,
                 "user_id": notification.user_id,
@@ -777,6 +794,7 @@ async def get_notifications_with_filter(
                 "status_id": notification.status_id,
                 "title": notification.title,
                 "message": notification.message,
+                "product_name": product_name,
                 "is_read": bool(notification.is_read),
                 "created_at": notification.created_at,
                 "read_at": notification.read_at

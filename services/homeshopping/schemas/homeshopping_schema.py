@@ -271,6 +271,7 @@ class HomeshoppingNotificationResponse(BaseModel):
     status_id: Optional[int] = Field(None, description="상태 ID")
     title: str = Field(..., description="알림 제목")
     message: str = Field(..., description="알림 메시지")
+    product_name: Optional[str] = Field(None, description="상품명")
     is_read: bool = Field(..., description="읽음 여부")
     created_at: datetime = Field(..., description="생성 시각")
     read_at: Optional[datetime] = Field(None, description="읽음 처리 시각")
