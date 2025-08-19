@@ -157,23 +157,26 @@ class HomeshoppingProductDetailResponse(BaseModel):
 
 
 # -----------------------------
-# 상품 추천 관련 스키마
+# 레시피 추천 관련 스키마
 # -----------------------------
 
-class HomeshoppingProductRecommendation(BaseModel):
-    """상품 추천 정보"""
-    product_id: int
-    product_name: str
-    recommendation_type: str  # "ingredient" 또는 "recipe"
-    reason: str
+class RecipeRecommendation(BaseModel):
+    """레시피 추천 정보"""
+    recipe_id: int
+    recipe_name: str
+    cooking_time: str
+    difficulty: str
+    ingredients: List[str]
+    description: str
     
     class Config:
         from_attributes = True
 
 
-class HomeshoppingProductRecommendationsResponse(BaseModel):
-    """상품 추천 응답"""
-    recommendations: List[HomeshoppingProductRecommendation] = Field(default_factory=list)
+class RecipeRecommendationsResponse(BaseModel):
+    """레시피 추천 응답"""
+    recipes: List[RecipeRecommendation] = Field(default_factory=list)
+    is_ingredient: bool
 
 
 # -----------------------------
