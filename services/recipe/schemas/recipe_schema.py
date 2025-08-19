@@ -100,6 +100,8 @@ class RecipeByIngredientsListResponse(BaseModel):
     recipes: List[RecipeByIngredientsResponse]
     page: int
     total: int
+    combination_number: int = Field(..., description="현재 조합 번호 (1, 2, 3)")
+    has_more_combinations: bool = Field(..., description="더 많은 조합이 있는지 여부")
 
 # -----------------------------
 # 별점 스키마

@@ -63,19 +63,19 @@ async def get_recipe_detail(db: AsyncSession, recipe_id: int) -> Optional[Dict]:
 async def recommend_recipes_by_ingredients(
     db: AsyncSession,
     ingredients: List[str],
-    amounts: Optional[List[float]] = None,
-    units: Optional[List[str]] = None,
+    amounts: List[float],
+    units: List[str],
     page: int = 1,
     size: int = 10
 ) -> Tuple[List[Dict], int]:
     """
     재료명, 분량, 단위 기반 레시피 추천 (matched_ingredient_count 포함)
-    - 소진횟수 파라미터 없이 동작
+    - amount와 unit은 필수 파라미터
     - 페이지네이션(page, size)과 전체 개수(total) 반환
-    - 순차적 재고 소진 알고리즘 적용 (amount/unit이 있는 경우)
+    - 순차적 재고 소진 알고리즘 적용
     - 효율적인 DB 쿼리로 타임아웃 방지
     """
-    logger.info(f"재료 기반 레시피 추천 시작: 재료={ingredients}, 페이지={page}, 크기={size}")
+    logger.info(f"재료 기반 레시피 추천 시작: 재료={ingredients}, 분량={amounts}, 단위={units}, 페이지={page}, 크기={size}")
     
     # 기본 쿼리 (인기순)
     base_stmt = (
@@ -86,86 +86,138 @@ async def recommend_recipes_by_ingredients(
         .order_by(desc(Recipe.scrap_count))
     )
     
-    # 1. amount/unit이 없으면 단순 재료 포함 레시피 반환 (DB 레벨 페이지네이션)
-    if not amounts or not units:
-        logger.info("단순 재료 포함 레시피 추천 모드")
-        
-        # total 계산: DISTINCT 레시피 개수
-        total_stmt = (
-            select(func.count(func.distinct(Recipe.recipe_id)))
-            .join(Material, Recipe.recipe_id == Material.recipe_id)
-            .where(Material.material_name.in_(ingredients))
-        )
-        total = (await db.execute(total_stmt)).scalar() or 0
-        logger.info(f"전체 레시피 개수: {total}")
-        
-        # 페이지네이션 적용하여 데이터 조회
-        offset = (page - 1) * size
-        page_stmt = base_stmt.offset(offset).limit(size)
-        page_result = await db.execute(page_stmt)
-        page_recipes = page_result.scalars().unique().all()
-        logger.info(f"현재 페이지 레시피 개수: {len(page_recipes)}")
-        
-        # 해당 페이지 레시피에 대해서만 재료 집계와 결과 구성
-        recipe_materials_map = {}
-        for recipe in page_recipes:
-            mats_stmt = select(Material).where(Material.recipe_id == recipe.recipe_id)  # type: ignore
-            mats = (await db.execute(mats_stmt)).scalars().all()
-            recipe_materials_map[recipe.recipe_id] = mats
-        
-        filtered = []
-        for r in page_recipes:
-            matched_count = len(set(ingredients) & {m.material_name for m in recipe_materials_map.get(r.recipe_id, [])})
-            
-            # 사용된 재료 정보 구성
-            used_ingredients = []
-            for mat in recipe_materials_map.get(r.recipe_id, []):
-                if mat.material_name in ingredients:
-                    # measure_amount를 float로 변환
-                    try:
-                        measure_amount = float(mat.measure_amount) if mat.measure_amount is not None else None
-                    except (ValueError, TypeError):
-                        measure_amount = None
-                    
-                    used_ingredients.append({
-                        "material_name": mat.material_name,
-                        "measure_amount": measure_amount,
-                        "measure_unit": mat.measure_unit
-                    })
-            
-            recipe_dict = {
-                "recipe_id": r.recipe_id,
-                "recipe_title": r.recipe_title,
-                "cooking_name": r.cooking_name,
-                "scrap_count": r.scrap_count,
-                "cooking_case_name": r.cooking_case_name,
-                "cooking_category_name": r.cooking_category_name,
-                "cooking_introduction": r.cooking_introduction,
-                "number_of_serving": r.number_of_serving,
-                "thumbnail_url": r.thumbnail_url,
-                "recipe_url": get_recipe_url(r.recipe_id),
-                "matched_ingredient_count": matched_count,
-                "total_ingredients_count": len(recipe_materials_map.get(r.recipe_id, [])),  # 레시피 전체 재료 개수
-                "used_ingredients": used_ingredients
-            }
-            filtered.append(recipe_dict)
-            logger.info(f"레시피 {r.recipe_id} ({r.cooking_name}) 추가됨, matched_count: {matched_count}, used_ingredients: {len(used_ingredients)}개")
-        return filtered, total
-    
-    # 2. amount/unit 모두 있으면, 순차적 재고 소진 알고리즘 적용
+    # 순차적 재고 소진 알고리즘 적용
     logger.info("순차적 재고 소진 알고리즘 모드")
+    
+    return await execute_standard_inventory_algorithm(
+        db, base_stmt, ingredients, amounts, units, page, size
+    )
+
+async def recommend_recipes_combination_1(
+    db: AsyncSession,
+    ingredients: List[str],
+    amounts: Optional[List[float]] = None,
+    units: Optional[List[str]] = None,
+    page: int = 1,
+    size: int = 10
+) -> Tuple[List[Dict], int]:
+    """
+    1조합: 전체 레시피 풀에서 가장 많은 재료 사용하는 순으로 선택
+    """
+    logger.info(f"1조합 레시피 추천 시작: 재료={ingredients}, 분량={amounts}, 단위={units}")
+    
+    # 전체 레시피 풀 사용 (인기순 정렬)
+    base_stmt = (
+        select(Recipe)
+        .join(Material, Recipe.recipe_id == Material.recipe_id)
+        .where(Material.material_name.in_(ingredients))
+        .group_by(Recipe.recipe_id)
+        .order_by(desc(Recipe.scrap_count))  # 인기순 정렬
+    )
+    
+    return await execute_standard_inventory_algorithm(
+        db, base_stmt, ingredients, amounts, units, page, size
+    )
+
+async def recommend_recipes_combination_2(
+    db: AsyncSession,
+    ingredients: List[str],
+    amounts: Optional[List[float]] = None,
+    units: Optional[List[str]] = None,
+    page: int = 1,
+    size: int = 10,
+    exclude_recipe_ids: List[int] = None
+) -> Tuple[List[Dict], int]:
+    """
+    2조합: 1조합에서 사용된 레시피를 제외한 나머지 레시피 풀에서 선택
+    """
+    logger.info(f"2조합 레시피 추천 시작: 재료={ingredients}, 제외할 레시피={exclude_recipe_ids}")
+    
+    # 1조합에서 사용된 레시피를 제외한 레시피 풀
+    base_stmt = (
+        select(Recipe)
+        .join(Material, Recipe.recipe_id == Material.recipe_id)
+        .where(Material.material_name.in_(ingredients))
+        .group_by(Recipe.recipe_id)
+        .order_by(desc(Recipe.scrap_count))  # 인기순 정렬
+    )
+    
+    # 제외할 레시피가 있으면 쿼리에 추가
+    if exclude_recipe_ids:
+        base_stmt = base_stmt.where(Recipe.recipe_id.notin_(exclude_recipe_ids))
+        logger.info(f"제외할 레시피 ID: {exclude_recipe_ids}")
+    
+    return await execute_standard_inventory_algorithm(
+        db, base_stmt, ingredients, amounts, units, page, size
+    )
+
+async def recommend_recipes_combination_3(
+    db: AsyncSession,
+    ingredients: List[str],
+    amounts: Optional[List[float]] = None,
+    units: Optional[List[str]] = None,
+    page: int = 1,
+    size: int = 10,
+    exclude_recipe_ids: List[int] = None
+) -> Tuple[List[Dict], int]:
+    """
+    3조합: 1조합, 2조합에서 사용된 레시피를 제외한 나머지 레시피 풀에서 선택
+    """
+    logger.info(f"3조합 레시피 추천 시작: 재료={ingredients}, 제외할 레시피={exclude_recipe_ids}")
+    
+    # 1조합, 2조합에서 사용된 레시피를 제외한 레시피 풀
+    base_stmt = (
+        select(Recipe)
+        .join(Material, Recipe.recipe_id == Material.recipe_id)
+        .where(Material.material_name.in_(ingredients))
+        .group_by(Recipe.recipe_id)
+        .order_by(desc(Recipe.scrap_count))  # 인기순 정렬
+    )
+    
+    # 제외할 레시피가 있으면 쿼리에 추가
+    if exclude_recipe_ids:
+        base_stmt = base_stmt.where(Recipe.recipe_id.notin_(exclude_recipe_ids))
+        logger.info(f"제외할 레시피 ID: {exclude_recipe_ids}")
+    
+    return await execute_standard_inventory_algorithm(
+        db, base_stmt, ingredients, amounts, units, page, size
+    )
+
+async def execute_standard_inventory_algorithm(
+    db: AsyncSession,
+    base_stmt,
+    ingredients: List[str],
+    amounts: Optional[List[float]] = None,
+    units: Optional[List[str]] = None,
+    page: int = 1,
+    size: int = 10
+) -> Tuple[List[Dict], int]:
+    """
+    모든 조합에서 공통으로 사용하는 표준 재고 소진 알고리즘
+    - 후보 레시피는 이미 정렬되어 있음 (인기순/난이도순/시간순)
+    - 선택 로직은 "가장 많은 재료 사용하는 순"으로 동일
+    """
+    logger.info(f"표준 재고 소진 알고리즘 실행: 페이지={page}, 크기={size}")
     
     # 2-1. 초기 재고 설정
     initial_ingredients = []
     for i in range(len(ingredients)):
         try:
-            amount = float(amounts[i]) if amounts[i] is not None else 0
+            # amounts가 제공된 경우 사용, 아니면 기본값 1
+            if amounts and i < len(amounts):
+                amount = float(amounts[i])
+            else:
+                amount = 1.0
         except (ValueError, TypeError):
-            amount = 0
+            amount = 1.0
+        
+        # units가 제공된 경우 사용, 아니면 빈 문자열
+        unit = units[i] if units and i < len(units) else ""
+        
         initial_ingredients.append({
             'name': ingredients[i],
             'amount': amount,
-            'unit': units[i] if units[i] else ''
+            'unit': unit
         })
     
     # 2-2. 전체 후보 레시피를 한 번에 조회 (페이지네이션을 위해)
@@ -221,7 +273,6 @@ async def recommend_recipes_by_ingredients(
         logger.info(f"DataFrame 생성 완료: {len(recipe_df)}행")
     except Exception as e:
         logger.error(f"DataFrame 생성 실패: {e}")
-        # ⬇️ 버그 수정: 정의되지 않은 remaining_stock 반환하지 않도록 수정
         return [], 0
     
     # 2-5. 순차적 재고 소진 알고리즘 실행 (요청 페이지의 끝까지 생성하면 조기 중단)

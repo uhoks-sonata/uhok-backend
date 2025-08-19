@@ -21,6 +21,9 @@ from services.recipe.crud.recipe_crud import (
     get_recipe_detail,
     get_recipe_url,
     recommend_recipes_by_ingredients,
+    recommend_recipes_combination_1,
+    recommend_recipes_combination_2,
+    recommend_recipes_combination_3,
     recommend_by_recipe_pgvector,
     get_recipe_rating,
     set_recipe_rating,
@@ -39,6 +42,7 @@ from common.dependencies import get_current_user
 from services.user.schemas.user_schema import UserOut
 from common.log_utils import send_user_log
 from common.logger import get_logger
+from services.recipe.combination_tracker import combination_tracker
 
 # 로거 초기화
 logger = get_logger("recipe_router")
@@ -48,8 +52,8 @@ router = APIRouter(prefix="/api/recipes", tags=["Recipe"])
 @router.get("/by-ingredients", response_model=RecipeByIngredientsListResponse)
 async def by_ingredients(
     ingredient: List[str] = Query(..., min_length=3, description="식재료 리스트 (최소 3개)"),
-    amount: Optional[List[float]] = Query(None, description="각 재료별 분량(옵션)"),
-    unit: Optional[List[str]] = Query(None, description="각 재료별 단위(옵션)"),
+    amount: Optional[List[float]] = Query(None, description="각 재료별 분량 (amount 또는 unit 중 하나는 필수)"),
+    unit: Optional[List[str]] = Query(None, description="각 재료별 단위 (amount 또는 unit 중 하나는 필수)"),
     page: int = Query(1, ge=1, description="페이지 번호 (1부터 시작)"),
     size: int = Query(5, ge=1, le=50, description="페이지당 결과 개수"),
     current_user = Depends(get_current_user),
@@ -57,24 +61,75 @@ async def by_ingredients(
     db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    재료/분량/단위 기반 레시피 추천 (페이지네이션)
-    - matched_ingredient_count 포함
-    - 응답: recipes(추천 목록), page(현재 페이지), total(전체 결과 개수)
+    페이지별로 다른 조합을 생성하여 반환
+    - 1페이지: 1조합 (전체 레시피 풀)
+    - 2페이지: 2조합 (1조합 제외한 레시피 풀)
+    - 3페이지: 3조합 (1조합, 2조합 제외한 레시피 풀)
     """
-    logger.info(f"재료 기반 레시피 추천 API 호출: user_id={current_user.user_id}, 재료={ingredient}, 페이지={page}, 크기={size}")
+    logger.info(f"재료 기반 레시피 추천 API 호출: user_id={current_user.user_id}, 재료={ingredient}, 분량={amount}, 단위={unit}, 페이지={page}, 크기={size}")
     
-    # amount/unit 길이 체크
-    if (amount and len(amount) != len(ingredient)) or (unit and len(unit) != len(ingredient)):
-        logger.warning(f"파라미터 길이 불일치: ingredient={len(ingredient)}, amount={len(amount) if amount else 0}, unit={len(unit) if unit else 0}")
+    # amount 또는 unit 중 하나는 필수
+    if amount is None and unit is None:
+        logger.warning("amount와 unit 모두 제공되지 않음")
         from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail="amount, unit 파라미터 개수가 ingredient와 일치해야 합니다.")
+        raise HTTPException(status_code=400, detail="amount 또는 unit 중 하나는 반드시 제공해야 합니다.")
     
-    # 추천 결과 + 전체 개수 반환
-    recipes, total = await recommend_recipes_by_ingredients(
-        db, ingredient, amount, unit, page=page, size=size
+    # amount가 제공된 경우 길이 체크
+    if amount is not None and len(amount) != len(ingredient):
+        logger.warning(f"amount 길이 불일치: ingredient={len(ingredient)}, amount={len(amount)}")
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="amount 파라미터 개수가 ingredient와 일치해야 합니다.")
+    
+    # unit이 제공된 경우 길이 체크
+    if unit is not None and len(unit) != len(ingredient):
+        logger.warning(f"unit 길이 불일치: ingredient={len(ingredient)}, unit={len(unit)}")
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="unit 파라미터 개수가 ingredient와 일치해야 합니다.")
+    
+    # 페이지별 조합 번호 결정
+    combination_number = page
+    
+    # 재료 정보 해시 생성 (amount 또는 unit이 None인 경우 기본값 사용)
+    amounts_for_hash = amount if amount is not None else [1.0] * len(ingredient)
+    units_for_hash = unit if unit is not None else [""] * len(ingredient)
+    ingredients_hash = combination_tracker.generate_ingredients_hash(ingredient, amounts_for_hash, units_for_hash)
+    
+    # 이전 조합들에서 사용된 레시피 ID들 조회
+    excluded_recipe_ids = combination_tracker.get_excluded_recipe_ids(
+        current_user.user_id, ingredients_hash, combination_number
     )
     
-    logger.info(f"재료 기반 레시피 추천 완료: 총 {total}개, 현재 페이지 {len(recipes)}개")
+    # 조합별 레시피 추천
+    if combination_number == 1:
+        recipes, total = await recommend_recipes_combination_1(
+            db, ingredient, amount, unit, 1, size
+        )
+    elif combination_number == 2:
+        recipes, total = await recommend_recipes_combination_2(
+            db, ingredient, amount, unit, 1, size, excluded_recipe_ids
+        )
+    elif combination_number == 3:
+        recipes, total = await recommend_recipes_combination_3(
+            db, ingredient, amount, unit, 1, size, excluded_recipe_ids
+        )
+    else:
+        # 3페이지 이상은 빈 결과 반환
+        return {
+            "recipes": [],
+            "page": page,
+            "total": 0,
+            "combination_number": combination_number,
+            "has_more_combinations": False
+        }
+    
+    # 사용된 레시피 ID들을 추적 시스템에 저장
+    if recipes:
+        used_recipe_ids = [recipe["recipe_id"] for recipe in recipes]
+        combination_tracker.track_used_recipes(
+            current_user.user_id, ingredients_hash, combination_number, used_recipe_ids
+        )
+    
+    logger.info(f"조합 {combination_number} 레시피 추천 완료: 총 {total}개, 현재 페이지 {len(recipes)}개")
     
     # 재료 기반 레시피 검색 로그 기록
     if background_tasks:
@@ -88,15 +143,81 @@ async def by_ingredients(
                 "unit": unit,
                 "page": page,
                 "size": size,
-                "total_results": total
+                "total_results": total,
+                "combination_number": combination_number
             }
         )
     
     return {
         "recipes": recipes,
         "page": page,
-        "total": total
+        "total": total,
+        "combination_number": combination_number,
+        "has_more_combinations": combination_number < 3
     }
+
+
+@router.get("/by-ingredients/combinations/info")
+async def get_combinations_info(
+    ingredient: List[str] = Query(..., min_length=3, description="식재료 리스트 (최소 3개)"),
+    amount: Optional[List[float]] = Query(None, description="각 재료별 분량 (amount 또는 unit 중 하나는 필수)"),
+    unit: Optional[List[str]] = Query(None, description="각 재료별 단위 (amount 또는 unit 중 하나는 필수)"),
+    current_user = Depends(get_current_user)
+):
+    """
+    사용자의 재료 조합에 대한 조합 정보 조회
+    - 각 조합에서 사용된 레시피 정보 제공
+    """
+    # amount 또는 unit 중 하나는 필수
+    if amount is None and unit is None:
+        logger.warning("amount와 unit 모두 제공되지 않음")
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="amount 또는 unit 중 하나는 반드시 제공해야 합니다.")
+    
+    # 재료 정보 해시 생성 (amount 또는 unit이 None인 경우 기본값 사용)
+    amounts_for_hash = amount if amount is not None else [1.0] * len(ingredient)
+    units_for_hash = unit if unit is not None else [""] * len(ingredient)
+    ingredients_hash = combination_tracker.generate_ingredients_hash(ingredient, amounts_for_hash, units_for_hash)
+    
+    # 조합 정보 조회
+    combination_info = combination_tracker.get_combination_info(
+        current_user.user_id, ingredients_hash
+    )
+    
+    return {
+        "ingredients_hash": ingredients_hash,
+        "combinations": combination_info,
+        "total_combinations": len([k for k in combination_info.keys() if k.startswith('combo_')])
+    }
+
+
+@router.delete("/by-ingredients/combinations/clear")
+async def clear_combinations(
+    ingredient: List[str] = Query(..., min_length=3, description="식재료 리스트 (최소 3개)"),
+    amount: Optional[List[float]] = Query(None, description="각 재료별 분량 (amount 또는 unit 중 하나는 필수)"),
+    unit: Optional[List[str]] = Query(None, description="각 재료별 단위 (amount 또는 unit 중 하나는 필수)"),
+    current_user = Depends(get_current_user)
+):
+    """
+    사용자의 특정 재료 조합에 대한 추적 데이터 삭제
+    """
+    # amount 또는 unit 중 하나는 필수
+    if amount is None and unit is None:
+        logger.warning("amount와 unit 모두 제공되지 않음")
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="amount 또는 unit 중 하나는 반드시 제공해야 합니다.")
+    
+    # 재료 정보 해시 생성 (amount 또는 unit이 None인 경우 기본값 사용)
+    amounts_for_hash = amount if amount is not None else [1.0] * len(ingredient)
+    units_for_hash = unit if unit is not None else [""] * len(ingredient)
+    ingredients_hash = combination_tracker.generate_ingredients_hash(ingredient, amounts_for_hash, units_for_hash)
+    
+    # 추적 데이터 삭제
+    combination_tracker.clear_user_combinations(
+        current_user.user_id, ingredients_hash
+    )
+    
+    return {"message": "조합 추적 데이터가 삭제되었습니다."}
 
 
 @router.get("/search")
