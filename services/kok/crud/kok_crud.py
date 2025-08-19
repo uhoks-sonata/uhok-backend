@@ -1066,58 +1066,63 @@ async def search_kok_products(
     """
     키워드로 콕 상품 검색
     """
-    logger.info(f"상품 검색 시작: keyword='{keyword}', page={page}, size={size}")
-    offset = (page - 1) * size
-    
-    # 검색 쿼리
-    stmt = (
-        select(KokProductInfo, KokPriceInfo)
-        .join(KokProductInfo, KokPriceInfo.kok_product_id == KokPriceInfo.kok_product_id, isouter=True)
-        .where(
-            KokProductInfo.kok_product_name.ilike(f"%{keyword}%") |
-            KokProductInfo.kok_store_name.ilike(f"%{keyword}%")
-        )
-        .order_by(KokProductInfo.kok_product_id.desc())
-        .offset(offset)
-        .limit(size)
-    )
-    
-    results = (await db.execute(stmt)).all()
-    
-    # 총 개수 조회
-    count_stmt = (
-        select(func.count(KokProductInfo.kok_product_id))
-        .where(
-            KokProductInfo.kok_product_name.ilike(f"%{keyword}%") |
-            KokProductInfo.kok_store_name.ilike(f"%{keyword}%")
-        )
-    )
-    total = (await db.execute(count_stmt)).scalar()
-    
-    # 결과 변환
-    products = []
-    for product, price in results:
-        # 할인 적용 가격 계산
-        discounted_price = product.kok_product_price
-        discount_rate = 0
-        if price and price.kok_discount_rate and price.kok_discount_rate > 0:
-            discount_rate = price.kok_discount_rate
-            discounted_price = int(product.kok_product_price * (1 - price.kok_discount_rate / 100))
+    try:
+        logger.info(f"상품 검색 시작: keyword='{keyword}', page={page}, size={size}")
+        offset = (page - 1) * size
         
-        products.append({
-            "kok_product_id": product.kok_product_id,
-            "kok_product_name": product.kok_product_name,
-            "kok_store_name": product.kok_store_name,
-            "kok_thumbnail": product.kok_thumbnail,
-            "kok_product_price": product.kok_product_price,
-            "kok_discount_rate": discount_rate,
-            "kok_discounted_price": discounted_price,
-            "kok_review_cnt": product.kok_review_cnt,
-            "kok_review_score": product.kok_review_score,
-        })
-    
-    logger.info(f"상품 검색 완료: keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
-    return products, total
+        # 검색 쿼리
+        stmt = (
+            select(KokProductInfo, KokPriceInfo)
+            .join(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id, isouter=True)
+            .where(
+                KokProductInfo.kok_product_name.ilike(f"%{keyword}%") |
+                KokProductInfo.kok_store_name.ilike(f"%{keyword}%")
+            )
+            .order_by(KokProductInfo.kok_product_id.desc())
+            .offset(offset)
+            .limit(size)
+        )
+        
+        results = (await db.execute(stmt)).all()
+        
+        # 총 개수 조회
+        count_stmt = (
+            select(func.count(KokProductInfo.kok_product_id))
+            .where(
+                KokProductInfo.kok_product_name.ilike(f"%{keyword}%") |
+                KokProductInfo.kok_store_name.ilike(f"%{keyword}%")
+            )
+        )
+        total = (await db.execute(count_stmt)).scalar()
+        
+        # 결과 변환
+        products = []
+        for product, price in results:
+            # 할인 적용 가격 계산
+            discounted_price = product.kok_product_price
+            discount_rate = 0
+            if price and price.kok_discount_rate and price.kok_discount_rate > 0:
+                discount_rate = price.kok_discount_rate
+                discounted_price = int(product.kok_product_price * (1 - price.kok_discount_rate / 100))
+            
+            products.append({
+                "kok_product_id": product.kok_product_id,
+                "kok_product_name": product.kok_product_name,
+                "kok_store_name": product.kok_store_name,
+                "kok_thumbnail": product.kok_thumbnail,
+                "kok_product_price": product.kok_product_price,
+                "kok_discount_rate": discount_rate,
+                "kok_discounted_price": discounted_price,
+                "kok_review_cnt": product.kok_review_cnt,
+                "kok_review_score": product.kok_review_score,
+            })
+        
+        logger.info(f"상품 검색 완료: keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
+        return products, total
+        
+    except Exception as e:
+        logger.error(f"상품 검색 중 오류 발생: keyword='{keyword}', error={str(e)}")
+        raise Exception(f"상품 검색 중 데이터베이스 오류가 발생했습니다: {str(e)}")
 
 
 async def get_kok_search_history(
