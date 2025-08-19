@@ -270,8 +270,6 @@ async def get_kok_product_list(
             "kok_store_name": product.kok_store_name,
             "kok_thumbnail": product.kok_thumbnail,
             "kok_product_price": product.kok_product_price,
-            "kok_discount_rate": product.kok_discount_rate,
-            "kok_discounted_price": product.kok_discounted_price,
             "kok_review_cnt": product.kok_review_cnt,
             "kok_review_score": product.kok_review_score,
             "kok_5_ratio": product.kok_5_ratio,
@@ -329,16 +327,11 @@ async def get_kok_discounted_products(
     
     discounted_products = []
     for product, price_info in results:
-        # 할인 적용 가격 계산
-        discounted_price = product.kok_product_price
-        if price_info.kok_discount_rate and price_info.kok_discount_rate > 0:
-            discounted_price = int(product.kok_product_price * (1 - price_info.kok_discount_rate / 100))
-        
         discounted_products.append({
             "kok_product_id": product.kok_product_id,
             "kok_thumbnail": product.kok_thumbnail,
             "kok_discount_rate": price_info.kok_discount_rate,
-            "kok_discounted_price": discounted_price,
+            "kok_discounted_price": price_info.kok_discounted_price,
             "kok_product_name": product.kok_product_name,
             "kok_store_name": product.kok_store_name,
             "kok_review_cnt": product.kok_review_cnt,
@@ -396,18 +389,11 @@ async def get_kok_top_selling_products(
     
     top_selling_products = []
     for product, price_info in results:
-        # 할인 적용 가격 계산
-        discounted_price = product.kok_product_price
-        discount_rate = 0
-        if price_info and price_info.kok_discount_rate and price_info.kok_discount_rate > 0:
-            discount_rate = price_info.kok_discount_rate
-            discounted_price = int(product.kok_product_price * (1 - price_info.kok_discount_rate / 100))
-        
         top_selling_products.append({
             "kok_product_id": product.kok_product_id,
             "kok_thumbnail": product.kok_thumbnail,
-            "kok_discount_rate": discount_rate,
-            "kok_discounted_price": discounted_price,
+            "kok_discount_rate": price_info.kok_discount_rate if price_info else 0,
+            "kok_discounted_price": price_info.kok_discounted_price if price_info else product.kok_product_price,
             "kok_product_name": product.kok_product_name,
             "kok_store_name": product.kok_store_name,
             "kok_review_cnt": product.kok_review_cnt,
@@ -581,18 +567,11 @@ async def get_kok_store_best_items(
     
     store_best_products = []
     for product, price_info in store_results:
-        # 할인 적용 가격 계산
-        discounted_price = product.kok_product_price
-        discount_rate = 0
-        if price_info and price_info.kok_discount_rate and price_info.kok_discount_rate > 0:
-            discount_rate = price_info.kok_discount_rate
-            discounted_price = int(product.kok_product_price * (1 - price_info.kok_discount_rate / 100))
-        
         store_best_products.append({
             "kok_product_id": product.kok_product_id,
             "kok_thumbnail": product.kok_thumbnail,
-            "kok_discount_rate": discount_rate,
-            "kok_discounted_price": discounted_price,
+            "kok_discount_rate": price_info.kok_discount_rate if price_info else 0,
+            "kok_discounted_price": price_info.kok_discounted_price if price_info else product.kok_product_price,
             "kok_product_name": product.kok_product_name,
             "kok_store_name": product.kok_store_name,
             "kok_review_cnt": product.kok_review_cnt,
@@ -869,20 +848,13 @@ async def get_kok_liked_products(
     
     liked_products = []
     for like, product, price in results:
-        # 할인 적용 가격 계산
-        discounted_price = product.kok_product_price
-        discount_rate = 0
-        if price and price.kok_discount_rate and price.kok_discount_rate > 0:
-            discount_rate = price.kok_discount_rate
-            discounted_price = int(product.kok_product_price * (1 - price.kok_discount_rate / 100))
-        
         liked_products.append({
             "kok_product_id": product.kok_product_id,
             "kok_product_name": product.kok_product_name,
             "kok_thumbnail": product.kok_thumbnail,
             "kok_product_price": product.kok_product_price,
-            "kok_discount_rate": discount_rate,
-            "kok_discounted_price": discounted_price,
+            "kok_discount_rate": price.kok_discount_rate if price else 0,
+            "kok_discounted_price": price.kok_discounted_price if price else product.kok_product_price,
             "kok_store_name": product.kok_store_name,
         })
     
@@ -914,13 +886,6 @@ async def get_kok_cart_items(
     
     cart_items = []
     for cart, product, price in results:
-        # 할인 적용 가격 계산
-        discounted_price = product.kok_product_price
-        discount_rate = 0
-        if price and price.kok_discount_rate and price.kok_discount_rate > 0:
-            discount_rate = price.kok_discount_rate
-            discounted_price = int(product.kok_product_price * (1 - price.kok_discount_rate / 100))
-        
         cart_items.append({
             "kok_cart_id": cart.kok_cart_id,
             "kok_product_id": product.kok_product_id,
@@ -928,8 +893,8 @@ async def get_kok_cart_items(
             "kok_product_name": product.kok_product_name,
             "kok_thumbnail": product.kok_thumbnail,
             "kok_product_price": product.kok_product_price,
-            "kok_discount_rate": discount_rate,
-            "kok_discounted_price": discounted_price,
+            "kok_discount_rate": price.kok_discount_rate if price else 0,
+            "kok_discounted_price": price.kok_discounted_price if price else product.kok_product_price,
             "kok_store_name": product.kok_store_name,
             "kok_quantity": cart.kok_quantity,
         })
@@ -1098,21 +1063,14 @@ async def search_kok_products(
         # 결과 변환
         products = []
         for product, price in results:
-            # 할인 적용 가격 계산
-            discounted_price = product.kok_product_price
-            discount_rate = 0
-            if price and price.kok_discount_rate and price.kok_discount_rate > 0:
-                discount_rate = price.kok_discount_rate
-                discounted_price = int(product.kok_product_price * (1 - price.kok_discount_rate / 100))
-            
             products.append({
                 "kok_product_id": product.kok_product_id,
                 "kok_product_name": product.kok_product_name,
                 "kok_store_name": product.kok_store_name,
                 "kok_thumbnail": product.kok_thumbnail,
                 "kok_product_price": product.kok_product_price,
-                "kok_discount_rate": discount_rate,
-                "kok_discounted_price": discounted_price,
+                "kok_discount_rate": price.kok_discount_rate if price else 0,
+                "kok_discounted_price": price.kok_discounted_price if price else product.kok_product_price,
                 "kok_review_cnt": product.kok_review_cnt,
                 "kok_review_score": product.kok_review_score,
             })
