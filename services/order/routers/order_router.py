@@ -17,7 +17,10 @@ from services.order.schemas.order_schema import (
     PaymentConfirmV1Request,
     PaymentConfirmV1Response,
     RecentOrderItem,
-    RecentOrdersResponse
+    RecentOrdersResponse,
+    OrderGroup,
+    OrderGroupItem,
+    OrdersListResponse
 )
 from services.order.crud.order_crud import get_order_by_id, get_user_orders, calculate_order_total_price
 
@@ -31,7 +34,7 @@ from services.user.schemas.user_schema import UserOut
 router = APIRouter(prefix="/api/orders", tags=["Orders"])
 logger = get_logger("order_router")
 
-@router.get("/", response_model=List[OrderRead])
+@router.get("/", response_model=OrdersListResponse)
 async def list_orders(
     limit: int = Query(10, description="조회 개수"),
     background_tasks: BackgroundTasks = None,
@@ -39,9 +42,76 @@ async def list_orders(
     user=Depends(get_current_user)
 ):
     """
-    내 주문 리스트 (공통+서비스별 상세 포함)
+    내 주문 리스트 (order_id로 그룹화하여 표시)
     """
     order_list = await get_user_orders(db, user.user_id, limit, 0)
+    
+    # order_id별로 그룹화
+    order_groups = []
+    
+    for order in order_list:
+        # 주문 번호 생성 (예: 00020250725309)
+        order_number = f"{order['order_id']:012d}"
+        
+        # 주문 날짜 포맷팅 (예: 2025. 7. 25) - Windows 호환
+        month = order["order_time"].month
+        day = order["order_time"].day
+        order_date = f"{order['order_time'].year}. {month}. {day}"
+        
+        # 주문 상품 아이템들 수집
+        order_items = []
+        total_amount = 0
+        
+        # 콕 주문 처리
+        for kok_order in order.get("kok_orders", []):
+            item = OrderGroupItem(
+                product_name=kok_order.get("product_name", "상품명 없음"),
+                product_image=kok_order.get("product_image"),
+                price=kok_order.get("price", 0),
+                quantity=kok_order.get("quantity", 1),
+                delivery_status="배송완료",  # 실제 배송 상태로 변경 필요
+                delivery_date="7/28(월) 도착",  # 실제 도착일로 변경 필요
+                recipe_related=True,  # 콕 주문은 레시피 관련
+                recipe_title=kok_order.get("recipe_title"),
+                recipe_rating=kok_order.get("rating", 5.0),
+                recipe_scrap_count=kok_order.get("scrap_count", 5),
+                recipe_description=kok_order.get("description", "아무도 모르게 다가온 이별에 대면했을 때 또다시 혼자 가 되는 게 두려워 외면했었네 꿈에도 그리던..."),
+                ingredients_owned=3,  # 실제 보유 재료 수로 변경 필요
+                total_ingredients=8   # 실제 총 재료 수로 변경 필요
+            )
+            order_items.append(item)
+            total_amount += kok_order.get("price", 0) * kok_order.get("quantity", 1)
+        
+        # 홈쇼핑 주문 처리
+        for hs_order in order.get("homeshopping_orders", []):
+            item = OrderGroupItem(
+                product_name=hs_order.get("product_name", "상품명 없음"),
+                product_image=hs_order.get("product_image"),
+                price=hs_order.get("price", 0),
+                quantity=hs_order.get("quantity", 1),
+                delivery_status="배송완료",  # 실제 배송 상태로 변경 필요
+                delivery_date="7/28(월) 도착",  # 실제 도착일로 변경 필요
+                recipe_related=False,  # 홈쇼핑 주문은 일반 상품
+                recipe_title=None,
+                recipe_rating=None,
+                recipe_scrap_count=None,
+                recipe_description=None,
+                ingredients_owned=None,
+                total_ingredients=None
+            )
+            order_items.append(item)
+            total_amount += hs_order.get("price", 0) * hs_order.get("quantity", 1)
+        
+        # 주문 그룹 생성
+        order_group = OrderGroup(
+            order_id=order["order_id"],
+            order_number=order_number,
+            order_date=order_date,
+            total_amount=total_amount,
+            item_count=len(order_items),
+            items=order_items
+        )
+        order_groups.append(order_group)
     
     # 주문 목록 조회 로그 기록
     if background_tasks:
@@ -49,10 +119,14 @@ async def list_orders(
             send_user_log, 
             user_id=user.user_id, 
             event_type="order_list_view", 
-            event_data={"limit": limit, "order_count": len(order_list)}
+            event_data={"limit": limit, "order_count": len(order_groups)}
         )
     
-    return order_list
+    return OrdersListResponse(
+        limit=limit,
+        total_count=len(order_groups),
+        order_groups=order_groups
+    )
 
 
 @router.get("/count", response_model=OrderCountResponse)
