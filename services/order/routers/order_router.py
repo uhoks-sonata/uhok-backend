@@ -15,7 +15,9 @@ from services.order.schemas.order_schema import (
     OrderRead, 
     OrderCountResponse,
     PaymentConfirmV1Request,
-    PaymentConfirmV1Response
+    PaymentConfirmV1Response,
+    RecentOrderItem,
+    RecentOrdersResponse
 )
 from services.order.crud.order_crud import get_order_by_id, get_user_orders, calculate_order_total_price
 
@@ -78,7 +80,7 @@ async def order_count(
     
     return OrderCountResponse(order_count=count)
 
-@router.get("/recent", response_model=List[OrderRead])
+@router.get("/recent", response_model=RecentOrdersResponse)
 async def recent_orders(
     days: int = Query(7, description="최근 조회 일수 (default=7)"),
     background_tasks: BackgroundTasks = None,
@@ -86,7 +88,7 @@ async def recent_orders(
     user=Depends(get_current_user)
 ):
     """
-    최근 N일간 주문 내역 리스트 조회
+    최근 N일간 주문 내역 리스트 조회 (이미지 형태로 표시)
     """
     since = datetime.now() - timedelta(days=days)
     
@@ -99,16 +101,76 @@ async def recent_orders(
         if order["order_time"] >= since
     ]
     
+    # 이미지 형태에 맞는 데이터 변환
+    recent_order_items = []
+    
+    for order in filtered_orders:
+        # 주문 번호 생성 (예: 00020250725309)
+        order_number = f"{order['order_id']:012d}"
+        
+        # 주문 날짜 포맷팅 (예: 2025. 7. 25) - Windows 호환
+        month = order["order_time"].month
+        day = order["order_time"].day
+        order_date = f"{order['order_time'].year}. {month}. {day}"
+        
+        # 콕 주문 처리
+        for kok_order in order.get("kok_orders", []):
+            item = RecentOrderItem(
+                order_id=order["order_id"],
+                order_number=order_number,
+                order_date=order_date,
+                delivery_status="배송완료",  # 실제 배송 상태로 변경 필요
+                delivery_date="7/28(월) 도착",  # 실제 도착일로 변경 필요
+                product_name=kok_order.get("product_name", "상품명 없음"),
+                product_image=kok_order.get("product_image"),
+                price=kok_order.get("price", 0),
+                quantity=kok_order.get("quantity", 1),
+                recipe_related=True,  # 콕 주문은 레시피 관련
+                recipe_title=kok_order.get("recipe_title"),
+                recipe_rating=kok_order.get("rating", 5.0),
+                recipe_scrap_count=kok_order.get("scrap_count", 5),
+                recipe_description=kok_order.get("description", "아무도 모르게 다가온 이별에 대면했을 때 또다시 혼자 가 되는 게 두려워 외면했었네 꿈에도 그리던..."),
+                ingredients_owned=3,  # 실제 보유 재료 수로 변경 필요
+                total_ingredients=8   # 실제 총 재료 수로 변경 필요
+            )
+            recent_order_items.append(item)
+        
+        # 홈쇼핑 주문 처리
+        for hs_order in order.get("homeshopping_orders", []):
+            item = RecentOrderItem(
+                order_id=order["order_id"],
+                order_number=order_number,
+                order_date=order_date,
+                delivery_status="배송완료",  # 실제 배송 상태로 변경 필요
+                delivery_date="7/28(월) 도착",  # 실제 도착일로 변경 필요
+                product_name=hs_order.get("product_name", "상품명 없음"),
+                product_image=hs_order.get("product_image"),
+                price=hs_order.get("price", 0),
+                quantity=hs_order.get("quantity", 1),
+                recipe_related=False,  # 홈쇼핑 주문은 일반 상품
+                recipe_title=None,
+                recipe_rating=None,
+                recipe_scrap_count=None,
+                recipe_description=None,
+                ingredients_owned=None,
+                total_ingredients=None
+            )
+            recent_order_items.append(item)
+    
     # 최근 주문 조회 로그 기록
     if background_tasks:
         background_tasks.add_task(
             send_user_log, 
             user_id=user.user_id, 
             event_type="recent_orders_view", 
-            event_data={"days": days, "order_count": len(filtered_orders)}
+            event_data={"days": days, "order_count": len(recent_order_items)}
         )
     
-    return filtered_orders
+    return RecentOrdersResponse(
+        days=days,
+        order_count=len(recent_order_items),
+        orders=recent_order_items
+    )
 
 
 @router.get("/{order_id}", response_model=OrderRead)
