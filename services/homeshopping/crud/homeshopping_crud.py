@@ -362,58 +362,97 @@ async def get_homeshopping_product_detail(
 
 
 # -----------------------------
-# 상품 추천 관련 CRUD 함수
+# 상품 분류 및 추천 관련 CRUD 함수
 # -----------------------------
 
-async def get_homeshopping_product_recommendations(
+async def get_homeshopping_classify_cls_ing(
+    db: AsyncSession,
+    product_id: int
+) -> Optional[int]:
+    """
+    HOMESHOPPING_CLASSIFY 테이블에서 CLS_ING 값 조회
+    """
+    logger.info(f"홈쇼핑 상품 분류 CLS_ING 조회 시작: product_id={product_id}")
+    
+    try:
+        # HOMESHOPPING_CLASSIFY 테이블에서 CLS_ING 값 조회
+        # TODO: 실제 테이블명과 컬럼명 확인 필요
+        # 현재는 더미 로직으로 구현 (실제 테이블 연동 시 수정 필요)
+        stmt = select("CLS_ING").select_from("HOMESHOPPING_CLASSIFY").where("PRODUCT_ID" == product_id)
+        result = await db.execute(stmt)
+        cls_ing = result.scalar_one_or_none()
+        
+        # TODO: 실제 테이블 연동 시 아래 더미 로직 제거
+        if cls_ing is None:
+            # 임시로 상품명 기반으로 판단 (실제 구현 시 제거)
+            product_stmt = select(HomeshoppingList.product_name).where(HomeshoppingList.product_id == product_id)
+            product_result = await db.execute(product_stmt)
+            product_name = product_result.scalar_one_or_none()
+            
+            if product_name:
+                # 간단한 키워드 기반 판별 (실제 구현 시 제거)
+                ingredient_keywords = ["고기", "채소", "과일", "생선", "해산물", "곡물", "견과류", "계란", "우유", "치즈"]
+                cls_ing = 1 if any(keyword in product_name for keyword in ingredient_keywords) else 0
+            else:
+                cls_ing = 0  # 기본값
+        
+        logger.info(f"홈쇼핑 상품 분류 CLS_ING 조회 완료: product_id={product_id}, cls_ing={cls_ing}")
+        return cls_ing
+        
+    except Exception as e:
+        logger.error(f"홈쇼핑 상품 분류 CLS_ING 조회 실패: product_id={product_id}, error={str(e)}")
+        # 에러 발생 시 기본값 0(완제품) 반환
+        return 0
+
+
+async def get_recipe_recommendations_for_ingredient(
     db: AsyncSession,
     product_id: int
 ) -> List[dict]:
     """
-    홈쇼핑 상품 추천 조회
+    식재료에 대한 레시피 추천 조회
     """
-    logger.info(f"홈쇼핑 상품 추천 조회 시작: product_id={product_id}")
+    logger.info(f"식재료 레시피 추천 조회 시작: product_id={product_id}")
     
-    # 상품 정보 조회
-    stmt = select(HomeshoppingList).where(HomeshoppingList.product_id == product_id)
-    result = await db.execute(stmt)
-    product = result.scalar_one_or_none()
-    
-    if not product:
-        logger.warning(f"상품을 찾을 수 없음: product_id={product_id}")
+    try:
+        # TODO: 레시피 서비스와 연동하여 실제 레시피 추천 로직 구현
+        # 현재는 더미 데이터 반환
+        
+        # 상품명 조회
+        stmt = select(HomeshoppingList.product_name).where(HomeshoppingList.product_id == product_id)
+        result = await db.execute(stmt)
+        product_name = result.scalar_one_or_none()
+        
+        if not product_name:
+            logger.warning(f"상품명을 찾을 수 없음: product_id={product_id}")
+            return []
+        
+        # 더미 레시피 추천 데이터
+        recipes = [
+            {
+                "recipe_id": 1001,
+                "recipe_name": f"{product_name}을 활용한 간단 요리",
+                "cooking_time": "20분",
+                "difficulty": "초급",
+                "ingredients": [product_name, "양념", "기타 재료"],
+                "description": f"{product_name}을 활용한 맛있는 요리 레시피입니다."
+            },
+            {
+                "recipe_id": 1002,
+                "recipe_name": f"{product_name} 요리의 모든 것",
+                "cooking_time": "30분",
+                "difficulty": "중급",
+                "ingredients": [product_name, "고급 양념", "부재료"],
+                "description": f"{product_name}의 진가를 살리는 고급 요리 레시피입니다."
+            }
+        ]
+        
+        logger.info(f"식재료 레시피 추천 조회 완료: product_id={product_id}, 레시피 수={len(recipes)}")
+        return recipes
+        
+    except Exception as e:
+        logger.error(f"식재료 레시피 추천 조회 실패: product_id={product_id}, error={str(e)}")
         return []
-    
-    # 상품명에서 식재료 여부 판단 (간단한 키워드 기반)
-    product_name = product.product_name.lower()
-    ingredient_keywords = [
-        "고기", "채소", "과일", "생선", "해산물", "곡물", "견과류", "계란", "우유", "치즈",
-        "고추", "마늘", "양파", "당근", "감자", "고구마", "쌀", "밀가루", "설탕", "소금"
-    ]
-    
-    is_ingredient = any(keyword in product_name for keyword in ingredient_keywords)
-    
-    recommendations = []
-    
-    if is_ingredient:
-        # 식재료인 경우 -> 어울리는 요리나 다른 식재료 추천
-        # 실제로는 레시피 DB와 연동하여 추천 로직 구현
-        recommendations.append({
-            "product_id": 1001,
-            "product_name": "고기 요리용 양념 세트",
-            "recommendation_type": "recipe",
-            "reason": "이 재료와 어울리는 양념 세트"
-        })
-    else:
-        # 완제품인 경우 -> 관련 식재료 추천
-        recommendations.append({
-            "product_id": 2001,
-            "product_name": "신선한 채소 세트",
-            "recommendation_type": "ingredient",
-            "reason": "이 상품과 함께 사용할 수 있는 신선한 재료"
-        })
-    
-    logger.info(f"홈쇼핑 상품 추천 조회 완료: product_id={product_id}, 추천 수={len(recommendations)}")
-    return recommendations
 
 
 # -----------------------------

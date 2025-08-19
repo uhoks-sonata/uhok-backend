@@ -26,8 +26,8 @@ from services.homeshopping.schemas.homeshopping_schema import (
     # 상품 상세 관련 스키마
     HomeshoppingProductDetailResponse,
     
-    # 상품 추천 관련 스키마
-    HomeshoppingProductRecommendationsResponse,
+    # 레시피 추천 관련 스키마
+    RecipeRecommendationsResponse,
     
     # 스트리밍 관련 스키마
     HomeshoppingStreamResponse,
@@ -58,8 +58,9 @@ from services.homeshopping.crud.homeshopping_crud import (
     # 상품 상세 관련 CRUD
     get_homeshopping_product_detail,
     
-    # 상품 추천 관련 CRUD
-    get_homeshopping_product_recommendations,
+    # 상품 분류 및 추천 관련 CRUD
+    get_homeshopping_classify_cls_ing,
+    get_recipe_recommendations_for_ingredient,
     
     # 스트리밍 관련 CRUD
     get_homeshopping_stream_info,
@@ -151,32 +152,57 @@ async def get_product_detail(
 # 상품 추천 관련 API
 # ================================
 
-@router.get("/product/{product_id}/recommendations", response_model=HomeshoppingProductRecommendationsResponse)
-async def get_product_recommendations(
+@router.get("/product/{product_id}/kok-recommendations")
+async def get_kok_recommendations(
         product_id: int,
         current_user: UserOut = Depends(get_current_user_optional),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    홈쇼핑 상품 추천 조회
+    홈쇼핑 상품에 대한 콕 유사 상품 추천 조회
     """
     user_id = current_user.user_id if current_user else None
-    logger.info(f"홈쇼핑 상품 추천 조회 요청: user_id={user_id}, product_id={product_id}")
+    logger.info(f"홈쇼핑 콕 유사 상품 추천 조회 요청: user_id={user_id}, product_id={product_id}")
     
-    recommendations = await get_homeshopping_product_recommendations(db, product_id)
+    # TODO: 콕 유사 상품 추천 로직 구현
+    # 현재는 빈 응답 반환
     
-    # 상품 추천 조회 로그 기록 (인증된 사용자인 경우에만)
-    if current_user and background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="homeshopping_product_recommendations_view", 
-            event_data={"product_id": product_id, "recommendations_count": len(recommendations)}
-        )
+    logger.info(f"홈쇼핑 콕 유사 상품 추천 조회 완료: user_id={user_id}, product_id={product_id}")
+    return {"kok_recommendations": []}
+
+
+@router.get("/product/{product_id}/recipe-recommendations")
+async def get_recipe_recommendations(
+        product_id: int,
+        current_user: UserOut = Depends(get_current_user_optional),
+        background_tasks: BackgroundTasks = None,
+        db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    홈쇼핑 상품에 대한 레시피 추천 조회
+    CLS_ING가 1(식재료)인 경우에만 레시피 추천
+    """
+    user_id = current_user.user_id if current_user else None
+    logger.info(f"홈쇼핑 레시피 추천 조회 요청: user_id={user_id}, product_id={product_id}")
     
-    logger.info(f"홈쇼핑 상품 추천 조회 완료: user_id={user_id}, product_id={product_id}, 추천 수={len(recommendations)}")
-    return {"recommendations": recommendations}
+    try:
+        # HOMESHOPPING_CLASSIFY 테이블에서 CLS_ING 값 확인
+        cls_ing = await get_homeshopping_classify_cls_ing(db, product_id)
+        
+        if cls_ing == 1:
+            # 식재료인 경우 - 레시피 추천
+            recipes = await get_recipe_recommendations_for_ingredient(db, product_id)
+            logger.info(f"홈쇼핑 레시피 추천 완료: product_id={product_id}, 레시피 수={len(recipes)}")
+            return {"recipes": recipes, "is_ingredient": True}
+        else:
+            # 완제품인 경우 - 레시피 추천하지 않음
+            logger.info(f"홈쇼핑 완제품으로 레시피 추천하지 않음: product_id={product_id}, cls_ing={cls_ing}")
+            return {"recipes": [], "is_ingredient": False}
+            
+    except Exception as e:
+        logger.error(f"홈쇼핑 레시피 추천 조회 실패: product_id={product_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="레시피 추천 조회 중 오류가 발생했습니다.")
 
 # ================================
 # 스트리밍 관련 API
