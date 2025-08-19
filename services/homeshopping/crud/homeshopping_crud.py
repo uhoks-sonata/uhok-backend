@@ -46,8 +46,9 @@ async def get_homeshopping_schedule(
     offset = (page - 1) * size
     
     stmt = (
-        select(HomeshoppingList, HomeshoppingInfo)
+        select(HomeshoppingList, HomeshoppingInfo, HomeshoppingProductInfo)
         .join(HomeshoppingInfo, HomeshoppingList.homeshopping_id == HomeshoppingInfo.homeshopping_id)
+        .join(HomeshoppingProductInfo, HomeshoppingList.product_id == HomeshoppingProductInfo.product_id)
         .order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.asc())
         .offset(offset)
         .limit(size)
@@ -57,7 +58,7 @@ async def get_homeshopping_schedule(
     schedules = results.all()
     
     schedule_list = []
-    for live, info in schedules:
+    for live, info, product in schedules:
         schedule_list.append({
             "live_id": live.live_id,
             "homeshopping_id": live.homeshopping_id,
@@ -69,7 +70,10 @@ async def get_homeshopping_schedule(
             "promotion_type": live.promotion_type,
             "product_id": live.product_id,
             "product_name": live.product_name,
-            "thumb_img_url": live.thumb_img_url
+            "thumb_img_url": live.thumb_img_url,
+            "original_price": product.sale_price,
+            "discounted_price": product.dc_price,
+            "discount_rate": product.dc_rate
         })
     
     logger.info(f"홈쇼핑 편성표 조회 완료: page={page}, size={size}, 결과 수={len(schedule_list)}")
