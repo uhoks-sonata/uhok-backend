@@ -67,6 +67,18 @@ class HomeshoppingProductInfo(MariaBase):
     # 홈쇼핑 라이브 목록과는 product_id로만 연결 (관계 없음)
 
 
+class HomeshoppingClassify(MariaBase):
+    """홈쇼핑 제품 분류 테이블"""
+    __tablename__ = "HOMESHOPPING_CLASSIFY"
+    
+    product_id = Column("PRODUCT_ID", BigInteger, primary_key=True, comment="홈쇼핑 제품 코드")
+    product_name = Column("PRODUCT_NAME", Text, comment="제품명")
+    cls_food = Column("CLS_FOOD", SMALLINT, comment="식품 분류")
+    cls_ing = Column("CLS_ING", SMALLINT, comment="식재료 분류")
+
+    # 홈쇼핑 라이브 목록과는 product_id로만 연결 (관계 없음)
+
+
 class HomeshoppingDetailInfo(MariaBase):
     """홈쇼핑 상세 정보 테이블"""
     __tablename__ = "FCT_HOMESHOPPING_DETAIL_INFO"
