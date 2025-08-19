@@ -10,7 +10,7 @@ from services.kok.models.kok_model import (
     KokPriceInfo, KokNotification, KokCart, KokProductInfo
 )
 from services.order.crud.order_crud import (
-    validate_user_exists, get_status_by_code,
+    get_status_by_code,
     NOTIFICATION_TITLES, NOTIFICATION_MESSAGES
 )
 

@@ -96,7 +96,12 @@ async def get_order_status(
     logger.info(f"홈쇼핑 주문 상태 조회 요청: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
     
     try:
-        # 현재 상태 조회
+        # 1. 주문 존재 여부 확인
+        order_data = await get_hs_order_with_status(db, homeshopping_order_id)
+        if not order_data:
+            raise HTTPException(status_code=404, detail="해당 홈쇼핑 주문을 찾을 수 없습니다.")
+        
+        # 2. 현재 상태 조회
         current_status = await get_hs_current_status(db, homeshopping_order_id)
         
         # 기본 상태 조회 (ORDER_RECEIVED) - 항상 조회
@@ -229,6 +234,12 @@ async def confirm_payment(
     logger.info(f"홈쇼핑 결제 확인 요청: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
     
     try:
+        # 1. 주문 존재 여부 확인
+        order_data = await get_hs_order_with_status(db, homeshopping_order_id)
+        if not order_data:
+            raise HTTPException(status_code=404, detail="해당 홈쇼핑 주문을 찾을 수 없습니다.")
+        
+        # 2. 결제 확인 처리
         payment_result = await confirm_hs_payment(db, homeshopping_order_id, current_user.user_id)
         
         # 결제 확인 로그 기록
@@ -271,6 +282,12 @@ async def start_auto_update(
     logger.info(f"홈쇼핑 자동 상태 업데이트 시작 요청: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
     
     try:
+        # 1. 주문 존재 여부 확인
+        order_data = await get_hs_order_with_status(db, homeshopping_order_id)
+        if not order_data:
+            raise HTTPException(status_code=404, detail="해당 홈쇼핑 주문을 찾을 수 없습니다.")
+        
+        # 2. 자동 업데이트 시작
         auto_update_result = await start_hs_auto_update(db, homeshopping_order_id, current_user.user_id)
         
         # 자동 업데이트 시작 로그 기록

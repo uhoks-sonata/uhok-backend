@@ -2,6 +2,7 @@
 통합 주문 조회/상세/통계 API 라우터 (콕, HomeShopping 모두 지원)
 """
 import requests
+import asyncio
 from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -175,7 +176,7 @@ async def confirm_payment_v1(
             "http://192.168.101.206:9000/pay",
             json=payment_request_data,
             headers={"Content-Type": "application/json"},
-            timeout=60  # 60초 타임아웃으로 외부 API 응답을 충분히 기다림
+            timeout=120  # 60초 → 120초(2분)로 증가하여 외부 API 응답을 충분히 기다림
         )
         
         # 외부 API 응답 확인
@@ -185,11 +186,96 @@ async def confirm_payment_v1(
         
         # 외부 API 응답 파싱
         payment_result = response.json()
-        logger.info(f"외부 결제 API 응답 수신: order_id={order_id}, response={payment_result}")
+        payment_id = payment_result.get("payment_id")
+        logger.info(f"외부 결제 API 응답 수신: order_id={order_id}, payment_id={payment_id}, response={payment_result}")
         
-        # 외부 API가 응답했으므로 이제 결제 완료 처리 진행
-        # TODO: 여기서 order_id에 해당하는 모든 하위 주문들의 상태를 PAYMENT_COMPLETED로 변경하는 로직 필요
-        # 현재는 외부 API 응답만 확인하고 성공 응답을 반환
+        # 결제 상태 확인 (폴링 방식)
+        max_retries = 30
+        retry_count = 0
+        
+        logger.info(f"결제 상태 확인 시작: payment_id={payment_id}")
+        
+        while retry_count < max_retries:
+            try:
+                status_response = requests.get(
+                    f"http://192.168.101.206:9000/payment-status/{payment_id}",
+                    timeout=30  # 10초 → 30초로 증가
+                )
+                
+                if status_response.status_code == 200:
+                    payment_status = status_response.json()
+                    logger.info(f"결제 상태 확인 결과: payment_id={payment_id}, status={payment_status['status']}, retry={retry_count}")
+                    
+                    if payment_status["status"] == "PAYMENT_COMPLETED":
+                        # 결제 완료 확인됨 - 상태 변경 진행
+                        logger.info(f"결제 완료 확인됨: payment_id={payment_id}")
+                        break
+                    elif payment_status["status"] == "PAYMENT_FAILED":
+                        logger.error(f"결제 실패: payment_id={payment_id}, status={payment_status['status']}")
+                        raise HTTPException(status_code=400, detail="결제가 실패했습니다")
+                    elif payment_status["status"] == "PENDING":
+                        # 점진적 대기 시간 증가 (10초부터 시작해서 최대 60초)
+                        wait_time = min(10 + (retry_count * 5), 60)
+                        logger.info(f"결제 처리 중: payment_id={payment_id}, retry={retry_count + 1}/{max_retries}, wait={wait_time}초")
+                        await asyncio.sleep(wait_time)
+                        retry_count += 1
+                        continue
+                    else:
+                        # 예상치 못한 상태
+                        logger.warning(f"예상치 못한 결제 상태: payment_id={payment_id}, status={payment_status['status']}")
+                        retry_count += 1
+                        continue
+                        
+                else:
+                    logger.error(f"결제 상태 확인 실패: payment_id={payment_id}, status_code={status_response.status_code}")
+                    retry_count += 1
+                    continue
+                    
+            except requests.exceptions.RequestException as e:
+                logger.error(f"결제 상태 확인 중 오류: payment_id={payment_id}, error={str(e)}")
+                retry_count += 1
+                continue
+        
+        if retry_count >= max_retries:
+            logger.error(f"결제 상태 확인 시간 초과: payment_id={payment_id}, max_retries={max_retries}")
+            raise HTTPException(status_code=408, detail="결제 상태 확인 시간 초과 (최대 30회 시도)")
+        
+        # 결제 완료 확인 후 상태 변경 진행
+        logger.info(f"결제 완료 확인됨, 상태 변경 시작: order_id={order_id}")
+        
+        # 1. 콕 주문 상태 변경
+        kok_orders = order_data.get("kok_orders", [])
+        for kok_order in kok_orders:
+            try:
+                from services.order.crud.kok_order_crud import update_kok_order_status
+                await update_kok_order_status(
+                    db=db,
+                    kok_order_id=kok_order.kok_order_id,
+                    new_status_code="PAYMENT_COMPLETED",
+                    changed_by=current_user.user_id
+                )
+                logger.info(f"콕 주문 상태 변경 완료: kok_order_id={kok_order.kok_order_id}, status=PAYMENT_COMPLETED")
+            except Exception as e:
+                logger.error(f"콕 주문 상태 변경 실패: kok_order_id={kok_order.kok_order_id}, error={str(e)}")
+                # 개별 주문 상태 변경 실패해도 전체 프로세스는 계속 진행
+        
+        # 2. 홈쇼핑 주문 상태 변경
+        homeshopping_orders = order_data.get("homeshopping_orders", [])
+        for hs_order in homeshopping_orders:
+            try:
+                from services.order.crud.hs_order_crud import update_hs_order_status
+                await update_hs_order_status(
+                    db=db,
+                    homeshopping_order_id=hs_order.homeshopping_order_id,
+                    new_status_code="PAYMENT_COMPLETED",
+                    changed_by=current_user.user_id
+                )
+                logger.info(f"홈쇼핑 주문 상태 변경 완료: homeshopping_order_id={hs_order.homeshopping_order_id}, status=PAYMENT_COMPLETED")
+            except Exception as e:
+                logger.error(f"홈쇼핑 주문 상태 변경 실패: homeshopping_order_id={hs_order.homeshopping_order_id}, error={str(e)}")
+                # 개별 주문 상태 변경 실패해도 전체 프로세스는 계속 진행
+        
+        logger.info(f"모든 하위 주문 상태 변경 완료: order_id={order_id}, kok_count={len(kok_orders)}, hs_count={len(homeshopping_orders)}")
         
         # 결제 확인 로그 기록
         if background_tasks:

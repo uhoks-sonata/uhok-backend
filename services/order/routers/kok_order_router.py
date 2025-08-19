@@ -156,12 +156,20 @@ async def get_kok_order_status(
     """
     콕 주문 현재 상태 및 변경 이력 조회 (가장 최근 이력 사용)
     """
-    # 주문과 현재 상태 조회
+    # 1. 주문 존재 여부 확인
+    kok_order_result = await db.execute(
+        select(KokOrder).where(KokOrder.kok_order_id == kok_order_id)
+    )
+    kok_order = kok_order_result.scalars().first()
+    if not kok_order:
+        raise HTTPException(status_code=404, detail="해당 콕 주문을 찾을 수 없습니다.")
+    
+    # 2. 주문과 현재 상태 조회
     order_with_status = await get_kok_order_with_current_status(db, kok_order_id)
     if not order_with_status:
-        raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+        raise HTTPException(status_code=404, detail="주문 상태 정보를 찾을 수 없습니다.")
     
-    kok_order, current_status, current_status_history = order_with_status
+    _, current_status, current_status_history = order_with_status
     
     # 사용자 권한 확인 (주문자만 조회 가능) - order 정보 명시적으로 로드
     order_result = await db.execute(
@@ -200,12 +208,20 @@ async def get_kok_order_with_status(
     """
     콕 주문과 현재 상태를 함께 조회
     """
-    # 주문과 현재 상태 조회
+    # 1. 주문 존재 여부 확인
+    kok_order_result = await db.execute(
+        select(KokOrder).where(KokOrder.kok_order_id == kok_order_id)
+    )
+    kok_order = kok_order_result.scalars().first()
+    if not kok_order:
+        raise HTTPException(status_code=404, detail="해당 콕 주문을 찾을 수 없습니다.")
+    
+    # 2. 주문과 현재 상태 조회
     order_with_status = await get_kok_order_with_current_status(db, kok_order_id)
     if not order_with_status:
-        raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+        raise HTTPException(status_code=404, detail="주문 상태 정보를 찾을 수 없습니다.")
     
-    kok_order, current_status, _ = order_with_status
+    _, current_status, _ = order_with_status
     
     # 사용자 권한 확인 - order 정보 명시적으로 로드
     order_result = await db.execute(
@@ -251,7 +267,7 @@ async def confirm_payment(
     )
     kok_order = kok_order_result.scalars().first()
     if not kok_order:
-        raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+        raise HTTPException(status_code=404, detail="해당 콕 주문을 찾을 수 없습니다.")
 
     order_result = await db.execute(select(Order).where(Order.order_id == kok_order.order_id))
     order = order_result.scalars().first()
@@ -293,13 +309,15 @@ async def confirm_payment_by_order(
     # 권한 확인
     order_result = await db.execute(select(Order).where(Order.order_id == order_id))
     order = order_result.scalars().first()
-    if not order or order.user_id != user.user_id:
+    if not order:
+        raise HTTPException(status_code=404, detail="해당 주문을 찾을 수 없습니다.")
+    if order.user_id != user.user_id:
         raise HTTPException(status_code=403, detail="해당 주문에 대한 권한이 없습니다.")
 
     kok_result = await db.execute(select(KokOrder).where(KokOrder.order_id == order_id))
     kok_orders = kok_result.scalars().all()
     if not kok_orders:
-        raise HTTPException(status_code=404, detail="해당 주문의 KokOrder가 없습니다.")
+        raise HTTPException(status_code=404, detail="해당 주문의 콕 주문 항목이 없습니다.")
 
     try:
         for ko in kok_orders:
@@ -337,7 +355,7 @@ async def start_auto_status_update_api(
         )
         kok_order = kok_order_result.scalars().first()
         if not kok_order:
-            raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+            raise HTTPException(status_code=404, detail="해당 콕 주문을 찾을 수 없습니다.")
         
         order_result = await db.execute(
             select(Order).where(Order.order_id == kok_order.order_id)

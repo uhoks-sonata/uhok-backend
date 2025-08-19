@@ -7,10 +7,6 @@ from services.order.models.order_model import (
     Order, KokOrder, HomeShoppingOrder, StatusMaster
 )
 
-# 각 주문 타입별 계산 함수 import
-from services.order.crud.kok_order_crud import calculate_kok_order_price
-from services.order.crud.hs_order_crud import calculate_homeshopping_order_price
-
 from common.database.mariadb_auth import get_maria_auth_db
 from common.logger import get_logger
 
@@ -193,6 +189,7 @@ async def calculate_order_total_price(db: AsyncSession, order_id: int) -> int:
         else:
             # order_price가 없는 경우 계산 함수 사용
             try:
+                from services.order.crud.kok_order_crud import calculate_kok_order_price
                 price_info = await calculate_kok_order_price(
                     db, 
                     kok_order.kok_price_id, 
@@ -217,6 +214,7 @@ async def calculate_order_total_price(db: AsyncSession, order_id: int) -> int:
         else:
             # order_price가 없는 경우 계산 함수 사용
             try:
+                from services.order.crud.hs_order_crud import calculate_homeshopping_order_price
                 price_info = await calculate_homeshopping_order_price(
                     db, 
                     hs_order.product_id, 
