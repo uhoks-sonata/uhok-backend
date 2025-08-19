@@ -65,30 +65,30 @@ async def list_orders(
         # 콕 주문 처리
         for kok_order in order.get("kok_orders", []):
             item = OrderGroupItem(
-                product_name=kok_order.get("product_name", "상품명 없음"),
-                product_image=kok_order.get("product_image"),
-                price=kok_order.get("price", 0),
-                quantity=kok_order.get("quantity", 1),
+                product_name=getattr(kok_order, "product_name", "상품명 없음"),
+                product_image=getattr(kok_order, "product_image", None),
+                price=getattr(kok_order, "price", 0),
+                quantity=getattr(kok_order, "quantity", 1),
                 delivery_status="배송완료",  # 실제 배송 상태로 변경 필요
                 delivery_date="7/28(월) 도착",  # 실제 도착일로 변경 필요
                 recipe_related=True,  # 콕 주문은 레시피 관련
-                recipe_title=kok_order.get("recipe_title"),
-                recipe_rating=kok_order.get("rating", 5.0),
-                recipe_scrap_count=kok_order.get("scrap_count", 5),
-                recipe_description=kok_order.get("description", "아무도 모르게 다가온 이별에 대면했을 때 또다시 혼자 가 되는 게 두려워 외면했었네 꿈에도 그리던..."),
+                recipe_title=getattr(kok_order, "recipe_title", None),
+                recipe_rating=getattr(kok_order, "rating", 5.0),
+                recipe_scrap_count=getattr(kok_order, "scrap_count", 5),
+                recipe_description=getattr(kok_order, "description", "아무도 모르게 다가온 이별에 대면했을 때 또다시 혼자 가 되는 게 두려워 외면했었네 꿈에도 그리던..."),
                 ingredients_owned=3,  # 실제 보유 재료 수로 변경 필요
                 total_ingredients=8   # 실제 총 재료 수로 변경 필요
             )
             order_items.append(item)
-            total_amount += kok_order.get("price", 0) * kok_order.get("quantity", 1)
+            total_amount += getattr(kok_order, "price", 0) * getattr(kok_order, "quantity", 1)
         
         # 홈쇼핑 주문 처리
         for hs_order in order.get("homeshopping_orders", []):
             item = OrderGroupItem(
-                product_name=hs_order.get("product_name", "상품명 없음"),
-                product_image=hs_order.get("product_image"),
-                price=hs_order.get("price", 0),
-                quantity=hs_order.get("quantity", 1),
+                product_name=getattr(hs_order, "product_name", "상품명 없음"),
+                product_image=getattr(hs_order, "product_image", None),
+                price=getattr(hs_order, "price", 0),
+                quantity=getattr(hs_order, "quantity", 1),
                 delivery_status="배송완료",  # 실제 배송 상태로 변경 필요
                 delivery_date="7/28(월) 도착",  # 실제 도착일로 변경 필요
                 recipe_related=False,  # 홈쇼핑 주문은 일반 상품
@@ -100,7 +100,7 @@ async def list_orders(
                 total_ingredients=None
             )
             order_items.append(item)
-            total_amount += hs_order.get("price", 0) * hs_order.get("quantity", 1)
+            total_amount += getattr(hs_order, "price", 0) * getattr(hs_order, "quantity", 1)
         
         # 주문 그룹 생성
         order_group = OrderGroup(
@@ -195,15 +195,15 @@ async def recent_orders(
                 order_date=order_date,
                 delivery_status="배송완료",  # 실제 배송 상태로 변경 필요
                 delivery_date="7/28(월) 도착",  # 실제 도착일로 변경 필요
-                product_name=kok_order.get("product_name", "상품명 없음"),
-                product_image=kok_order.get("product_image"),
-                price=kok_order.get("price", 0),
-                quantity=kok_order.get("quantity", 1),
+                product_name=getattr(kok_order, "product_name", "상품명 없음"),
+                product_image=getattr(kok_order, "product_image", None),
+                price=getattr(kok_order, "price", 0),
+                quantity=getattr(kok_order, "quantity", 1),
                 recipe_related=True,  # 콕 주문은 레시피 관련
-                recipe_title=kok_order.get("recipe_title"),
-                recipe_rating=kok_order.get("rating", 5.0),
-                recipe_scrap_count=kok_order.get("scrap_count", 5),
-                recipe_description=kok_order.get("description", "아무도 모르게 다가온 이별에 대면했을 때 또다시 혼자 가 되는 게 두려워 외면했었네 꿈에도 그리던..."),
+                recipe_title=getattr(kok_order, "recipe_title", None),
+                recipe_rating=getattr(kok_order, "rating", 5.0),
+                recipe_scrap_count=getattr(kok_order, "scrap_count", 5),
+                recipe_description=getattr(kok_order, "description", "아무도 모르게 다가온 이별에 대면했을 때 또다시 혼자 가 되는 게 두려워 외면했었네 꿈에도 그리던..."),
                 ingredients_owned=3,  # 실제 보유 재료 수로 변경 필요
                 total_ingredients=8   # 실제 총 재료 수로 변경 필요
             )
@@ -217,10 +217,10 @@ async def recent_orders(
                 order_date=order_date,
                 delivery_status="배송완료",  # 실제 배송 상태로 변경 필요
                 delivery_date="7/28(월) 도착",  # 실제 도착일로 변경 필요
-                product_name=hs_order.get("product_name", "상품명 없음"),
-                product_image=hs_order.get("product_image"),
-                price=hs_order.get("price", 0),
-                quantity=hs_order.get("quantity", 1),
+                product_name=getattr(hs_order, "product_name", "상품명 없음"),
+                product_image=getattr(hs_order, "product_image", None),
+                price=getattr(hs_order, "price", 0),
+                quantity=getattr(hs_order, "quantity", 1),
                 recipe_related=False,  # 홈쇼핑 주문은 일반 상품
                 recipe_title=None,
                 recipe_rating=None,
