@@ -368,38 +368,46 @@ async def search_products(
     """
     키워드 기반으로 콕 쇼핑몰 내에 있는 상품을 검색
     """
-    current_user = await get_current_user_optional(request)
-    user_id = current_user.user_id if current_user else None
-    logger.info(f"상품 검색 요청: user_id={user_id}, keyword='{keyword}', page={page}, size={size}")
-    
-    products, total = await search_kok_products(db, keyword, page, size)
-    
-    logger.info(f"상품 검색 완료: user_id={user_id}, keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
-    
-    # 인증된 사용자의 경우에만 로그 기록과 검색 기록 저장
-    if current_user and background_tasks:
-        # 검색 로그 기록
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="product_search", 
-            event_data={"keyword": keyword, "result_count": len(products)}
-        )
+    try:
+        current_user = await get_current_user_optional(request)
+        user_id = current_user.user_id if current_user else None
+        logger.info(f"상품 검색 요청: user_id={user_id}, keyword='{keyword}', page={page}, size={size}")
         
-        # 검색 기록 저장
-        background_tasks.add_task(
-            add_kok_search_history,
-            db=db,
-            user_id=current_user.user_id,
-            keyword=keyword
+        products, total = await search_kok_products(db, keyword, page, size)
+        
+        logger.info(f"상품 검색 완료: user_id={user_id}, keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
+        
+        # 인증된 사용자의 경우에만 로그 기록과 검색 기록 저장
+        if current_user and background_tasks:
+            # 검색 로그 기록
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="product_search", 
+                event_data={"keyword": keyword, "result_count": len(products)}
+            )
+            
+            # 검색 기록 저장
+            background_tasks.add_task(
+                add_kok_search_history,
+                db=db,
+                user_id=current_user.user_id,
+                keyword=keyword
+            )
+        
+        return {
+            "total": total,
+            "page": page,
+            "size": size,
+            "products": products
+        }
+        
+    except Exception as e:
+        logger.error(f"상품 검색 API 오류: keyword='{keyword}', user_id={user_id}, error={str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"상품 검색 중 오류가 발생했습니다: {str(e)}"
         )
-    
-    return {
-        "total": total,
-        "page": page,
-        "size": size,
-        "products": products
-    }
 
 
 @router.get("/search/history", response_model=KokSearchHistoryResponse)
