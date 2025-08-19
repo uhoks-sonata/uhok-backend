@@ -402,16 +402,15 @@ async def start_hs_auto_update(
 # 주문 관련 CRUD 함수 (기본 구조)
 # -----------------------------
 
-async def create_homeshopping_order(
+async def calculate_homeshopping_order_price(
     db: AsyncSession,
-    user_id: int,
     product_id: int,
-    quantity: int
+    quantity: int = 1
 ) -> dict:
     """
-    홈쇼핑 주문 생성 (단건 주문)
+    홈쇼핑 주문 금액 계산
     """
-    logger.info(f"홈쇼핑 주문 생성 시작: user_id={user_id}, product_id={product_id}, quantity={quantity}")
+    logger.info(f"홈쇼핑 주문 금액 계산 시작: product_id={product_id}, quantity={quantity}")
     
     try:
         # 1. 상품 정보 조회 (할인가 확인)
@@ -435,10 +434,45 @@ async def create_homeshopping_order(
         product_name = live.product_name if live else f"상품_{product_id}"
         
         # 3. 주문 금액 계산
-        dc_price = product.dc_price or product.sale_price or 0
+        dc_price = product.dc_price \
+            or (product.sale_price * (1 - product.dc_rate / 100)) \
+                or 0
         order_price = dc_price * quantity
         
-        # 4. 주문 생성 (ORDERS 테이블)
+        logger.info(f"홈쇼핑 주문 금액 계산 완료: product_id={product_id}, dc_price={dc_price}, quantity={quantity}, order_price={order_price}")
+        
+        return {
+            "product_id": product_id,
+            "product_name": product_name,
+            "dc_price": dc_price,
+            "quantity": quantity,
+            "order_price": order_price
+        }
+        
+    except Exception as e:
+        logger.error(f"홈쇼핑 주문 금액 계산 실패: product_id={product_id}, error={str(e)}")
+        raise
+
+
+async def create_homeshopping_order(
+    db: AsyncSession,
+    user_id: int,
+    product_id: int,
+    quantity: int = 1  # 기본값을 1로 설정
+) -> dict:
+    """
+    홈쇼핑 주문 생성 (단건 주문)
+    """
+    logger.info(f"홈쇼핑 주문 생성 시작: user_id={user_id}, product_id={product_id}, quantity={quantity}")
+    
+    try:
+        # 1. 주문 금액 계산 (별도 함수 사용)
+        price_info = await calculate_homeshopping_order_price(db, product_id, quantity)
+        dc_price = price_info["dc_price"]
+        order_price = price_info["order_price"]
+        product_name = price_info["product_name"]
+        
+        # 2. 주문 생성 (ORDERS 테이블)
         order_time = datetime.now()
         new_order = Order(
             user_id=user_id,
@@ -448,7 +482,7 @@ async def create_homeshopping_order(
         db.add(new_order)
         await db.flush()  # order_id 생성
         
-        # 5. 홈쇼핑 주문 상세 생성 (HOMESHOPPING_ORDERS 테이블)
+        # 3. 홈쇼핑 주문 상세 생성 (HOMESHOPPING_ORDERS 테이블)
         new_homeshopping_order = HomeShoppingOrder(
             order_id=new_order.order_id,
             product_id=product_id,
@@ -460,7 +494,7 @@ async def create_homeshopping_order(
         db.add(new_homeshopping_order)
         await db.flush()  # homeshopping_order_id 생성
         
-        # 6. 주문 상태 이력 생성 (초기 상태: 주문접수)
+        # 4. 주문 상태 이력 생성 (초기 상태: 주문접수)
         # STATUS_MASTER에서 'ORDER_RECEIVED' 상태 ID 조회
         status_stmt = select(StatusMaster).where(
             StatusMaster.status_code == "ORDER_RECEIVED"
@@ -477,7 +511,7 @@ async def create_homeshopping_order(
             )
             db.add(new_status_history)
         
-        # 7. 홈쇼핑 알림 생성
+        # 5. 홈쇼핑 알림 생성
         new_notification = HomeshoppingNotification(
             user_id=user_id,
             homeshopping_order_id=new_homeshopping_order.homeshopping_order_id,
@@ -488,7 +522,7 @@ async def create_homeshopping_order(
         
         db.add(new_notification)
         
-        # 8. 모든 변경사항 커밋
+        # 6. 모든 변경사항 커밋
         await db.commit()
         
         # 9. 즉시 PAYMENT_REQUESTED 상태로 변경 (백그라운드 작업 제거)

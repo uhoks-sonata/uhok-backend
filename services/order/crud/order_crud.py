@@ -7,6 +7,10 @@ from services.order.models.order_model import (
     Order, KokOrder, HomeShoppingOrder, StatusMaster
 )
 
+# 각 주문 타입별 계산 함수 import
+from services.order.crud.kok_order_crud import calculate_kok_order_price
+from services.order.crud.hs_order_crud import calculate_homeshopping_order_price
+
 from common.database.mariadb_auth import get_maria_auth_db
 from common.logger import get_logger
 
@@ -168,3 +172,60 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
         })
     
     return order_list
+
+
+async def calculate_order_total_price(db: AsyncSession, order_id: int) -> int:
+    """
+    주문 ID로 총 주문 금액 계산 (콕 주문 + 홈쇼핑 주문)
+    각 주문 타입별로 이미 계산된 order_price 사용
+    """
+    total_price = 0
+    
+    # 콕 주문 총액 계산
+    kok_result = await db.execute(
+        select(KokOrder).where(KokOrder.order_id == order_id)
+    )
+    kok_orders = kok_result.scalars().all()
+    
+    for kok_order in kok_orders:
+        if hasattr(kok_order, 'order_price') and kok_order.order_price:
+            total_price += kok_order.order_price
+        else:
+            # order_price가 없는 경우 계산 함수 사용
+            try:
+                price_info = await calculate_kok_order_price(
+                    db, 
+                    kok_order.kok_price_id, 
+                    kok_order.kok_product_id, 
+                    kok_order.quantity
+                )
+                total_price += price_info["order_price"]
+            except Exception as e:
+                logger.warning(f"콕 주문 금액 계산 실패: kok_order_id={kok_order.kok_order_id}, error={str(e)}")
+                # 기본값 사용
+                total_price += getattr(kok_order, 'dc_price', 0) * getattr(kok_order, 'quantity', 1)
+    
+    # 홈쇼핑 주문 총액 계산
+    homeshopping_result = await db.execute(
+        select(HomeShoppingOrder).where(HomeShoppingOrder.order_id == order_id)
+    )
+    homeshopping_orders = homeshopping_result.scalars().all()
+    
+    for hs_order in homeshopping_orders:
+        if hasattr(hs_order, 'order_price') and hs_order.order_price:
+            total_price += hs_order.order_price
+        else:
+            # order_price가 없는 경우 계산 함수 사용
+            try:
+                price_info = await calculate_homeshopping_order_price(
+                    db, 
+                    hs_order.product_id, 
+                    hs_order.quantity
+                )
+                total_price += price_info["order_price"]
+            except Exception as e:
+                logger.warning(f"홈쇼핑 주문 금액 계산 실패: homeshopping_order_id={hs_order.homeshopping_order_id}, error={str(e)}")
+                # 기본값 사용
+                total_price += getattr(hs_order, 'dc_price', 0) * getattr(hs_order, 'quantity', 1)
+    
+    return total_price
