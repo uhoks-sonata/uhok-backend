@@ -172,3 +172,6 @@ class HomeshoppingNotification(MariaBase):
     homeshopping_order = relationship("HomeShoppingOrder", back_populates="notifications", lazy="noload")
     status = relationship("StatusMaster", lazy="noload")
     homeshopping_like = relationship("HomeshoppingLikes", lazy="noload")
+
+
+
