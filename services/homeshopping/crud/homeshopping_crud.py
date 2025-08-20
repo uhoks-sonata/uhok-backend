@@ -15,7 +15,8 @@ from services.homeshopping.models.homeshopping_model import (
     HomeshoppingImgUrl,
     HomeshoppingSearchHistory,
     HomeshoppingLikes,
-    HomeshoppingNotification
+    HomeshoppingNotification,
+    HomeshoppingClassify
 )
 from services.order.models.order_model import (
     Order,
@@ -376,25 +377,14 @@ async def get_homeshopping_classify_cls_ing(
     
     try:
         # HOMESHOPPING_CLASSIFY 테이블에서 CLS_ING 값 조회
-        # TODO: 실제 테이블명과 컬럼명 확인 필요
-        # 현재는 더미 로직으로 구현 (실제 테이블 연동 시 수정 필요)
-        stmt = select("CLS_ING").select_from("HOMESHOPPING_CLASSIFY").where("PRODUCT_ID" == product_id)
+        stmt = select(HomeshoppingClassify.cls_ing).where(HomeshoppingClassify.product_id == product_id)
         result = await db.execute(stmt)
         cls_ing = result.scalar_one_or_none()
         
-        # TODO: 실제 테이블 연동 시 아래 더미 로직 제거
         if cls_ing is None:
-            # 임시로 상품명 기반으로 판단 (실제 구현 시 제거)
-            product_stmt = select(HomeshoppingList.product_name).where(HomeshoppingList.product_id == product_id)
-            product_result = await db.execute(product_stmt)
-            product_name = product_result.scalar_one_or_none()
-            
-            if product_name:
-                # 간단한 키워드 기반 판별 (실제 구현 시 제거)
-                ingredient_keywords = ["고기", "채소", "과일", "생선", "해산물", "곡물", "견과류", "계란", "우유", "치즈"]
-                cls_ing = 1 if any(keyword in product_name for keyword in ingredient_keywords) else 0
-            else:
-                cls_ing = 0  # 기본값
+            logger.warning(f"HOMESHOPPING_CLASSIFY 테이블에서 product_id={product_id}를 찾을 수 없음")
+            # 해당 상품이 분류 테이블에 없는 경우 기본값 0(완제품) 반환
+            return 0
         
         logger.info(f"홈쇼핑 상품 분류 CLS_ING 조회 완료: product_id={product_id}, cls_ing={cls_ing}")
         return cls_ing

@@ -58,9 +58,8 @@ from services.homeshopping.crud.homeshopping_crud import (
     # 상품 상세 관련 CRUD
     get_homeshopping_product_detail,
     
-    # 상품 분류 및 추천 관련 CRUD
+    # 상품 분류 관련 CRUD
     get_homeshopping_classify_cls_ing,
-    get_recipe_recommendations_for_ingredient,
     
     # 스트리밍 관련 CRUD
     get_homeshopping_stream_info,
@@ -172,37 +171,36 @@ async def get_kok_recommendations(
     return {"kok_recommendations": []}
 
 
-@router.get("/product/{product_id}/recipe-recommendations")
-async def get_recipe_recommendations(
+@router.get("/product/{product_id}/check")
+async def check_product_ingredient(
         product_id: int,
         current_user: UserOut = Depends(get_current_user_optional),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    홈쇼핑 상품에 대한 레시피 추천 조회
-    CLS_ING가 1(식재료)인 경우에만 레시피 추천
+    홈쇼핑 상품의 식재료 여부 확인
+    CLS_ING가 1(식재료)인지 여부만 확인
     """
     user_id = current_user.user_id if current_user else None
-    logger.info(f"홈쇼핑 레시피 추천 조회 요청: user_id={user_id}, product_id={product_id}")
+    logger.info(f"홈쇼핑 상품 식재료 여부 확인 요청: user_id={user_id}, product_id={product_id}")
     
     try:
         # HOMESHOPPING_CLASSIFY 테이블에서 CLS_ING 값 확인
         cls_ing = await get_homeshopping_classify_cls_ing(db, product_id)
         
         if cls_ing == 1:
-            # 식재료인 경우 - 레시피 추천
-            recipes = await get_recipe_recommendations_for_ingredient(db, product_id)
-            logger.info(f"홈쇼핑 레시피 추천 완료: product_id={product_id}, 레시피 수={len(recipes)}")
-            return {"recipes": recipes, "is_ingredient": True}
+            # 식재료인 경우
+            logger.info(f"홈쇼핑 상품 식재료 확인 완료: product_id={product_id}, cls_ing={cls_ing}")
+            return {"is_ingredient": True}
         else:
-            # 완제품인 경우 - 레시피 추천하지 않음
-            logger.info(f"홈쇼핑 완제품으로 레시피 추천하지 않음: product_id={product_id}, cls_ing={cls_ing}")
-            return {"recipes": [], "is_ingredient": False}
+            # 완제품인 경우
+            logger.info(f"홈쇼핑 완제품으로 식재료 아님: product_id={product_id}, cls_ing={cls_ing}")
+            return {"is_ingredient": False}
             
     except Exception as e:
-        logger.error(f"홈쇼핑 레시피 추천 조회 실패: product_id={product_id}, error={str(e)}")
-        raise HTTPException(status_code=500, detail="레시피 추천 조회 중 오류가 발생했습니다.")
+        logger.error(f"홈쇼핑 상품 식재료 여부 확인 실패: product_id={product_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="상품 식재료 여부 확인 중 오류가 발생했습니다.")
 
 # ================================
 # 스트리밍 관련 API
