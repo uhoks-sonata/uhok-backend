@@ -132,7 +132,7 @@ async def get_order_by_id(db: AsyncSession, order_id: int) -> dict:
 
 async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offset: int = 0) -> list:
     """
-    사용자별 주문 목록 조회 (공통 정보 + 서비스별 상세)
+    사용자별 주문 목록 조회 (공통 정보 + 서비스별 상세 + 상품 이미지)
     """
     # 주문 기본 정보 조회
     result = await db.execute(
@@ -146,17 +146,137 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
     
     order_list = []
     for order in orders:
-        # 콕 주문 정보 조회
+        # 콕 주문 정보 조회 (상품 이미지 포함)
         kok_result = await db.execute(
             select(KokOrder).where(KokOrder.order_id == order.order_id)
         )
         kok_orders = kok_result.scalars().all()
         
-        # 홈쇼핑 주문 정보 조회
+        # 콕 주문에 상품 이미지 정보 추가
+        for kok_order in kok_orders:
+            try:
+                from services.kok.models.kok_model import KokProductInfo, KokImageInfo
+                
+                # 상품 기본 정보 조회
+                product_stmt = select(KokProductInfo).where(KokProductInfo.kok_product_id == kok_order.kok_product_id)
+                product_result = await db.execute(product_stmt)
+                product = product_result.scalar_one_or_none()
+                
+                if product:
+                    # 썸네일 이미지가 있으면 사용
+                    if product.kok_thumbnail:
+                        kok_order.product_image = product.kok_thumbnail
+                    else:
+                        # 썸네일이 없으면 첫 번째 이미지 사용
+                        img_stmt = select(KokImageInfo).where(KokImageInfo.kok_product_id == kok_order.kok_product_id).limit(1)
+                        img_result = await db.execute(img_stmt)
+                        img = img_result.scalar_one_or_none()
+                        kok_order.product_image = img.kok_img_url if img else None
+                        
+                    # 상품명도 추가
+                    kok_order.product_name = product.kok_product_name
+                else:
+                    kok_order.product_image = None
+                    kok_order.product_name = None
+                
+                # 레시피 정보 조회 (recipe_id가 있는 경우)
+                if kok_order.recipe_id:
+                    try:
+                        from services.recipe.models.recipe_model import Recipe
+                        
+                        recipe_stmt = select(Recipe).where(Recipe.recipe_id == kok_order.recipe_id)
+                        recipe_result = await db.execute(recipe_stmt)
+                        recipe = recipe_result.scalar_one_or_none()
+                        
+                        if recipe:
+                            kok_order.recipe_title = recipe.recipe_title
+                            kok_order.recipe_description = recipe.recipe_description
+                            kok_order.recipe_rating = recipe.rating if hasattr(recipe, 'rating') else 0.0
+                            kok_order.recipe_scrap_count = recipe.scrap_count if hasattr(recipe, 'scrap_count') else 0
+                            
+                            # 재료 정보 조회
+                            try:
+                                from services.recipe.crud.recipe_crud import fetch_recipe_ingredients_status
+                                ingredients_status = await fetch_recipe_ingredients_status(db, kok_order.recipe_id, user_id)
+                                kok_order.ingredients_owned = ingredients_status.get('owned_count', 0)
+                                kok_order.total_ingredients = ingredients_status.get('total_count', 0)
+                            except Exception as e:
+                                logger.warning(f"레시피 재료 정보 조회 실패: recipe_id={kok_order.recipe_id}, error={str(e)}")
+                                kok_order.ingredients_owned = 0
+                                kok_order.total_ingredients = 0
+                        else:
+                            kok_order.recipe_title = None
+                            kok_order.recipe_description = None
+                            kok_order.recipe_rating = 0.0
+                            kok_order.recipe_scrap_count = 0
+                            kok_order.ingredients_owned = 0
+                            kok_order.total_ingredients = 0
+                            
+                    except Exception as e:
+                        logger.warning(f"레시피 정보 조회 실패: recipe_id={kok_order.recipe_id}, error={str(e)}")
+                        kok_order.recipe_title = None
+                        kok_order.recipe_description = None
+                        kok_order.recipe_rating = 0.0
+                        kok_order.recipe_scrap_count = 0
+                        kok_order.ingredients_owned = 0
+                        kok_order.total_ingredients = 0
+                else:
+                    # 레시피가 없는 경우
+                    kok_order.recipe_title = None
+                    kok_order.recipe_description = None
+                    kok_order.recipe_rating = 0.0
+                    kok_order.recipe_scrap_count = 0
+                    kok_order.ingredients_owned = 0
+                    kok_order.total_ingredients = 0
+                    
+            except Exception as e:
+                logger.warning(f"콕 상품 이미지 조회 실패: kok_product_id={kok_order.kok_product_id}, error={str(e)}")
+                kok_order.product_image = None
+                kok_order.product_name = None
+                kok_order.recipe_title = None
+                kok_order.recipe_description = None
+                kok_order.recipe_rating = 0.0
+                kok_order.recipe_scrap_count = 0
+                kok_order.ingredients_owned = 0
+                kok_order.total_ingredients = 0
+        
+        # 홈쇼핑 주문 정보 조회 (상품 이미지 포함)
         homeshopping_result = await db.execute(
             select(HomeShoppingOrder).where(HomeShoppingOrder.order_id == order.order_id)
         )
         homeshopping_orders = homeshopping_result.scalars().all()
+        
+        # 홈쇼핑 주문에 상품 이미지 정보 추가
+        for hs_order in homeshopping_orders:
+            try:
+                from services.homeshopping.models.homeshopping_model import HomeshoppingList, HomeshoppingImgUrl
+                
+                # 상품 기본 정보 조회
+                product_stmt = select(HomeshoppingList).where(HomeshoppingList.product_id == hs_order.product_id)
+                product_result = await db.execute(product_stmt)
+                product = product_result.scalar_one_or_none()
+                
+                if product:
+                    # 썸네일 이미지가 있으면 사용
+                    if product.thumb_img_url:
+                        hs_order.product_image = product.thumb_img_url
+                    else:
+                        # 썸네일이 없으면 첫 번째 이미지 사용
+                        img_stmt = select(HomeshoppingImgUrl).where(HomeshoppingImgUrl.product_id == hs_order.product_id).order_by(HomeshoppingImgUrl.sort_order).limit(1)
+                        img_result = await db.execute(img_stmt)
+                        img = img_result.scalar_one_or_none()
+                        hs_order.product_image = img.img_url if img else None
+                        
+                    # 상품명도 추가
+                    hs_order.product_name = product.product_name
+                else:
+                    hs_order.product_image = None
+                    hs_order.product_name = None
+                    
+            except Exception as e:
+                logger.warning(f"홈쇼핑 상품 이미지 조회 실패: product_id={hs_order.product_id}, error={str(e)}")
+                hs_order.product_image = None
+                hs_order.product_name = None
         
         order_list.append({
             "order_id": order.order_id,
