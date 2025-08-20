@@ -153,10 +153,10 @@ async def get_product_detail(
 
 @router.get("/product/{product_id}/kok-recommendations")
 async def get_kok_recommendations(
-        product_id: int,
-        current_user: UserOut = Depends(get_current_user_optional),
-        background_tasks: BackgroundTasks = None,
-        db: AsyncSession = Depends(get_maria_service_db)
+    product_id: int,
+    current_user: UserOut = Depends(get_current_user_optional),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
     홈쇼핑 상품에 대한 콕 유사 상품 추천 조회
@@ -164,11 +164,37 @@ async def get_kok_recommendations(
     user_id = current_user.user_id if current_user else None
     logger.info(f"홈쇼핑 콕 유사 상품 추천 조회 요청: user_id={user_id}, product_id={product_id}")
     
-    # TODO: 콕 유사 상품 추천 로직 구현
-    # 현재는 빈 응답 반환
-    
-    logger.info(f"홈쇼핑 콕 유사 상품 추천 조회 완료: user_id={user_id}, product_id={product_id}")
-    return {"kok_recommendations": []}
+    try:
+        # 추천 오케스트레이터 호출 (통합된 CRUD에서)
+        from services.homeshopping.crud.homeshopping_crud import recommend_homeshopping_to_kok
+        
+        recommendations = await recommend_homeshopping_to_kok(
+            db=db,
+            product_id=product_id,
+            k=5,  # 최대 5개
+            use_rerank=False
+        )
+        
+        logger.info(f"홈쇼핑 콕 유사 상품 추천 조회 완료: user_id={user_id}, product_id={product_id}, 결과 수={len(recommendations)}")
+        return {"products": recommendations}
+        
+    except Exception as e:
+        logger.error(f"홈쇼핑 콕 유사 상품 추천 조회 실패: product_id={product_id}, error={str(e)}")
+        
+        # 폴백: 간단한 추천 시스템 사용 (통합된 CRUD에서)
+        try:
+            from services.homeshopping.crud.homeshopping_crud import simple_recommend_homeshopping_to_kok
+            fallback_recommendations = await simple_recommend_homeshopping_to_kok(
+                product_id=product_id,
+                k=5,
+                db=db  # DB 전달하여 실제 DB 연동 시도
+            )
+            logger.info(f"폴백 추천 시스템 사용: {len(fallback_recommendations)}개 상품")
+            return {"products": fallback_recommendations}
+        except Exception as fallback_error:
+            logger.error(f"폴백 추천 시스템도 실패: {str(fallback_error)}")
+            # 최종 폴백: 빈 배열 반환
+            return {"products": []}
 
 
 @router.get("/product/{product_id}/check")
