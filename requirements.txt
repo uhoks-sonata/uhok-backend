@@ -11,6 +11,7 @@ python-jose==3.5.0             # JWT 토큰 생성 및 검증 (서버 인증/인
 python-multipart==0.0.20       # 파일 업로드/멀티파트 폼 파싱 지원 (FastAPI에서 Form, UploadFile 지원)
 pyyaml==6.0.2                  # YAML 포맷 파싱용 (설정 파일 등 사용 가능)
 click==8.2.1                   # CLI(Command Line Interface) 구현용 라이브러리
+schedule==1.2.2                # 작업 스케줄링 라이브러리 (주기적 작업 실행)
 
 # ==================== [비동기/웹 프레임워크/실행환경] ====================
 fastapi==0.116.1               # Python 비동기 웹 프레임워크 (API 서버 핵심)
