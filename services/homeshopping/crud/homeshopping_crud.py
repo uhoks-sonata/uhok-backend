@@ -43,16 +43,18 @@ async def get_homeshopping_schedule(
     size: int = 20
 ) -> List[dict]:
     """
-    홈쇼핑 편성표 조회
+    홈쇼핑 편성표 조회 (식품만)
     """
     logger.info(f"홈쇼핑 편성표 조회 시작: page={page}, size={size}")
     
     offset = (page - 1) * size
     
     stmt = (
-        select(HomeshoppingList, HomeshoppingInfo, HomeshoppingProductInfo)
+        select(HomeshoppingList, HomeshoppingInfo, HomeshoppingProductInfo, HomeshoppingClassify)
         .join(HomeshoppingInfo, HomeshoppingList.homeshopping_id == HomeshoppingInfo.homeshopping_id)
         .outerjoin(HomeshoppingProductInfo, HomeshoppingList.product_id == HomeshoppingProductInfo.product_id)
+        .join(HomeshoppingClassify, HomeshoppingList.product_id == HomeshoppingClassify.product_id)
+        .where(HomeshoppingClassify.cls_food == 1)  # 식품만 필터링 (cls_food = 1)
         .order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.asc())
         .offset(offset)
         .limit(size)
@@ -62,7 +64,7 @@ async def get_homeshopping_schedule(
     schedules = results.all()
     
     schedule_list = []
-    for live, info, product in schedules:
+    for live, info, product, classify in schedules:
         schedule_list.append({
             "live_id": live.live_id,
             "homeshopping_id": live.homeshopping_id,
