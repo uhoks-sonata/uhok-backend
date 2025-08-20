@@ -9,7 +9,7 @@ from services.order.models.order_model import (
 from services.kok.models.kok_model import (
     KokPriceInfo, KokNotification, KokCart, KokProductInfo
 )
-from services.order.crud.order_crud import (
+from services.order.crud.order_common import (
     get_status_by_code,
     NOTIFICATION_TITLES, NOTIFICATION_MESSAGES
 )
