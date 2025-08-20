@@ -14,8 +14,8 @@ from services.homeshopping.models.homeshopping_model import (
     HomeshoppingList, HomeshoppingProductInfo, HomeshoppingNotification
 )   
 
-from services.order.crud.order_crud import (
-    validate_user_exists, get_status_by_code,
+from services.order.crud.order_common import (
+    get_status_by_code,
     NOTIFICATION_TITLES, NOTIFICATION_MESSAGES
 )
 
