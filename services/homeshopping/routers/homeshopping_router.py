@@ -94,7 +94,7 @@ async def get_schedule(
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    홈쇼핑 편성표 조회
+    홈쇼핑 편성표 조회 (식품만)
     """
     user_id = current_user.user_id if current_user else None
     logger.info(f"홈쇼핑 편성표 조회 요청: user_id={user_id}, page={page}, size={size}")
