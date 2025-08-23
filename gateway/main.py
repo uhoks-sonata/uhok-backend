@@ -48,6 +48,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 logger.info("CORS 미들웨어 설정 완료")
 
 # 라우터 등록 (각 서비스별 router를 include)

@@ -36,7 +36,7 @@ class PaymentConfirmV1Request(BaseModel):
 class PaymentConfirmV1Response(BaseModel):
     """결제 확인 응답 (v1)"""
     payment_id: str
-    order_id: str
+    order_id: int  # 숫자 그대로 사용
     status: str
     payment_amount: int
     method: str
@@ -45,6 +45,10 @@ class PaymentConfirmV1Response(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+
+
 
 # -----------------------------
 # 최근 주문 내역 표시용 스키마
