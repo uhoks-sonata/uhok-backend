@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings
 from pydantic import Field
 from functools import lru_cache
 from common.logger import get_logger
+from typing import Optional
 
 logger = get_logger("config")
 
@@ -12,6 +13,8 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(..., env="JWT_SECRET")
     jwt_algorithm: str = Field(..., env="JWT_ALGORITHM")
     access_token_expire_minutes: int = Field(..., env="ACCESS_TOKEN_EXPIRE_MINUTES")
+    
+    webhook_secret: Optional[str] = Field(None, env="WEBHOOK_SECRET")  # 웹훅 서명 검증용 시크릿 키
 
     mariadb_auth_url: str = Field(..., env="MARIADB_AUTH_URL")
     mariadb_auth_migrate_url: str = Field(..., env="MARIADB_AUTH_MIGRATE_URL")

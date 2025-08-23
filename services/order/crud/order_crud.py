@@ -491,7 +491,7 @@ async def confirm_payment_and_update_status_v1(
     # (3) 결제 생성
     logger.info(f"외부 결제 API 호출 시작: order_id={order_id}, pay_api_base={pay_api_base}")
     pay_req = {
-        "order_id": f"order_{order_id}",
+        "order_id": order_id,  # 숫자 그대로 사용
         "payment_amount": total_order_price,
         "idempotency_key": f"order-{order_id}",  # 외부서버가 지원한다는 가정
         "method": getattr(payment_data, "method", "EXTERNAL_API"),
@@ -561,9 +561,9 @@ async def confirm_payment_and_update_status_v1(
     # (7) 응답 구성
     response = PaymentConfirmV1Response(
         payment_id=payment_id,
-        order_id=create_payload.get("order_id", f"order_{order_id}"),
+        order_id=order_id,  # 숫자 그대로 사용
         status="PAYMENT_COMPLETED",
-        payment_amount=create_payload.get("payment_amount", total_order_price),
+        payment_amount=total_order_price,
         method=create_payload.get("method", "EXTERNAL_API"),
         confirmed_at=datetime.now(),
         order_id_internal=order_id,
@@ -571,3 +571,13 @@ async def confirm_payment_and_update_status_v1(
     
     logger.info(f"결제 확인 v1 완료: order_id={order_id}, payment_id={payment_id}")
     return response
+
+
+
+
+
+
+
+
+
+
