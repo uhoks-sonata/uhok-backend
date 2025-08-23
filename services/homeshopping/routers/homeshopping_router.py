@@ -5,6 +5,8 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional
+from datetime import date
 
 from common.dependencies import get_current_user, get_current_user_optional
 
@@ -97,19 +99,20 @@ logger = get_logger("homeshopping_router")
 
 @router.get("/schedule", response_model=HomeshoppingScheduleResponse)
 async def get_schedule(
-        page: int = Query(1, ge=1, description="페이지 번호"),
-        size: int = Query(20, ge=1, le=100, description="페이지 크기"),
+        live_date: Optional[date] = Query(None, description="조회할 날짜 (YYYY-MM-DD 형식, 미입력시 전체 스케줄)"),
         current_user: UserOut = Depends(get_current_user_optional),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
     홈쇼핑 편성표 조회 (식품만)
+    - live_date가 제공되면 해당 날짜의 스케줄만 조회
+    - live_date가 미입력시 전체 스케줄 조회
     """
     user_id = current_user.user_id if current_user else None
-    logger.info(f"홈쇼핑 편성표 조회 요청: user_id={user_id}, page={page}, size={size}")
+    logger.info(f"홈쇼핑 편성표 조회 요청: user_id={user_id}, live_date={live_date}")
     
-    schedules = await get_homeshopping_schedule(db, page=page, size=size)
+    schedules = await get_homeshopping_schedule(db, live_date=live_date)
     
     # 편성표 조회 로그 기록 (인증된 사용자인 경우에만)
     if current_user and background_tasks:
@@ -117,7 +120,7 @@ async def get_schedule(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="homeshopping_schedule_view", 
-            event_data={"page": page, "size": size}
+            event_data={"live_date": live_date.isoformat() if live_date else None}
         )
     
     logger.info(f"홈쇼핑 편성표 조회 완료: user_id={user_id}, 결과 수={len(schedules)}")
@@ -279,8 +282,6 @@ async def get_stream_info(
 @router.get("/search", response_model=HomeshoppingSearchResponse)
 async def search_products(
         keyword: str = Query(..., description="검색 키워드"),
-        page: int = Query(1, ge=1, description="페이지 번호"),
-        size: int = Query(20, ge=1, le=100, description="페이지 크기"),
         current_user: UserOut = Depends(get_current_user_optional),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
@@ -289,9 +290,9 @@ async def search_products(
     홈쇼핑 상품 검색
     """
     user_id = current_user.user_id if current_user else None
-    logger.info(f"홈쇼핑 상품 검색 요청: user_id={user_id}, keyword='{keyword}', page={page}, size={size}")
+    logger.info(f"홈쇼핑 상품 검색 요청: user_id={user_id}, keyword='{keyword}'")
     
-    products, total = await search_homeshopping_products(db, keyword, page, size)
+    products = await search_homeshopping_products(db, keyword)
     
     # 검색 로그 기록 (인증된 사용자인 경우에만)
     if current_user and background_tasks:
@@ -299,14 +300,11 @@ async def search_products(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="homeshopping_search", 
-            event_data={"keyword": keyword, "page": page, "size": size, "total": total}
+            event_data={"keyword": keyword}
         )
     
     logger.info(f"홈쇼핑 상품 검색 완료: user_id={user_id}, keyword='{keyword}', 결과 수={len(products)}")
     return {
-        "total": total,
-        "page": page,
-        "size": size,
         "products": products
     }
 

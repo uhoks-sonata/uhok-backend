@@ -41,7 +41,7 @@ app = FastAPI(
 
 # CORS 설정
 logger.info("CORS 미들웨어 설정 중...")
-app.add_middleware(
+app.add_middleware(            
     CORSMiddleware,
     allow_origins=[""],   # 전체 허용
     allow_credentials=False,

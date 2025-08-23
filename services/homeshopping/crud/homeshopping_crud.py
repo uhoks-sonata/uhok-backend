@@ -39,26 +39,30 @@ logger = get_logger("homeshopping_crud")
 
 async def get_homeshopping_schedule(
     db: AsyncSession,
-    page: int = 1,
-    size: int = 20
+    live_date: Optional[date] = None
 ) -> List[dict]:
     """
     홈쇼핑 편성표 조회 (식품만)
+    - live_date가 제공되면 해당 날짜의 스케줄만 조회
+    - live_date가 None이면 전체 스케줄 조회
     """
-    logger.info(f"홈쇼핑 편성표 조회 시작: page={page}, size={size}")
+    logger.info(f"홈쇼핑 편성표 조회 시작: live_date={live_date}")
     
-    offset = (page - 1) * size
-    
+    # 기본 쿼리 구성
     stmt = (
         select(HomeshoppingList, HomeshoppingInfo, HomeshoppingProductInfo, HomeshoppingClassify)
         .join(HomeshoppingInfo, HomeshoppingList.homeshopping_id == HomeshoppingInfo.homeshopping_id)
         .outerjoin(HomeshoppingProductInfo, HomeshoppingList.product_id == HomeshoppingProductInfo.product_id)
         .join(HomeshoppingClassify, HomeshoppingList.product_id == HomeshoppingClassify.product_id)
         .where(HomeshoppingClassify.cls_food == 1)  # 식품만 필터링 (cls_food = 1)
-        .order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.asc())
-        .offset(offset)
-        .limit(size)
     )
+    
+    # live_date가 제공된 경우 해당 날짜로 필터링
+    if live_date:
+        stmt = stmt.where(HomeshoppingList.live_date == live_date)
+    
+    # 정렬 (페이징 제거)
+    stmt = stmt.order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.asc())
     
     results = await db.execute(stmt)
     schedules = results.all()
@@ -82,7 +86,7 @@ async def get_homeshopping_schedule(
             "discount_rate": product.dc_rate if product else None
         })
     
-    logger.info(f"홈쇼핑 편성표 조회 완료: page={page}, size={size}, 결과 수={len(schedule_list)}")
+    logger.info(f"홈쇼핑 편성표 조회 완료: live_date={live_date}, 결과 수={len(schedule_list)}")
     return schedule_list
 
 
@@ -92,16 +96,12 @@ async def get_homeshopping_schedule(
 
 async def search_homeshopping_products(
     db: AsyncSession,
-    keyword: str,
-    page: int = 1,
-    size: int = 20
-) -> Tuple[List[dict], int]:
+    keyword: str
+) -> List[dict]:
     """
     홈쇼핑 상품 검색
     """
-    logger.info(f"홈쇼핑 상품 검색 시작: keyword='{keyword}', page={page}, size={size}")
-    
-    offset = (page - 1) * size
+    logger.info(f"홈쇼핑 상품 검색 시작: keyword='{keyword}'")
     
     # 상품명, 판매자명에서 키워드 검색
     stmt = (
@@ -112,24 +112,10 @@ async def search_homeshopping_products(
             HomeshoppingProductInfo.store_name.contains(keyword)
         )
         .order_by(HomeshoppingList.live_date.desc())
-        .offset(offset)
-        .limit(size)
     )
     
     results = await db.execute(stmt)
     products = results.all()
-    
-    # 총 개수 조회
-    count_stmt = (
-        select(func.count(HomeshoppingList.live_id))
-        .join(HomeshoppingProductInfo, HomeshoppingList.product_id == HomeshoppingProductInfo.product_id)
-        .where(
-            HomeshoppingList.product_name.contains(keyword) |
-            HomeshoppingProductInfo.store_name.contains(keyword)
-        )
-    )
-    total = await db.execute(count_stmt)
-    total_count = total.scalar()
     
     product_list = []
     for live, product in products:
@@ -146,8 +132,8 @@ async def search_homeshopping_products(
             "live_end_time": live.live_end_time
         })
     
-    logger.info(f"홈쇼핑 상품 검색 완료: keyword='{keyword}', page={page}, size={size}, 결과 수={len(product_list)}")
-    return product_list, total_count
+    logger.info(f"홈쇼핑 상품 검색 완료: keyword='{keyword}', 결과 수={len(product_list)}")
+    return product_list
 
 
 # -----------------------------
