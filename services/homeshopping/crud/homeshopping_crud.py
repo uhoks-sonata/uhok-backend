@@ -4,7 +4,7 @@
 import asyncio
 import os
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, insert, delete, and_, update, or_
+from sqlalchemy import select, func, insert, delete, and_, update, or_, text
 from sqlalchemy.orm import selectinload
 from typing import Optional, List, Tuple, Dict
 from datetime import datetime, date, time, timedelta
