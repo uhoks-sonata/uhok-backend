@@ -358,11 +358,13 @@ async def _poll_payment_status(
             logger.info(f"결제 상태 확인 요청 시작: payment_id={payment_id}, url={pay_api_base}/payment-status/{payment_id}")
             resp = await _get_json(f"{pay_api_base}/payment-status/{payment_id}", timeout=15.0)
             logger.info(f"결제 상태 응답: payment_id={payment_id}, status_code={resp.status_code}")
+            
         except httpx.RequestError as e:
             logger.error(f"결제 상태 확인 실패 (RequestError): payment_id={payment_id}, attempt={attempt + 1}, error={str(e)}, error_type={type(e).__name__}")
             last_payload = {"error": str(e), "error_type": type(e).__name__}
             await asyncio.sleep(sleep)  # 고정 5초 대기
             continue
+
         except Exception as e:
             logger.error(f"결제 상태 확인 실패 (기타 오류): payment_id={payment_id}, attempt={attempt + 1}, error={str(e)}, error_type={type(e).__name__}")
             last_payload = {"error": str(e), "error_type": type(e).__name__}
