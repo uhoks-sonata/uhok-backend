@@ -1,17 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-Homeshopping 추천 시스템 유틸리티
-- 문자열 정규화 / 사전 로딩
-- 핵심 키워드 / 루트 / Tail 키워드
-- 동적 n-gram
-- tail + n-gram AND 필터
+추천 오케스트레이터
+- 후보 게이트(LIKE): (tail 핵심 + core/roots + 동적 n-gram)
+- 후보 내 pgvector 정렬 → 상세/가격 조인
+- 최종 AND 필터: tail ≥1 AND n-gram ≥1
+- 결과는 최대 k개(기본 5). 모자라면 있는 만큼, 없으면 빈 리스트.
 """
 
 import os, re, yaml
-from typing import Dict, List, Set
+from typing import Dict, List, Tuple, Union, Set
 from collections import Counter
 from dotenv import load_dotenv
 load_dotenv()
+
+# ---- 환경 기본값 ----
+RERANK_MODE_DEFAULT = os.getenv("RERANK_MODE", "off").lower().strip()  # 여기선 기본 off (원하면 "boost"/"strict")
 
 # -------------------- 동적 파라미터 --------------------
 def _env_int(key: str, default: int) -> int:
@@ -269,12 +272,12 @@ def filter_tail_and_ngram_and(details: List[dict], prod_name: str) -> List[dict]
     d = load_domain_dicts()
     stop = d["stopwords"]
 
-    cand_names = [f"{r.get('kok_product_name','')} {r.get('kok_store_name','')}" for r in details]
+    cand_names = [f"{r.get('KOK_PRODUCT_NAME','')} {r.get('KOK_STORE_NAME','')}" for r in details]
     tails = set(_dynamic_tail_terms(prod_name, cand_names, stop))
 
     out = []
     for r in details:
-        name = f"{r.get('kok_product_name','')} {r.get('kok_store_name','')}"
+        name = f"{r.get('KOK_PRODUCT_NAME','')} {r.get('KOK_STORE_NAME','')}"
         toks = set(tokenize_normalized(name, stop))
         tail_hits = len(tails & toks)
         ngram_hits = _ngram_overlap_count(prod_name, name, n=NGRAM_N)
@@ -282,6 +285,173 @@ def filter_tail_and_ngram_and(details: List[dict], prod_name: str) -> List[dict]
             out.append(r)
     return out
 
+# -------------------- DB 유틸리티 함수들 (기본 구현) --------------------
+def fetch_homeshopping_prod_name(product_id: Union[int, str]) -> str:
+    """홈쇼핑 상품명 조회 (기본 구현 - 실제 DB 연결 필요)"""
+    # TODO: 실제 DB 연결 및 쿼리 구현
+    return f"홈쇼핑상품_{product_id}"
+
+def fetch_kok_prod_infos(product_ids: List[int]) -> List[Dict]:
+    """KOK 상품 정보 조회 (기본 구현 - 실제 DB 연결 필요)"""
+    # TODO: 실제 DB 연결 및 쿼리 구현
+    return [{"KOK_PRODUCT_ID": pid, "KOK_PRODUCT_NAME": f"KOK상품_{pid}", "KOK_STORE_NAME": "기본스토어"} for pid in product_ids]
+
+def pgvector_topk_within(product_id: Union[int, str], candidate_ids: List[int], k: int) -> List[Tuple[Union[int, str], float]]:
+    """pgvector 기반 유사도 정렬 (기본 구현 - 실제 벡터 DB 연결 필요)"""
+    # TODO: 실제 pgvector 연결 및 쿼리 구현
+    return [(pid, 1.0 / (i + 1)) for i, pid in enumerate(candidate_ids[:k])]
+
+# 테이블명 상수
+KOK_PROD_INFO = "KOK_PRODUCT_INFO"  # 실제 테이블명으로 수정 필요
+
+def connect_mariadb():
+    """MariaDB 연결 (기본 구현 - 실제 DB 연결 필요)"""
+    # TODO: 실제 DB 연결 구현
+    class MockConnection:
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+        def cursor(self, **kwargs):
+            class MockCursor:
+                def execute(self, sql, params):
+                    pass
+                def fetchall(self):
+                    return []
+            return MockCursor()
+    return MockConnection()
+
+# ----- 옵션: 게이트에서 스토어명도 LIKE 비교할지 (기본 False) -----
+GATE_COMPARE_STORE = os.getenv("GATE_COMPARE_STORE", "false").lower() in ("1","true","yes","on")
+
+# ---------- 후보 LIKE 게이트 ----------
+def _sql_like_or(cols: List[str], num: int) -> str:
+    return " OR ".join([f"{c} LIKE %s" for c in cols for _ in range(num)])
+
+def _sql_like_and(cols: List[str], num: int) -> str:
+    return " OR ".join(["(" + " AND ".join([f"{c} LIKE %s" for _ in range(num)]) + ")" for c in cols])
+
+def kok_candidates_by_keywords_gated(
+    must_kws: List[str],
+    optional_kws: List[str],
+    limit: int = 600,
+    min_if_all_fail: int = 30,
+) -> List[int]:
+    """
+    - must: OR(하나라도) → 부족하면 AND(최대 2개) → 다시 OR로 폴백
+    - optional: 여전히 부족하면 OR로 보충
+    - 기본은 상품명만 비교. GATE_COMPARE_STORE=true면 스토어명도 포함.
+    """
+    must_kws = [k for k in must_kws if k and len(k) >= 2]
+    optional_kws = [k for k in optional_kws if k and len(k) >= 2]
+    if not must_kws and not optional_kws:
+        return []
+
+    cols = ["i.KOK_PRODUCT_NAME"]
+    if GATE_COMPARE_STORE:
+        cols.append("i.KOK_STORE_NAME")
+
+    def _run(sql: str, params: List[str]) -> List[int]:
+        with connect_mariadb() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, params + [int(limit)])
+            return [int(r[0]) for r in cur.fetchall() if r and r[0] is not None]
+
+    ids: List[int] = []
+    if must_kws:
+        cond_or = _sql_like_or(cols, len(must_kws))
+        sql_or = f"SELECT DISTINCT i.KOK_PRODUCT_ID FROM {KOK_PROD_INFO} i WHERE ({cond_or}) LIMIT %s"
+        params_or = [f"%{k}%" for k in must_kws for _ in cols]
+        ids = _run(sql_or, params_or)
+
+    if len(ids) < min_if_all_fail and must_kws:
+        use = must_kws[:2]
+        cond_and = _sql_like_and(cols, len(use))
+        sql_and = f"SELECT DISTINCT i.KOK_PRODUCT_ID FROM {KOK_PROD_INFO} i WHERE ({cond_and}) LIMIT %s"
+        params_and = [f"%{k}%" for k in use for _ in cols]
+        ids = _run(sql_and, params_and)
+        if len(ids) < min_if_all_fail:
+            ids = _run(sql_or, params_or)
+
+    if len(ids) < min_if_all_fail and optional_kws:
+        cond_opt = _sql_like_or(cols, len(optional_kws))
+        sql_opt = f"SELECT DISTINCT i.KOK_PRODUCT_ID FROM {KOK_PROD_INFO} i WHERE ({cond_opt}) LIMIT %s"
+        params_opt = [f"%{k}%" for k in optional_kws for _ in cols]
+        more = _run(sql_opt, params_opt)
+        ids = list(dict.fromkeys(ids + more))[:limit]
+
+    return ids
+
+# ---------- 추천 본체 ----------
+def recommend_homeshopping_to_kok(
+    product_id: Union[int, str],
+    k: int = 5,                       # 최대 5개
+    use_rerank: bool = False,         # 여기선 기본 거리 정렬만 사용 (원하면 True로)
+    candidate_n: int = 150,
+    rerank_mode: str = None,
+    # strategy 파라미터는 단순화 (dict/keyword/벡터 조합은 필요 시 확장)
+) -> List[Dict]:
+    """
+    파이프라인:
+      1) 홈쇼핑 상품명에서 must/optional 키워드 구성
+      2) LIKE 게이트로 후보 수집
+      3) 후보 내 pgvector 정렬
+      4) (옵션) 리랭크
+      5) 최종 AND 필터(tail ≥1 AND n-gram ≥1)
+      6) 최대 k개 슬라이스
+    """
+    prod_name = fetch_homeshopping_prod_name(product_id) or ""
+    if not prod_name:
+        return []
+
+    # 1) 키워드 구성
+    tail_k = extract_tail_keywords(prod_name, max_n=2)          # 뒤쪽 핵심(희소 가능성이 높은 토큰)
+    core_k = extract_core_keywords(prod_name, max_n=3)          # 앞/강한 핵심
+    root_k = roots_in_name(prod_name)                           # 루트 힌트(사전 기반)
+    ngram_k = infer_terms_from_name_via_ngrams(prod_name, max_terms=DYN_MAX_TERMS)
+
+    must_kws = list(dict.fromkeys([*tail_k, *core_k, *root_k]))[:12]
+    optional_kws = list(dict.fromkeys([*ngram_k]))[:DYN_MAX_TERMS]
+
+    # 2) LIKE 게이트로 후보
+    cand_ids = kok_candidates_by_keywords_gated(
+        must_kws=must_kws,
+        optional_kws=optional_kws,
+        limit=max(candidate_n * 3, 300),
+        min_if_all_fail=max(30, k),
+    )
+    if not cand_ids:
+        return []  # 게이트 통과 상품이 전혀 없으면 빈 리스트
+
+    # 3) 후보 내 pgvector 정렬
+    sims: List[Tuple[Union[int, str], float]] = pgvector_topk_within(
+        product_id=product_id,
+        candidate_ids=cand_ids,
+        k=max(k, candidate_n),
+    )
+    if not sims:
+        return []
+
+    pid_order = [pid for pid, _ in sims]
+    dist_map = {pid: dist for pid, dist in sims}
+
+    # 4) 상세 조인
+    details = fetch_kok_prod_infos(pid_order)
+    if not details:
+        return []
+    for d in details:
+        d["distance"] = dist_map.get(d["KOK_PRODUCT_ID"])
+
+    # 5) (옵션) 리랭크 or 거리 정렬
+    ranked = sorted(details, key=lambda x: x.get("distance", 1e9))  # 기본: 거리 오름차순
+
+    # 6) 최종 AND 필터 적용 (tail ≥1 AND n-gram ≥1)
+    filtered = filter_tail_and_ngram_and(ranked, prod_name)
+
+    # 7) 최대 k개까지 반환
+    return filtered[:k]
+
+# -------------------- 내보내기 --------------------
 __all__ = [
     # 파라미터
     "DYN_MAX_TERMS","DYN_MAX_EXTRAS","DYN_SAMPLE_ROWS",
@@ -295,4 +465,9 @@ __all__ = [
     "infer_terms_from_name_via_ngrams",
     # 최종 필터
     "filter_tail_and_ngram_and",
+    # 추천 시스템
+    "recommend_homeshopping_to_kok","kok_candidates_by_keywords_gated",
+    # DB 유틸리티
+    "fetch_homeshopping_prod_name","fetch_kok_prod_infos","pgvector_topk_within",
+    "KOK_PROD_INFO","connect_mariadb",
 ]
