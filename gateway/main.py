@@ -43,9 +43,9 @@ app = FastAPI(
 logger.info("CORS 미들웨어 설정 중...")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3001"],  # 프론트엔드 도메인
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=[""],   # 전체 허용
+    allow_credentials=False,
+    allow_methods=[""],
     allow_headers=["*"],
 )
 logger.info("CORS 미들웨어 설정 완료")
