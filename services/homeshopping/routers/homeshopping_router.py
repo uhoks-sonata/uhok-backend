@@ -3,7 +3,7 @@
 - 편성표 조회, 상품 검색, 찜 기능, 주문 등 홈쇼핑 관련 기능
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.dependencies import get_current_user, get_current_user_optional
@@ -40,7 +40,12 @@ from services.homeshopping.schemas.homeshopping_schema import (
     # 통합 알림 관련 스키마 (기존 테이블 활용)
     HomeshoppingNotificationListResponse,
     HomeshoppingNotificationFilter,
-    HomeshoppingNotificationUpdate
+    HomeshoppingNotificationUpdate,
+    
+    # KOK 상품 기반 홈쇼핑 추천 관련 스키마
+    KokHomeshoppingRecommendationRequest,
+    KokHomeshoppingRecommendationResponse,
+    KokHomeshoppingRecommendationProduct
 )
 
 from services.homeshopping.crud.homeshopping_crud import (
@@ -70,7 +75,12 @@ from services.homeshopping.crud.homeshopping_crud import (
     
     # 통합 알림 관련 CRUD (기존 테이블 활용)
     get_notifications_with_filter,
-    mark_notification_as_read
+    mark_notification_as_read,
+    
+    # KOK 상품 기반 홈쇼핑 추천 관련 CRUD
+    get_kok_product_name_by_id,
+    get_homeshopping_recommendations_by_kok,
+    get_homeshopping_recommendations_fallback
 )
 
 from common.database.mariadb_service import get_maria_service_db
@@ -638,3 +648,106 @@ async def mark_notification_read_api(
     except Exception as e:
         logger.error(f"홈쇼핑 알림 읽음 처리 실패: notification_id={notification_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail="알림 읽음 처리 중 오류가 발생했습니다.")
+
+# ================================
+# KOK 상품 기반 홈쇼핑 추천 API
+# ================================
+
+@router.get("/kok-product/{product_id}/homeshopping-recommendations", response_model=KokHomeshoppingRecommendationResponse)
+async def get_homeshopping_recommendations_by_kok(
+    request: Request,
+    product_id: int,
+    k: int = Query(5, ge=1, le=20, description="추천 상품 개수"),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    KOK 상품을 기반으로 유사한 홈쇼핑 상품 추천
+    - 마지막 의미 토큰, 핵심 키워드, Tail 키워드 등 다양한 알고리즘 사용
+    """
+    try:
+        current_user = await get_current_user_optional(request)
+        user_id = current_user.user_id if current_user else None
+        logger.info(f"KOK 기반 홈쇼핑 추천 요청: user_id={user_id}, product_id={product_id}, k={k}")
+        
+        # 1. KOK 상품명 조회
+        kok_product_name = await get_kok_product_name_by_id(db, product_id)
+        if not kok_product_name:
+            raise HTTPException(status_code=404, detail="KOK 상품을 찾을 수 없습니다.")
+        
+        # 2. 추천 전략 선택 및 실행
+        from services.kok.utils.recommendation_utils import get_recommendation_strategy
+        
+        strategy_result = get_recommendation_strategy(kok_product_name, k)
+        algorithm_info = {
+            "algorithm": strategy_result["algorithm"],
+            "status": strategy_result["status"],
+            "search_terms": strategy_result.get("search_terms", [])
+        }
+        
+        # 3. 홈쇼핑 상품 추천 조회
+        recommendations = []
+        if strategy_result["status"] == "success" and strategy_result.get("search_terms"):
+            recommendations = await get_homeshopping_recommendations_by_kok(
+                db, kok_product_name, strategy_result["search_terms"], k
+            )
+        
+        # 4. 추천 결과가 부족한 경우 폴백 전략 사용
+        if len(recommendations) < k:
+            fallback_recommendations = await get_homeshopping_recommendations_fallback(
+                db, kok_product_name, k - len(recommendations)
+            )
+            recommendations.extend(fallback_recommendations)
+            algorithm_info["fallback_used"] = True
+            algorithm_info["fallback_count"] = len(fallback_recommendations)
+        
+        # 5. 응답 데이터 구성
+        response_products = []
+        for rec in recommendations:
+            response_products.append(KokHomeshoppingRecommendationProduct(
+                product_id=rec["product_id"],
+                product_name=rec["product_name"],
+                store_name=rec["store_name"],
+                sale_price=rec["sale_price"],
+                dc_price=rec["dc_price"],
+                dc_rate=rec["dc_rate"],
+                thumb_img_url=rec["thumb_img_url"],
+                live_date=rec["live_date"],
+                live_start_time=rec["live_start_time"],
+                live_end_time=rec["live_end_time"],
+                similarity_score=None  # 향후 유사도 점수 계산 로직 추가 가능
+            ))
+        
+        # 6. 인증된 사용자의 경우에만 로그 기록
+        if current_user and background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="kok_homeshopping_recommendation", 
+                event_data={
+                    "kok_product_id": product_id,
+                    "kok_product_name": kok_product_name,
+                    "recommendation_count": len(response_products),
+                    "algorithm": strategy_result["algorithm"],
+                    "k": k
+                }
+            )
+        
+        logger.info(f"KOK 기반 홈쇼핑 추천 완료: user_id={user_id}, product_id={product_id}, 결과 수={len(response_products)}")
+        
+        return KokHomeshoppingRecommendationResponse(
+            kok_product_id=product_id,
+            kok_product_name=kok_product_name,
+            recommendations=response_products,
+            total_count=len(response_products),
+            algorithm_info=algorithm_info
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"KOK 기반 홈쇼핑 추천 API 오류: product_id={product_id}, user_id={user_id}, error={str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"홈쇼핑 추천 중 오류가 발생했습니다: {str(e)}"
+        )

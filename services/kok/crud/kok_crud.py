@@ -4,8 +4,8 @@
 
 import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, delete
-from typing import Optional, List, Tuple
+from sqlalchemy import select, func, delete, text
+from typing import Optional, List, Tuple, Dict
 from datetime import datetime, timedelta
 
 from services.order.models.order_model import (
