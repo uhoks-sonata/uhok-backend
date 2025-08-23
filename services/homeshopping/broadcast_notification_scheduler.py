@@ -30,23 +30,22 @@ class BroadcastNotificationScheduler:
         
         try:
             # 데이터베이스 연결
-            db = await anext(get_maria_service_db())
+            from common.database.mariadb_service import SessionLocal
             
-            # 현재 시간 기준으로 발송해야 할 알림 조회
-            current_time = datetime.now()
-            pending_notifications = await get_pending_broadcast_notifications(db, current_time)
-            
-            if not pending_notifications:
-                logger.info("발송할 방송 알림이 없습니다.")
-                return
-            
-            logger.info(f"발송할 방송 알림 {len(pending_notifications)}건 발견")
-            
-            # 각 알림에 대해 발송 처리
-            for notification in pending_notifications:
-                await self._send_notification(notification)
-            
-            await db.close()
+            async with SessionLocal() as db:
+                # 현재 시간 기준으로 발송해야 할 알림 조회
+                current_time = datetime.now()
+                pending_notifications = await get_pending_broadcast_notifications(db, current_time)
+                
+                if not pending_notifications:
+                    logger.info("발송할 방송 알림이 없습니다.")
+                    return
+                
+                logger.info(f"발송할 방송 알림 {len(pending_notifications)}건 발견")
+                
+                # 각 알림에 대해 발송 처리
+                for notification in pending_notifications:
+                    await self._send_notification(notification)
             
         except Exception as e:
             logger.error(f"방송 알림 발송 체크 중 오류 발생: {str(e)}")

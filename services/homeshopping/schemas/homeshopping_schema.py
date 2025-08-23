@@ -336,8 +336,11 @@ class KokHomeshoppingRecommendationProduct(BaseModel):
 
 class KokHomeshoppingRecommendationResponse(BaseModel):
     """KOK 상품 기반 홈쇼핑 추천 응답"""
-    kok_product_id: int
+    kok_product_id: Optional[int] = None
     kok_product_name: str
     recommendations: List[KokHomeshoppingRecommendationProduct] = Field(default_factory=list)
     total_count: int
     algorithm_info: Dict[str, str] = Field(default_factory=dict, description="추천 알고리즘 정보")
+    product_recommendations: Optional[Dict[str, List[KokHomeshoppingRecommendationProduct]]] = Field(
+        default=None, description="각 KOK 상품별 추천 결과"
+    )

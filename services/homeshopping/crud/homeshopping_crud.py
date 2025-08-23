@@ -1414,7 +1414,7 @@ async def get_kok_product_name_by_id(db: AsyncSession, product_id: int) -> Optio
     try:
         query = text("""
             SELECT KOK_PRODUCT_NAME
-            FROM KOK_PRODUCT_INFO
+            FROM FCT_KOK_PRODUCT_INFO
             WHERE KOK_PRODUCT_ID = :product_id
         """)
         
@@ -1447,36 +1447,45 @@ async def get_homeshopping_recommendations_by_kok(
             search_conditions.append(f"PRODUCT_NAME LIKE :{param_name}")
             params[param_name] = term
         
-        # SQL 쿼리 구성
+        # SQL 쿼리 구성 - FCT_HOMESHOPPING_PRODUCT_INFO와 FCT_HOMESHOPPING_LIST 테이블 조인
         query = text(f"""
             SELECT 
-                PRODUCT_ID,
-                PRODUCT_NAME,
-                STORE_NAME,
-                SALE_PRICE,
-                DC_PRICE,
-                DC_RATE,
-                THUMB_IMG_URL,
-                LIVE_DATE,
-                LIVE_START_TIME,
-                LIVE_END_TIME
-            FROM HOMESHOPPING_CLASSIFY
-            WHERE CLS_FOOD = 1
+                p.PRODUCT_ID,
+                c.PRODUCT_NAME,
+                p.STORE_NAME,
+                p.SALE_PRICE,
+                p.DC_PRICE,
+                p.DC_RATE,
+                l.THUMB_IMG_URL,
+                l.LIVE_DATE,
+                l.LIVE_START_TIME,
+                l.LIVE_END_TIME
+            FROM FCT_HOMESHOPPING_PRODUCT_INFO p
+            INNER JOIN HOMESHOPPING_CLASSIFY c ON p.PRODUCT_ID = c.PRODUCT_ID
+            LEFT JOIN FCT_HOMESHOPPING_LIST l ON p.PRODUCT_ID = l.PRODUCT_ID
+            WHERE c.CLS_FOOD = 1
               AND ({' OR '.join(search_conditions)})
             ORDER BY 
                 CASE 
-                    WHEN PRODUCT_NAME LIKE :exact_match THEN 1
-                    WHEN PRODUCT_NAME LIKE :start_match THEN 2
+                    WHEN c.PRODUCT_NAME LIKE :exact_match THEN 1
+                    WHEN c.PRODUCT_NAME LIKE :partial_match THEN 2
                     ELSE 3
                 END,
-                SALE_PRICE ASC
+                p.SALE_PRICE ASC
             LIMIT :limit
         """)
         
-        # 정확한 매치와 시작 매치 파라미터 추가
+        # 파라미터 설정
+        params = {}
+        for i, condition in enumerate(search_conditions):
+            # LIKE 조건에서 실제 검색어 추출
+            if "LIKE '%" in condition and "%'" in condition:
+                search_term = condition.split("LIKE '%")[1].split("%'")[0]
+                params[f"term{i}"] = f"%{search_term}%"
+        
         params.update({
             "exact_match": kok_product_name,
-            "start_match": f"{kok_product_name}%",
+            "partial_match": f"{kok_product_name}%",
             "limit": k
         })
         
@@ -1486,6 +1495,32 @@ async def get_homeshopping_recommendations_by_kok(
         # 결과를 딕셔너리 리스트로 변환
         recommendations = []
         for row in rows:
+            # timedelta를 time으로 변환
+            live_start_time = None
+            live_end_time = None
+            
+            if row[8] is not None:  # LIVE_START_TIME
+                if isinstance(row[8], timedelta):
+                    # timedelta를 time으로 변환 (초 단위를 시간:분:초로 변환)
+                    total_seconds = int(row[8].total_seconds())
+                    hours = total_seconds // 3600
+                    minutes = (total_seconds % 3600) // 60
+                    seconds = total_seconds % 60
+                    live_start_time = time(hour=hours, minute=minutes, second=seconds)
+                else:
+                    live_start_time = row[8]
+            
+            if row[9] is not None:  # LIVE_END_TIME
+                if isinstance(row[9], timedelta):
+                    # timedelta를 time으로 변환 (초 단위를 시간:분:초로 변환)
+                    total_seconds = int(row[9].total_seconds())
+                    hours = total_seconds // 3600
+                    minutes = (total_seconds % 3600) // 60
+                    seconds = total_seconds % 60
+                    live_end_time = time(hour=hours, minute=minutes, second=seconds)
+                else:
+                    live_end_time = row[9]
+            
             recommendations.append({
                 "product_id": row[0],
                 "product_name": row[1],
@@ -1495,8 +1530,8 @@ async def get_homeshopping_recommendations_by_kok(
                 "dc_rate": row[5],
                 "thumb_img_url": row[6],
                 "live_date": row[7],
-                "live_start_time": row[8],
-                "live_end_time": row[9]
+                "live_start_time": live_start_time,
+                "live_end_time": live_end_time
             })
         
         return recommendations
@@ -1525,20 +1560,22 @@ async def get_homeshopping_recommendations_fallback(
         
         query = text("""
             SELECT 
-                PRODUCT_ID,
-                PRODUCT_NAME,
-                STORE_NAME,
-                SALE_PRICE,
-                DC_PRICE,
-                DC_RATE,
-                THUMB_IMG_URL,
-                LIVE_DATE,
-                LIVE_START_TIME,
-                LIVE_END_TIME
-            FROM HOMESHOPPING_CLASSIFY
-            WHERE CLS_FOOD = 1
-              AND PRODUCT_NAME LIKE :search_term
-            ORDER BY SALE_PRICE ASC
+                p.PRODUCT_ID,
+                c.PRODUCT_NAME,
+                p.STORE_NAME,
+                p.SALE_PRICE,
+                p.DC_PRICE,
+                p.DC_RATE,
+                l.THUMB_IMG_URL,
+                l.LIVE_DATE,
+                l.LIVE_START_TIME,
+                l.LIVE_END_TIME
+            FROM FCT_HOMESHOPPING_PRODUCT_INFO p
+            INNER JOIN HOMESHOPPING_CLASSIFY c ON p.PRODUCT_ID = c.PRODUCT_ID
+            LEFT JOIN FCT_HOMESHOPPING_LIST l ON p.PRODUCT_ID = l.PRODUCT_ID
+            WHERE c.CLS_FOOD = 1
+              AND c.PRODUCT_NAME LIKE :search_term
+            ORDER BY p.SALE_PRICE ASC
             LIMIT :limit
         """)
         
@@ -1551,6 +1588,32 @@ async def get_homeshopping_recommendations_fallback(
         # 결과를 딕셔너리 리스트로 변환
         recommendations = []
         for row in rows:
+            # timedelta를 time으로 변환
+            live_start_time = None
+            live_end_time = None
+            
+            if row[8] is not None:  # LIVE_START_TIME
+                if isinstance(row[8], timedelta):
+                    # timedelta를 time으로 변환 (초 단위를 시간:분:초로 변환)
+                    total_seconds = int(row[8].total_seconds())
+                    hours = total_seconds // 3600
+                    minutes = (total_seconds % 3600) // 60
+                    seconds = total_seconds % 60
+                    live_start_time = time(hour=hours, minute=minutes, second=seconds)
+                else:
+                    live_start_time = row[8]
+            
+            if row[9] is not None:  # LIVE_END_TIME
+                if isinstance(row[9], timedelta):
+                    # timedelta를 time으로 변환 (초 단위를 시간:분:초로 변환)
+                    total_seconds = int(row[9].total_seconds())
+                    hours = total_seconds // 3600
+                    minutes = (total_seconds % 3600) // 60
+                    seconds = total_seconds % 60
+                    live_end_time = time(hour=hours, minute=minutes, second=seconds)
+                else:
+                    live_end_time = row[9]
+            
             recommendations.append({
                 "product_id": row[0],
                 "product_name": row[1],
@@ -1560,8 +1623,8 @@ async def get_homeshopping_recommendations_fallback(
                 "dc_rate": row[5],
                 "thumb_img_url": row[6],
                 "live_date": row[7],
-                "live_start_time": row[8],
-                "live_end_time": row[9]
+                "live_start_time": live_start_time,
+                "live_end_time": live_end_time
             })
         
         return recommendations

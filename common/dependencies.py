@@ -136,16 +136,27 @@ async def get_current_user_optional(
             logger.error(f"토큰의 사용자 ID가 유효하지 않음: {user_id_raw}")
             return None
         
-        # 올바른 UserOut 객체 생성 (필수 필드 포함)
-        from datetime import datetime
-        user = UserOut(
-            user_id=user_id, 
-            email="user@example.com",  # 임시 이메일 (실제로는 사용하지 않음)
-            username="user",           # 임시 사용자명 (실제로는 사용하지 않음)
-            created_at=datetime.now()  # 현재 시간
-        )
-        logger.info(f"사용자 객체 생성 완료: {user}")
-        return user
+        # 데이터베이스에서 실제 사용자 정보 조회
+        # 직접 데이터베이스 연결을 생성하여 사용자 정보 조회
+        from common.database.mariadb_auth import engine, SessionLocal
+        from sqlalchemy.ext.asyncio import AsyncSession
+        
+        # 새로운 세션 생성
+        async with SessionLocal() as db:
+            user = await get_user_by_id(db, user_id)
+            if user is None:
+                logger.warning(f"사용자를 찾을 수 없음: user_id={user_id}")
+                return None
+            
+            # SQLAlchemy ORM 객체를 Pydantic 모델로 변환
+            user_out = UserOut(
+                user_id=user.user_id,
+                username=user.username,
+                email=user.email,
+                created_at=user.created_at
+            )
+            logger.info(f"사용자 객체 생성 완료: {user_out}")
+            return user_out
         
     except Exception as e:
         # 인증 실패 시 None 반환 (에러 발생하지 않음)

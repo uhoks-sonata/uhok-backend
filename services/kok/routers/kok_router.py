@@ -774,63 +774,145 @@ async def recommend_recipes_from_cart_items(
 # 홈쇼핑 추천 API (KOK utils 사용)
 # ================================
 
-@router.get("/product/{product_id}/homeshopping-recommendations")
+@router.get("/product/homeshopping-recommendations")
 async def get_homeshopping_recommendations(
-    request: Request,
-    product_id: int,
     k: int = Query(5, ge=1, le=20, description="추천 상품 개수"),
     background_tasks: BackgroundTasks = None,
+    current_user: UserOut = Depends(get_current_user),
     db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    KOK 상품을 기반으로 유사한 홈쇼핑 상품 추천
+    현재 사용자의 KOK 찜/장바구니 상품을 기반으로 유사한 홈쇼핑 상품 추천
+    - 사용자의 찜 목록과 장바구니 목록에서 kok_product_id 자동 수집
     - KOK utils의 추천 알고리즘 사용
     """
     try:
-        current_user = await get_current_user_optional(request)
-        user_id = current_user.user_id if current_user else None
-        logger.info(f"홈쇼핑 추천 요청 (KOK utils 사용): user_id={user_id}, product_id={product_id}, k={k}")
+        user_id = current_user.user_id
+        logger.info(f"홈쇼핑 추천 요청: user_id={user_id}, k={k}")
         
-        # 1. KOK 상품명 조회
+        # 1. 현재 사용자의 KOK 찜 목록과 장바구니 목록에서 kok_product_id 수집
+        from services.kok.crud.kok_crud import get_kok_liked_products, get_kok_cart_items
+        
+        # 찜한 상품들의 kok_product_id 수집
+        liked_products = await get_kok_liked_products(db, user_id, limit=100)
+        liked_product_ids = [product["kok_product_id"] for product in liked_products]
+        
+        # 장바구니 상품들의 kok_product_id 수집
+        cart_items = await get_kok_cart_items(db, user_id, limit=100)
+        cart_product_ids = [item["kok_product_id"] for item in cart_items]
+        
+        # 중복 제거하여 고유한 kok_product_id 목록 생성
+        all_product_ids = list(set(liked_product_ids + cart_product_ids))
+        
+        if not all_product_ids:
+            raise HTTPException(status_code=400, detail="찜하거나 장바구니에 담긴 상품이 없습니다.")
+        
+        logger.info(f"수집된 KOK 상품 ID: 찜={len(liked_product_ids)}개, 장바구니={len(cart_product_ids)}개, 총={len(all_product_ids)}개")
+        
+        # 2. 각 KOK 상품명 조회 및 추천 키워드 수집
         from services.homeshopping.crud.homeshopping_crud import get_kok_product_name_by_id
-        
-        kok_product_name = await get_kok_product_name_by_id(db, product_id)
-        if not kok_product_name:
-            raise HTTPException(status_code=404, detail="KOK 상품을 찾을 수 없습니다.")
-        
-        # 2. 추천 전략 선택 및 실행
         from services.kok.utils.recommendation_utils import get_recommendation_strategy
         
-        strategy_result = get_recommendation_strategy(kok_product_name, k)
-        algorithm_info = {
-            "algorithm": strategy_result["algorithm"],
-            "status": strategy_result["status"],
-            "search_terms": strategy_result.get("search_terms", [])
-        }
+        all_search_terms = set()
+        kok_product_names = []
         
-        # 3. 홈쇼핑 상품 추천 조회
+        for product_id in all_product_ids:
+            try:
+                kok_product_name = await get_kok_product_name_by_id(db, product_id)
+                if kok_product_name:
+                    kok_product_names.append(kok_product_name)
+                    # 각 상품명에서 추천 키워드 추출
+                    search_terms = get_recommendation_strategy(kok_product_name, 5) # 각 상품당 최대 5개
+                    if search_terms:
+                        all_search_terms.update(search_terms)
+            except Exception as e:
+                logger.warning(f"상품 ID {product_id} 조회 실패: {str(e)}")
+                continue
+        
+        if not all_search_terms:
+            raise HTTPException(status_code=400, detail="추천 키워드를 추출할 수 없습니다.")
+        
+        logger.info(f"추출된 추천 키워드: {list(all_search_terms)}")
+        
+        # 3. 각 KOK 상품별로 홈쇼핑 상품 추천 조회 (각각 최대 5개씩)
         from services.homeshopping.crud.homeshopping_crud import get_homeshopping_recommendations_by_kok, get_homeshopping_recommendations_fallback
         
-        recommendations = []
-        if strategy_result["status"] == "success" and strategy_result.get("search_terms"):
-            recommendations = await get_homeshopping_recommendations_by_kok(
-                db, kok_product_name, strategy_result["search_terms"], k
-            )
+        all_recommendations = []
+        product_recommendations = {}  # 각 상품별 추천 결과를 저장
         
-        # 4. 추천 결과가 부족한 경우 폴백 전략 사용
-        if len(recommendations) < k:
-            fallback_recommendations = await get_homeshopping_recommendations_fallback(
-                db, kok_product_name, k - len(recommendations)
-            )
-            recommendations.extend(fallback_recommendations)
-            algorithm_info["fallback_used"] = True
-            algorithm_info["fallback_count"] = len(fallback_recommendations)
+        # 각 KOK 상품별로 추천 조회
+        for product_id, product_name in zip(all_product_ids, kok_product_names):
+            if not product_name:
+                continue
+                
+            try:
+                # 각 상품명에서 추천 키워드 추출
+                search_terms = get_recommendation_strategy(product_name, 5)  # 각 상품당 최대 5개
+                if not search_terms:
+                    continue
+                
+                # 검색 조건을 더 유연하게 구성
+                search_conditions = []
+                for term in search_terms:
+                    # 정확한 키워드 매칭
+                    search_conditions.append(f"c.PRODUCT_NAME LIKE '%{term}%'")
+                    # 브랜드명 매칭 (대괄호 안의 내용)
+                    if '[' in product_name and ']' in product_name:
+                        brand = product_name.split('[')[1].split(']')[0]
+                        search_conditions.append(f"c.PRODUCT_NAME LIKE '%{brand}%'")
+                
+                # 해당 상품에 대한 추천 조회
+                product_recs = await get_homeshopping_recommendations_by_kok(
+                    db, product_name, search_conditions, 5
+                )
+                
+                if not product_recs:
+                    # 폴백: 상품명에서 주요 키워드만 추출하여 검색
+                    fallback_keywords = [term for term in search_terms if len(term) > 1]
+                    if fallback_keywords:
+                        fallback_recs = await get_homeshopping_recommendations_fallback(
+                            db, fallback_keywords[0], 5
+                        )
+                        if fallback_recs:
+                            product_recs = fallback_recs
+                
+                # 결과 저장
+                product_recommendations[product_name] = product_recs
+                all_recommendations.extend(product_recs)
+                
+                logger.info(f"상품 '{product_name}' 추천 완료: {len(product_recs)}개")
+                
+            except Exception as e:
+                logger.error(f"상품 '{product_name}' 추천 실패: {e}")
+                product_recommendations[product_name] = []
+                continue
+        
+        # 전체 추천 결과에서 중복 제거 (product_id 기준)
+        seen_product_ids = set()
+        final_recommendations = []
+        for rec in all_recommendations:
+            if rec["product_id"] not in seen_product_ids:
+                final_recommendations.append(rec)
+                seen_product_ids.add(rec["product_id"])
+        
+        logger.info(f"전체 추천 결과: {len(final_recommendations)}개 (중복 제거 후)")
+        
+        algorithm_info = {
+            "algorithm": "multi_product_keyword_based",
+            "status": "success",
+            "search_terms": ", ".join(all_search_terms),
+            "source_products_count": str(len(all_product_ids)),
+            "liked_products_count": str(len(liked_product_ids)),
+            "cart_products_count": str(len(cart_product_ids)),
+            "total_recommendations": str(len(final_recommendations)),
+            "product_recommendations_count": str(len(product_recommendations))
+        }
         
         # 5. 응답 데이터 구성
         from services.homeshopping.schemas.homeshopping_schema import KokHomeshoppingRecommendationProduct, KokHomeshoppingRecommendationResponse
         
         response_products = []
-        for rec in recommendations:
+        for rec in final_recommendations:
             response_products.append(KokHomeshoppingRecommendationProduct(
                 product_id=rec["product_id"],
                 product_name=rec["product_name"],
@@ -845,35 +927,56 @@ async def get_homeshopping_recommendations(
                 similarity_score=None  # 향후 유사도 점수 계산 로직 추가 가능
             ))
         
-        # 6. 인증된 사용자의 경우에만 로그 기록
-        if current_user and background_tasks:
+        # 각 상품별 추천 결과를 스키마 형태로 변환
+        product_recommendations_response = {}
+        for product_name, recs in product_recommendations.items():
+            product_recommendations_response[product_name] = []
+            for rec in recs:
+                product_recommendations_response[product_name].append(KokHomeshoppingRecommendationProduct(
+                    product_id=rec["product_id"],
+                    product_name=rec["product_name"],
+                    store_name=rec["store_name"],
+                    sale_price=rec["sale_price"],
+                    dc_price=rec["dc_price"],
+                    dc_rate=rec["dc_rate"],
+                    thumb_img_url=rec["thumb_img_url"],
+                    live_date=rec["live_date"],
+                    live_start_time=rec["live_start_time"],
+                    live_end_time=rec["live_end_time"],
+                    similarity_score=None
+                ))
+        
+        # 6. 사용자 활동 로그 기록
+        if background_tasks:
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
                 event_type="homeshopping_recommendation", 
                 event_data={
-                    "kok_product_id": product_id,
-                    "kok_product_name": kok_product_name,
+                    "source_products_count": len(all_product_ids),
+                    "liked_products_count": len(liked_product_ids),
+                    "cart_products_count": len(cart_product_ids),
                     "recommendation_count": len(response_products),
-                    "algorithm": strategy_result["algorithm"],
+                    "algorithm": "multi_product_keyword_based",
                     "k": k
                 }
             )
         
-        logger.info(f"홈쇼핑 추천 완료 (KOK utils 사용): user_id={user_id}, product_id={product_id}, 결과 수={len(response_products)}")
+        logger.info(f"홈쇼핑 추천 완료: user_id={user_id}, 소스 상품={len(all_product_ids)}개, 결과 수={len(response_products)}개")
         
         return KokHomeshoppingRecommendationResponse(
-            kok_product_id=product_id,
-            kok_product_name=kok_product_name,
+            kok_product_id=None,  # 단일 상품이 아닌 다중 상품 기반
+            kok_product_name="사용자 맞춤 추천",  # 다중 상품 기반임을 표시
             recommendations=response_products,
             total_count=len(response_products),
-            algorithm_info=algorithm_info
+            algorithm_info=algorithm_info,
+            product_recommendations=product_recommendations_response
         )
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"홈쇼핑 추천 API 오류: product_id={product_id}, user_id={user_id}, error={str(e)}")
+        logger.error(f"홈쇼핑 추천 API 오류: user_id={current_user.user_id}, error={str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"홈쇼핑 추천 중 오류가 발생했습니다: {str(e)}"
