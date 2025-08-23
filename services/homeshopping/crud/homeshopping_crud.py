@@ -1248,10 +1248,10 @@ async def test_kok_db_connection(db: AsyncSession) -> bool:
 
 
 # -----------------------------
-# 추천 관련 유틸리티 함수들 (utils.py 사용)
+# 추천 관련 유틸리티 함수들 (utils 폴더 사용)
 # -----------------------------
 
-from .utils import (
+from ..utils.recommendation_utils import (
     DYN_MAX_TERMS, DYN_MAX_EXTRAS, DYN_SAMPLE_ROWS,
     TAIL_MAX_DF_RATIO, TAIL_MAX_TERMS, NGRAM_N,
     DYN_NGRAM_MIN, DYN_NGRAM_MAX,
@@ -1418,3 +1418,168 @@ async def simple_recommend_homeshopping_to_kok(
     
     logger.info(f"간단한 추천 완료: {len(dummy_recommendations)}개 상품")
     return dummy_recommendations
+
+# ================================
+# KOK 상품 기반 홈쇼핑 추천
+# ================================
+
+async def get_kok_product_name_by_id(db: AsyncSession, product_id: int) -> Optional[str]:
+    """KOK 상품 ID로 상품명 조회"""
+    try:
+        query = text("""
+            SELECT KOK_PRODUCT_NAME
+            FROM KOK_PRODUCT_INFO
+            WHERE KOK_PRODUCT_ID = :product_id
+        """)
+        
+        result = await db.execute(query, {"product_id": product_id})
+        row = result.fetchone()
+        
+        return row[0] if row else None
+        
+    except Exception as e:
+        logger.error(f"KOK 상품명 조회 실패: product_id={product_id}, error={str(e)}")
+        return None
+
+async def get_homeshopping_recommendations_by_kok(
+    db: AsyncSession, 
+    kok_product_name: str, 
+    search_terms: List[str], 
+    k: int = 5
+) -> List[Dict]:
+    """KOK 상품명 기반으로 홈쇼핑 상품 추천"""
+    try:
+        if not search_terms:
+            return []
+        
+        # 여러 검색어를 OR 조건으로 결합
+        search_conditions = []
+        params = {}
+        
+        for i, term in enumerate(search_terms):
+            param_name = f"term_{i}"
+            search_conditions.append(f"PRODUCT_NAME LIKE :{param_name}")
+            params[param_name] = term
+        
+        # SQL 쿼리 구성
+        query = text(f"""
+            SELECT 
+                PRODUCT_ID,
+                PRODUCT_NAME,
+                STORE_NAME,
+                SALE_PRICE,
+                DC_PRICE,
+                DC_RATE,
+                THUMB_IMG_URL,
+                LIVE_DATE,
+                LIVE_START_TIME,
+                LIVE_END_TIME
+            FROM HOMESHOPPING_CLASSIFY
+            WHERE CLS_FOOD = 1
+              AND ({' OR '.join(search_conditions)})
+            ORDER BY 
+                CASE 
+                    WHEN PRODUCT_NAME LIKE :exact_match THEN 1
+                    WHEN PRODUCT_NAME LIKE :start_match THEN 2
+                    ELSE 3
+                END,
+                SALE_PRICE ASC
+            LIMIT :limit
+        """)
+        
+        # 정확한 매치와 시작 매치 파라미터 추가
+        params.update({
+            "exact_match": kok_product_name,
+            "start_match": f"{kok_product_name}%",
+            "limit": k
+        })
+        
+        result = await db.execute(query, params)
+        rows = result.fetchall()
+        
+        # 결과를 딕셔너리 리스트로 변환
+        recommendations = []
+        for row in rows:
+            recommendations.append({
+                "product_id": row[0],
+                "product_name": row[1],
+                "store_name": row[2],
+                "sale_price": row[3],
+                "dc_price": row[4],
+                "dc_rate": row[5],
+                "thumb_img_url": row[6],
+                "live_date": row[7],
+                "live_start_time": row[8],
+                "live_end_time": row[9]
+            })
+        
+        return recommendations
+        
+    except Exception as e:
+        logger.error(f"홈쇼핑 추천 조회 실패: kok_product_name='{kok_product_name}', error={str(e)}")
+        return []
+
+async def get_homeshopping_recommendations_fallback(
+    db: AsyncSession, 
+    kok_product_name: str, 
+    k: int = 5
+) -> List[Dict]:
+    """폴백 추천: 상품명의 일부로 검색"""
+    try:
+        # 상품명에서 의미있는 부분 추출 (숫자, 특수문자 제거)
+        import re
+        clean_name = re.sub(r'[^\w가-힣]', ' ', kok_product_name)
+        clean_name = re.sub(r'\s+', ' ', clean_name).strip()
+        
+        if len(clean_name) < 2:
+            return []
+        
+        # 2글자 이상의 연속된 문자열로 검색
+        search_term = f"%{clean_name[:min(4, len(clean_name))]}%"
+        
+        query = text("""
+            SELECT 
+                PRODUCT_ID,
+                PRODUCT_NAME,
+                STORE_NAME,
+                SALE_PRICE,
+                DC_PRICE,
+                DC_RATE,
+                THUMB_IMG_URL,
+                LIVE_DATE,
+                LIVE_START_TIME,
+                LIVE_END_TIME
+            FROM HOMESHOPPING_CLASSIFY
+            WHERE CLS_FOOD = 1
+              AND PRODUCT_NAME LIKE :search_term
+            ORDER BY SALE_PRICE ASC
+            LIMIT :limit
+        """)
+        
+        result = await db.execute(query, {
+            "search_term": search_term,
+            "limit": k
+        })
+        rows = result.fetchall()
+        
+        # 결과를 딕셔너리 리스트로 변환
+        recommendations = []
+        for row in rows:
+            recommendations.append({
+                "product_id": row[0],
+                "product_name": row[1],
+                "store_name": row[2],
+                "sale_price": row[3],
+                "dc_price": row[4],
+                "dc_rate": row[5],
+                "thumb_img_url": row[6],
+                "live_date": row[7],
+                "live_start_time": row[8],
+                "live_end_time": row[9]
+            })
+        
+        return recommendations
+        
+    except Exception as e:
+        logger.error(f"홈쇼핑 폴백 추천 조회 실패: kok_product_name='{kok_product_name}', error={str(e)}")
+        return []
