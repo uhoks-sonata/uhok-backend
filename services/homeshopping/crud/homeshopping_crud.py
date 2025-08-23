@@ -79,11 +79,11 @@ async def get_homeshopping_schedule(
             "live_end_time": live.live_end_time,
             "promotion_type": live.promotion_type,
             "product_id": live.product_id,
-            "product_name": live.product_name,
-            "thumb_img_url": live.thumb_img_url,
-            "original_price": product.sale_price if product else None,
-            "discounted_price": product.dc_price if product else None,
-            "discount_rate": product.dc_rate if product else None
+                          "product_name": live.product_name,
+              "thumb_img_url": live.thumb_img_url,
+              "sale_price": product.sale_price if product else None,
+              "dc_price": product.dc_price if product else None,
+              "dc_rate": product.dc_rate if product else None
         })
     
     logger.info(f"홈쇼핑 편성표 조회 완료: live_date={live_date}, 결과 수={len(schedule_list)}")

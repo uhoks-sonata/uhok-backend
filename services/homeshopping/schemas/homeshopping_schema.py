@@ -25,9 +25,9 @@ class HomeshoppingScheduleItem(BaseModel):
     product_id: int
     product_name: str
     thumb_img_url: str
-    original_price: Optional[int] = None
-    discounted_price: Optional[int] = None
-    discount_rate: Optional[int] = None
+    sale_price: Optional[int] = None
+    dc_price: Optional[int] = None
+    dc_rate: Optional[int] = None
     
     class Config:
         from_attributes = True
