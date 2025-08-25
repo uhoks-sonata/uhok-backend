@@ -92,9 +92,3 @@ class KokNotificationListResponse(BaseModel):
     
     class Config:
         from_attributes = True
-
-# class KokOrderCreate(BaseModel):
-#     kok_price_id: int
-#     kok_product_id: int
-#     quantity: int = 1
-#     recipe_id: Optional[int] = None

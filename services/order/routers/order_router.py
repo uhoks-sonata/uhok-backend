@@ -14,15 +14,13 @@ from services.order.models.order_model import Order
 from services.order.schemas.order_schema import (
     OrderRead, 
     OrderCountResponse,
-    PaymentConfirmV1Request,
-    PaymentConfirmV1Response,
     RecentOrderItem,
     RecentOrdersResponse,
     OrderGroup,
     OrderGroupItem,
     OrdersListResponse
 )
-from services.order.crud.order_crud import get_order_by_id, get_user_orders, confirm_payment_and_update_status_v1
+from services.order.crud.order_crud import get_order_by_id, get_user_orders
 
 from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
@@ -32,6 +30,7 @@ from common.logger import get_logger
 
 router = APIRouter(prefix="/api/orders", tags=["Orders"])
 logger = get_logger("order_router")
+
 
 @router.get("/", response_model=OrdersListResponse)
 async def list_orders(
@@ -126,6 +125,32 @@ async def list_orders(
         total_count=len(order_groups),
         order_groups=order_groups
     )
+
+
+@router.get("/{order_id}", response_model=OrderRead)
+async def read_order(
+        order_id: int,
+        background_tasks: BackgroundTasks = None,
+        db: AsyncSession = Depends(get_maria_service_db),
+        user=Depends(get_current_user)
+):
+    """
+    단일 주문 조회 (공통+콕+HomeShopping 상세 포함)
+    """
+    order_data = await get_order_by_id(db, order_id)
+    if not order_data or order_data["user_id"] != user.user_id:
+        raise HTTPException(status_code=404, detail="주문 내역이 없습니다.")
+
+    # 주문 상세 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log,
+            user_id=user.user_id,
+            event_type="order_detail_view",
+            event_data={"order_id": order_id}
+        )
+
+    return order_data
 
 
 @router.get("/count", response_model=OrderCountResponse)
@@ -243,53 +268,4 @@ async def recent_orders(
         days=days,
         order_count=len(recent_order_items),
         orders=recent_order_items
-    )
-
-
-@router.get("/{order_id}", response_model=OrderRead)
-async def read_order(
-        order_id: int,
-        background_tasks: BackgroundTasks = None,
-        db: AsyncSession = Depends(get_maria_service_db),
-        user=Depends(get_current_user)
-):
-    """
-    단일 주문 조회 (공통+콕+HomeShopping 상세 포함)
-    """
-    order_data = await get_order_by_id(db, order_id)
-    if not order_data or order_data["user_id"] != user.user_id:
-        raise HTTPException(status_code=404, detail="주문 내역이 없습니다.")
-
-    # 주문 상세 조회 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log,
-            user_id=user.user_id,
-            event_type="order_detail_view",
-            event_data={"order_id": order_id}
-        )
-
-    return order_data
-
-
-@router.post("/{order_id}/payment/confirm/v1", response_model=PaymentConfirmV1Response, status_code=status.HTTP_200_OK)
-async def confirm_payment_v1(
-    order_id: int,
-    payment_data: PaymentConfirmV1Request,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_maria_service_db),
-    current_user=Depends(get_current_user),
-):
-    """
-    주문 결제 확인 v1 (외부 결제 API 응답을 기다리는 방식)
-    - 외부 결제 생성 → payment_id 수신 → 결제 상태 폴링(PENDING→완료/실패)
-    - 완료 시: 해당 order_id 하위 주문들을 PAYMENT_COMPLETED로 갱신(트랜잭션)
-    - 실패/타임아웃 시: 적절한 HTTPException 반환
-    """
-    return await confirm_payment_and_update_status_v1(
-        db=db,
-        order_id=order_id,
-        user_id=current_user.user_id,
-        payment_data=payment_data,
-        background_tasks=background_tasks,
     )
