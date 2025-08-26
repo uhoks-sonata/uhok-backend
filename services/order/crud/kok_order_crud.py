@@ -199,6 +199,7 @@ async def get_kok_current_status(db: AsyncSession, kok_order_id: int) -> KokOrde
     )
     return result.scalars().first()
 
+
 async def create_kok_notification_for_status_change(
     db: AsyncSession, 
     kok_order_id: int, 
@@ -396,9 +397,7 @@ async def get_kok_order_notifications_history(
     사용자의 콕 상품 주문 내역 현황 알림 조회
     주문완료, 배송출발, 배송완료 알림만 조회
     주문상태, 상품이름, NOTIFICATION_MESSAGES, 알림 날짜 포함
-    """
-    from services.order.crud.order_crud import NOTIFICATION_MESSAGES
-    
+    """    
     # 주문 현황 관련 상태 코드들
     order_status_codes = ["PAYMENT_COMPLETED", "SHIPPING", "DELIVERED"]
     

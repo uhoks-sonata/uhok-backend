@@ -1,8 +1,6 @@
 """
 홈쇼핑 주문 관련 CRUD 함수들
 """
-
-import asyncio
 from datetime import datetime, timedelta
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,7 +44,6 @@ async def get_hs_current_status(db: AsyncSession, homeshopping_order_id: int) ->
         
         if default_status:
             # 기본 상태로 상태 이력 생성
-            from datetime import datetime
             status_history = HomeShoppingOrderStatusHistory(
                 homeshopping_order_id=homeshopping_order_id,
                 status_id=default_status.status_id,

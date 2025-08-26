@@ -12,9 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from services.order.models.order_model import (
     Order, KokOrder, HomeShoppingOrder
 )
+from services.kok.models.kok_model import KokProductInfo, KokImageInfo
+from services.homeshopping.models.homeshopping_model import HomeshoppingList, HomeshoppingImgUrl
+from services.recipe.models.recipe_model import Recipe
 
-from services.order.crud.kok_order_crud import update_kok_order_status
-from services.order.crud.hs_order_crud import update_hs_order_status
+from services.order.crud.kok_order_crud import update_kok_order_status, calculate_kok_order_price
+from services.order.crud.hs_order_crud import calculate_homeshopping_order_price, update_hs_order_status
+from services.recipe.crud.recipe_crud import fetch_recipe_ingredients_status
 
 from common.logger import get_logger
 logger = get_logger("order_crud")
@@ -80,9 +84,7 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
         
         # 콕 주문에 상품 이미지 정보 추가
         for kok_order in kok_orders:
-            try:
-                from services.kok.models.kok_model import KokProductInfo, KokImageInfo
-                
+            try:         
                 # 상품 기본 정보 조회
                 product_stmt = select(KokProductInfo).where(KokProductInfo.kok_product_id == kok_order.kok_product_id)
                 product_result = await db.execute(product_stmt)
@@ -107,9 +109,7 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
                 
                 # 레시피 정보 조회 (recipe_id가 있는 경우)
                 if kok_order.recipe_id:
-                    try:
-                        from services.recipe.models.recipe_model import Recipe
-                        
+                    try:                        
                         recipe_stmt = select(Recipe).where(Recipe.recipe_id == kok_order.recipe_id)
                         recipe_result = await db.execute(recipe_stmt)
                         recipe = recipe_result.scalar_one_or_none()
@@ -122,7 +122,6 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
                             
                             # 재료 정보 조회
                             try:
-                                from services.recipe.crud.recipe_crud import fetch_recipe_ingredients_status
                                 ingredients_status = await fetch_recipe_ingredients_status(db, kok_order.recipe_id, user_id)
                                 kok_order.ingredients_owned = ingredients_status.get('owned_count', 0)
                                 kok_order.total_ingredients = ingredients_status.get('total_count', 0)
@@ -175,8 +174,6 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
         # 홈쇼핑 주문에 상품 이미지 정보 추가
         for hs_order in homeshopping_orders:
             try:
-                from services.homeshopping.models.homeshopping_model import HomeshoppingList, HomeshoppingImgUrl
-                
                 # 상품 기본 정보 조회
                 product_stmt = select(HomeshoppingList).where(HomeshoppingList.product_id == hs_order.product_id)
                 product_result = await db.execute(product_stmt)
@@ -240,7 +237,6 @@ async def calculate_order_total_price(db: AsyncSession, order_id: int) -> int:
             # order_price가 없는 경우 계산 함수 사용
             logger.info(f"콕 주문 가격 계산 필요: kok_order_id={kok_order.kok_order_id}, kok_price_id={kok_order.kok_price_id}")
             try:
-                from services.order.crud.kok_order_crud import calculate_kok_order_price
                 price_info = await calculate_kok_order_price(
                     db, 
                     kok_order.kok_price_id, 
@@ -272,7 +268,6 @@ async def calculate_order_total_price(db: AsyncSession, order_id: int) -> int:
             # order_price가 없는 경우 계산 함수 사용
             logger.info(f"홈쇼핑 주문 가격 계산 필요: hs_order_id={hs_order.homeshopping_order_id}, product_id={hs_order.product_id}")
             try:
-                from services.order.crud.hs_order_crud import calculate_homeshopping_order_price
                 price_info = await calculate_homeshopping_order_price(
                     db, 
                     hs_order.product_id, 
