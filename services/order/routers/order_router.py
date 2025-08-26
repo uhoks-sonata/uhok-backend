@@ -22,11 +22,13 @@ from services.order.crud.order_crud import (
 from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
 from common.log_utils import send_user_log
+
 from common.logger import get_logger
+logger = get_logger("order_router")
+from common.logging_config import disable_sqlalchemy_logging
+disable_sqlalchemy_logging()
 
 router = APIRouter(prefix="/api/orders", tags=["Orders"])
-logger = get_logger("order_router")
-
 
 @router.get("/", response_model=OrdersListResponse)
 async def list_orders(

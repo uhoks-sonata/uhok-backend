@@ -22,13 +22,16 @@ from services.order.crud.order_crud import (
 from services.order.crud.kok_order_crud import update_kok_order_status
 from services.order.crud.hs_order_crud import update_hs_order_status
 
-from common.logger import get_logger
 from common.log_utils import send_user_log
+
+from common.logger import get_logger
+logger = get_logger("payment_crud")
+from common.logging_config import disable_sqlalchemy_logging
+disable_sqlalchemy_logging()
 
 load_dotenv()
 pay_api_base = os.getenv("PAY_API_BASE")
 
-logger = get_logger("payment_crud")
 
 async def _poll_payment_status(
     payment_id: str,
