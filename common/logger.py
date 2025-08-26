@@ -86,6 +86,7 @@ def get_logger(
     logging.getLogger('sqlalchemy.dialects').setLevel(logging.WARNING)
     logging.getLogger('sqlalchemy.orm').setLevel(logging.WARNING)
     
+    
     logger = logging.getLogger(name)
     
     # 이미 핸들러가 설정되어 있으면 기존 로거 반환
