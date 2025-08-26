@@ -385,4 +385,4 @@ async def _ensure_order_access(db: AsyncSession, order_id: int, user_id: int) ->
     
     logger.info(f"주문 접근 권한 확인 완료: order_id={order_id}, user_id={user_id}")
     return order_data
-
+    
