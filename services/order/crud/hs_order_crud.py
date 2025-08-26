@@ -5,6 +5,7 @@ CRUD 계층: 모든 DB 트랜잭션 처리 담당
 from datetime import datetime, timedelta
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
+import asyncio
 
 from services.order.models.order_model import (
     Order, HomeShoppingOrder, HomeShoppingOrderStatusHistory, StatusMaster
@@ -437,11 +438,22 @@ async def start_hs_auto_update(
                 changed_by=user_id
             )
             
-            logger.info(f"상태 업데이트 완료: homeshopping_order_id={homeshopping_order_id}, {current_status_code} -> {next_status_code}")
+            # 상태 업데이트 후 commit하여 DB에 반영
+            await db.commit()
+            logger.info(f"상태 업데이트 완료 및 DB 반영: homeshopping_order_id={homeshopping_order_id}, {current_status_code} -> {next_status_code}")
+            
+            # 5. 백그라운드에서 나머지 상태 업데이트 시작
+            try:
+                # 현재 세션을 사용하여 백그라운드에서 자동 업데이트 시작
+                import asyncio
+                asyncio.create_task(auto_update_hs_order_status(homeshopping_order_id, db))
+                logger.info(f"백그라운드 자동 상태 업데이트 시작: homeshopping_order_id={homeshopping_order_id}")
+            except Exception as e:
+                logger.warning(f"백그라운드 자동 상태 업데이트 시작 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
             
             return {
                 "homeshopping_order_id": homeshopping_order_id,
-                "message": f"상태가 {current_status_code}에서 {next_status_code}로 업데이트되었습니다",
+                "message": f"상태가 {current_status_code}에서 {next_status_code}로 업데이트되었습니다. 백그라운드에서 자동 업데이트가 시작됩니다.",
                 "auto_update_started": True,
                 "current_status": current_status_code,
                 "next_status": next_status_code
@@ -459,6 +471,60 @@ async def start_hs_auto_update(
         logger.error(f"자동 상태 업데이트 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
         # 트랜잭션 롤백을 위해 예외를 다시 발생시킴
         raise
+
+
+async def auto_update_hs_order_status(homeshopping_order_id: int, db: AsyncSession):
+    """
+    홈쇼핑 주문 후 자동으로 상태를 업데이트하는 함수
+    PAYMENT_COMPLETED -> PREPARING -> SHIPPING -> DELIVERED 순서로 업데이트
+    """
+    status_sequence = [
+        "PAYMENT_COMPLETED",
+        "PREPARING", 
+        "SHIPPING",
+        "DELIVERED"
+    ]
+    
+    for i, status_code in enumerate(status_sequence):
+        try:
+            # 첫 단계는 이미 설정되었을 수 있으므로 건너뜀
+            if i == 0:
+                logger.info(f"홈쇼핑 주문 {homeshopping_order_id} 상태가 '{status_code}'로 이미 설정되어 있습니다.")
+                continue
+                
+            # 5초 대기
+            await asyncio.sleep(5)
+            
+            # 상태 업데이트
+            await update_hs_order_status(
+                db=db,
+                homeshopping_order_id=homeshopping_order_id,
+                new_status_code=status_code,
+                changed_by=1  # 시스템 자동 업데이트
+            )
+            
+            # 상태 업데이트 후 commit하여 DB에 반영
+            await db.commit()
+            
+            logger.info(f"홈쇼핑 주문 {homeshopping_order_id} 상태가 '{status_code}'로 업데이트되었습니다.")
+            
+        except Exception as e:
+            logger.error(f"홈쇼핑 주문 {homeshopping_order_id} 상태 업데이트 실패: {str(e)}")
+            break
+
+
+async def start_auto_hs_order_status_update(homeshopping_order_id: int, db_session_generator):
+    """
+    백그라운드에서 홈쇼핑 주문 자동 상태 업데이트를 시작하는 함수
+    """
+    async for db in db_session_generator:
+        try:
+            await auto_update_hs_order_status(homeshopping_order_id, db)
+        except Exception as e:
+            logger.error(f"홈쇼핑 주문 자동 상태 업데이트 중 오류 발생: {str(e)}")
+        finally:
+            await db.close()
+        break  # 한 번만 실행
 
 
 # -----------------------------

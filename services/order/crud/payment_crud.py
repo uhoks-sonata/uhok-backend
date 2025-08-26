@@ -171,6 +171,10 @@ async def confirm_payment_and_update_status_v1(
     )
     logger.info(f"하위 주문 상태 갱신 완료: order_id={order_id}")
 
+    # 하위 주문 상태 갱신 후 DB에 반영
+    await db.commit()
+    logger.info(f"하위 주문 상태 갱신 완료 및 DB 반영: order_id={order_id}")
+
     # (6) 로그 적재
     if background_tasks:
         background_tasks.add_task(

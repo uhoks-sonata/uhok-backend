@@ -265,6 +265,14 @@ async def confirm_payment(
                 }
             )
         
+        # 결제 확인 후 자동 상태 업데이트 시작
+        if payment_result["current_status"] == "PAYMENT_COMPLETED":
+            background_tasks.add_task(
+                start_hs_auto_update,
+                homeshopping_order_id=homeshopping_order_id,
+                db_session_generator=get_maria_service_db()
+            )
+        
         logger.info(f"홈쇼핑 결제 확인 완료: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
         
         return payment_result
