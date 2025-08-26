@@ -14,7 +14,9 @@ from fastapi import HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.order.schemas.payment_schema import PaymentConfirmV1Request, PaymentConfirmV1Response
-from services.order.crud.order_crud import _ensure_order_access, calculate_order_total_price, _mark_all_children_paid, _post_json, _get_json
+from services.order.crud.order_crud import _ensure_order_access, calculate_order_total_price, _post_json, _get_json
+from services.order.crud.kok_order_crud import update_kok_order_status
+from services.order.crud.hs_order_crud import update_hs_order_status
 
 from common.logger import get_logger
 from common.log_utils import send_user_log
@@ -83,6 +85,107 @@ async def _poll_payment_status(
     logger.error(f"결제 상태 확인 시간 초과: payment_id={payment_id}, max_attempts={max_attempts}")
     return "TIMEOUT", last_payload
 
+async def _update_kok_order_to_payment_requested(db: AsyncSession, kok_order_id: int, user_id: int):
+    """
+    콕 주문을 PAYMENT_REQUESTED 상태로 업데이트
+    CRUD 계층: DB 상태 변경 담당
+    """
+    try:
+        from services.order.crud.kok_order_crud import update_kok_order_status
+        await update_kok_order_status(
+            db=db,
+            kok_order_id=kok_order_id,
+            new_status_code="PAYMENT_REQUESTED",
+            changed_by=user_id
+        )
+        logger.info(f"콕 주문 결제 요청 상태 업데이트 완료: kok_order_id={kok_order_id}")
+    except Exception as e:
+        logger.error(f"콕 주문 결제 요청 상태 업데이트 실패: kok_order_id={kok_order_id}, error={str(e)}")
+        raise
+
+async def _update_hs_order_to_payment_requested(db: AsyncSession, homeshopping_order_id: int, user_id: int):
+    """
+    홈쇼핑 주문을 PAYMENT_REQUESTED 상태로 업데이트
+    CRUD 계층: DB 상태 변경 담당
+    """
+    try:
+        from services.order.crud.hs_order_crud import update_hs_order_status
+        await update_hs_order_status(
+            db=db,
+            homeshopping_order_id=homeshopping_order_id,
+            new_status_code="PAYMENT_REQUESTED",
+            changed_by=user_id
+        )
+        logger.info(f"홈쇼핑 주문 결제 요청 상태 업데이트 완료: homeshopping_order_id={homeshopping_order_id}")
+    except Exception as e:
+        logger.error(f"홈쇼핑 주문 결제 요청 상태 업데이트 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
+        raise
+
+async def _ensure_order_access(
+    db: AsyncSession,
+    order_id: int,
+    user_id: int,
+) -> Dict[str, Any]:
+    """
+    주문 접근 검증 및 데이터 조회
+    CRUD 계층: DB 트랜잭션 처리 담당
+    """
+    logger.info(f"주문 접근 검증 시작: order_id={order_id}, user_id={user_id}")
+    
+    # 주문 조회
+    order_query = """
+        SELECT o.id, o.user_id, o.total_price, o.status, o.created_at, o.updated_at
+        FROM orders o
+        WHERE o.id = :order_id
+    """
+    result = await db.execute(order_query, {"order_id": order_id})
+    order_data = result.first()
+
+    if not order_data:
+        logger.error(f"주문을 찾을 수 없습니다: order_id={order_id}")
+        raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+
+    # 주문 권한 검증
+    if order_data.user_id != user_id:
+        logger.error(f"주문 접근 권한이 없습니다: order_id={order_id}, user_id={user_id}, order_user_id={order_data.user_id}")
+        raise HTTPException(status_code=403, detail="주문 접근 권한이 없습니다.")
+
+    # 주문 상태 검증 (예: 결제 완료된 주문은 다시 결제할 수 없음)
+    if order_data.status == "PAYMENT_COMPLETED":
+        logger.warning(f"이미 결제가 완료된 주문입니다: order_id={order_id}")
+        raise HTTPException(status_code=400, detail="이미 결제가 완료된 주문입니다.")
+
+    # 하위 주문 조회
+    kok_orders_query = """
+        SELECT k.id, k.order_id, k.status, k.created_at, k.updated_at
+        FROM kok_orders k
+        WHERE k.order_id = :order_id
+    """
+    hs_orders_query = """
+        SELECT h.id, h.order_id, h.status, h.created_at, h.updated_at
+        FROM homeshopping_orders h
+        WHERE h.order_id = :order_id
+    """
+
+    kok_orders_result = await db.execute(kok_orders_query, {"order_id": order_id})
+    hs_orders_result = await db.execute(hs_orders_query, {"order_id": order_id})
+
+    kok_orders = kok_orders_result.scalars().all()
+    hs_orders = hs_orders_result.scalars().all()
+
+    logger.info(f"하위 주문 정보: order_id={order_id}, kok_count={len(kok_orders)}, hs_count={len(hs_orders)}")
+
+    return {
+        "order_id": order_data.id,
+        "user_id": order_data.user_id,
+        "total_price": order_data.total_price,
+        "status": order_data.status,
+        "created_at": order_data.created_at,
+        "updated_at": order_data.updated_at,
+        "kok_orders": kok_orders,
+        "homeshopping_orders": hs_orders,
+    }
+
 
 async def confirm_payment_and_update_status_v1(
     *,
@@ -114,6 +217,23 @@ async def confirm_payment_and_update_status_v1(
     logger.info(f"주문 총액 계산 시작: order_id={order_id}")
     total_order_price = await calculate_order_total_price(db, order_id)
     logger.info(f"주문 총액 계산 완료: order_id={order_id}, total_price={total_order_price}")
+
+    # (2-1) 결제 요청 상태로 업데이트
+    logger.info(f"결제 요청 상태 업데이트 시작: order_id={order_id}")
+    kok_orders = order_data.get("kok_orders", [])
+    hs_orders = order_data.get("homeshopping_orders", [])
+    
+    # 콕 주문들을 PAYMENT_REQUESTED 상태로 업데이트
+    for kok_order in kok_orders:
+        await _update_kok_order_to_payment_requested(db, kok_order.kok_order_id, user_id)
+    
+    # 홈쇼핑 주문들을 PAYMENT_REQUESTED 상태로 업데이트
+    for hs_order in hs_orders:
+        await _update_hs_order_to_payment_requested(db, hs_order.homeshopping_order_id, user_id)
+    
+    # 상태 변경사항 커밋
+    await db.commit()
+    logger.info(f"결제 요청 상태 업데이트 완료: order_id={order_id}, kok_count={len(kok_orders)}, hs_count={len(hs_orders)}")
 
     # (3) 결제 생성
     logger.info(f"외부 결제 API 호출 시작: order_id={order_id}, pay_api_base={pay_api_base}")
@@ -162,12 +282,11 @@ async def confirm_payment_and_update_status_v1(
     hs_orders = order_data.get("homeshopping_orders", [])
     logger.info(f"하위 주문 정보: order_id={order_id}, kok_count={len(kok_orders)}, hs_count={len(hs_orders)}")
     
-    await _mark_all_children_paid(
-        db,
-        kok_orders=kok_orders,
-        hs_orders=hs_orders,
-        user_id=user_id,
-    )
+    for kok_order in kok_orders:
+        await _update_kok_order_to_payment_requested(db, kok_order.id, user_id)
+    for hs_order in hs_orders:
+        await _update_hs_order_to_payment_requested(db, hs_order.id, user_id)
+
     logger.info(f"하위 주문 상태 갱신 완료: order_id={order_id}")
 
     # 하위 주문 상태 갱신 후 DB에 반영

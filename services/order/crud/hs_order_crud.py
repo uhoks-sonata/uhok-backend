@@ -652,51 +652,7 @@ async def create_homeshopping_order(
         )
         
         db.add(new_notification)
-        
-        # 6. 모든 변경사항 커밋
         await db.commit()
-        
-        # 9. 즉시 PAYMENT_REQUESTED 상태로 변경 (백그라운드 작업 제거)
-        try:
-            logger.info(f"즉시 상태 변경 시작: homeshopping_order_id={new_homeshopping_order.homeshopping_order_id}")
-            
-            # PAYMENT_REQUESTED 상태 조회
-            payment_status_stmt = select(StatusMaster).where(
-                StatusMaster.status_code == "PAYMENT_REQUESTED"
-            )
-            payment_status_result = await db.execute(payment_status_stmt)
-            payment_status = payment_status_result.scalar_one_or_none()
-            
-            if payment_status:
-                # 새로운 상태 이력 생성 (1초 후 시간으로 설정하여 순서 보장)
-                payment_time = order_time + timedelta(seconds=1)
-                payment_status_history = HomeShoppingOrderStatusHistory(
-                    homeshopping_order_id=new_homeshopping_order.homeshopping_order_id,
-                    status_id=payment_status.status_id,
-                    changed_at=payment_time,
-                    changed_by=user_id
-                )
-                db.add(payment_status_history)
-                
-                # 알림 생성
-                payment_notification = HomeshoppingNotification(
-                    user_id=user_id,
-                    homeshopping_order_id=new_homeshopping_order.homeshopping_order_id,
-                    status_id=payment_status.status_id,
-                    title="결제 요청",
-                    message="결제가 요청되었습니다."
-                )
-                db.add(payment_notification)
-                
-                # 상태 변경 커밋
-                await db.commit()
-                logger.info(f"즉시 상태 변경 완료: homeshopping_order_id={new_homeshopping_order.homeshopping_order_id}, status=PAYMENT_REQUESTED")
-            else:
-                logger.error("PAYMENT_REQUESTED 상태를 찾을 수 없습니다")
-                
-        except Exception as e:
-            logger.error(f"즉시 상태 변경 실패: homeshopping_order_id={new_homeshopping_order.homeshopping_order_id}, error={str(e)}")
-            # 상태 변경 실패해도 주문 생성은 성공으로 처리
         
         logger.info(f"홈쇼핑 주문 생성 완료: user_id={user_id}, order_id={new_order.order_id}, homeshopping_order_id={new_homeshopping_order.homeshopping_order_id}")
         

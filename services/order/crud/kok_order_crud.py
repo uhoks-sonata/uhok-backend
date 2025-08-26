@@ -162,29 +162,6 @@ async def create_orders_from_selected_carts(
     # 선택된 장바구니 삭제
     await db.execute(delete(KokCart).where(KokCart.kok_cart_id.in_(cart_ids)))
     await db.commit()
-    
-    # 1초 후 PAYMENT_REQUESTED 상태로 변경 (백그라운드 작업)
-    
-    async def update_status_to_payment_requested():
-        await asyncio.sleep(1)  # 1초 대기
-        
-        try:
-            # 각 주문에 대해 상태 변경 및 알림 생성
-            for kok_order_id in created_kok_order_ids:
-                await update_kok_order_status(
-                    db=db,
-                    kok_order_id=kok_order_id,
-                    new_status_code="PAYMENT_REQUESTED",
-                    changed_by=user_id
-                )
-            
-            logger.info(f"콕 주문 상태 변경 완료: order_id={main_order.order_id}, status=PAYMENT_REQUESTED, count={len(created_kok_order_ids)}")
-                
-        except Exception as e:
-            logger.error(f"콕 주문 상태 변경 실패: order_id={main_order.order_id}, error={str(e)}")
-    
-    # 백그라운드에서 상태 변경 실행
-    asyncio.create_task(update_status_to_payment_requested())
 
     return {
         "order_id": main_order.order_id,
@@ -193,6 +170,25 @@ async def create_orders_from_selected_carts(
         "kok_order_ids": created_kok_order_ids,
     }
 
+# async def update_status_to_payment_requested():
+        
+#         try:
+#             # 각 주문에 대해 상태 변경 및 알림 생성
+#             for kok_order_id in created_kok_order_ids:
+#                 await update_kok_order_status(
+#                     db=db,
+#                     kok_order_id=kok_order_id,
+#                     new_status_code="PAYMENT_REQUESTED",
+#                     changed_by=user_id
+#                 )
+            
+#             logger.info(f"콕 주문 상태 변경 완료: order_id={main_order.order_id}, status=PAYMENT_REQUESTED, count={len(created_kok_order_ids)}")
+                
+#         except Exception as e:
+#             logger.error(f"콕 주문 상태 변경 실패: order_id={main_order.order_id}, error={str(e)}")
+    
+#     # 백그라운드에서 상태 변경 실행
+#     asyncio.create_task(update_status_to_payment_requested())
 
 async def get_kok_current_status(db: AsyncSession, kok_order_id: int) -> KokOrderStatusHistory:
     """
