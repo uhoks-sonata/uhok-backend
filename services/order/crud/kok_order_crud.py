@@ -3,6 +3,7 @@
 CRUD 계층: 모든 DB 트랜잭션 처리 담당
 """
 import asyncio
+from typing import List
 from datetime import datetime
 from sqlalchemy import select, desc, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +21,6 @@ from services.order.crud.order_common import (
 
 from common.database.mariadb_service import get_maria_service_db
 from common.logger import get_logger
-from typing import List
 
 logger = get_logger(__name__)
 

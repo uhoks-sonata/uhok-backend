@@ -12,8 +12,9 @@ from common.dependencies import get_current_user
 from common.log_utils import send_user_log
 from common.logger import get_logger
 
-from services.order.models.order_model import Order, KokOrder, KokOrderStatusHistory, StatusMaster
-
+from services.order.models.order_model import (
+    Order, KokOrder, KokOrderStatusHistory, StatusMaster
+)
 from services.user.schemas.user_schema import UserOut
 from services.order.schemas.kok_order_schema import (
     KokCartOrderRequest,
