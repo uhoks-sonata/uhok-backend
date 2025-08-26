@@ -1,6 +1,12 @@
 """
 홈쇼핑 API 라우터 (MariaDB)
 - 편성표 조회, 상품 검색, 찜 기능, 주문 등 홈쇼핑 관련 기능
+
+계층별 역할:
+- 이 파일은 API 라우터 계층을 담당
+- HTTP 요청/응답 처리, 파라미터 파싱, 유저 인증/권한 확인
+- 비즈니스 로직은 CRUD 함수 호출만 하고 직접 DB 처리하지 않음
+- 트랜잭션 관리(commit/rollback)를 담당하여 데이터 일관성 보장
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request
@@ -325,19 +331,25 @@ async def add_search_history(
     """
     logger.info(f"홈쇼핑 검색 이력 저장 요청: user_id={current_user.user_id}, keyword='{search_data.keyword}'")
     
-    saved_history = await add_homeshopping_search_history(db, current_user.user_id, search_data.keyword)
-    
-    # 검색 이력 저장 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="homeshopping_search_history_save", 
-            event_data={"keyword": search_data.keyword}
-        )
-    
-    logger.info(f"홈쇼핑 검색 이력 저장 완료: user_id={current_user.user_id}, history_id={saved_history['homeshopping_history_id']}")
-    return saved_history
+    try:
+        saved_history = await add_homeshopping_search_history(db, current_user.user_id, search_data.keyword)
+        await db.commit()
+        
+        # 검색 이력 저장 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="homeshopping_search_history_save", 
+                event_data={"keyword": search_data.keyword}
+            )
+        
+        logger.info(f"홈쇼핑 검색 이력 저장 완료: user_id={current_user.user_id}, history_id={saved_history['homeshopping_history_id']}")
+        return saved_history
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"홈쇼핑 검색 이력 저장 실패: user_id={current_user.user_id}, keyword='{search_data.keyword}', error={str(e)}")
+        raise HTTPException(status_code=500, detail="검색 이력 저장 중 오류가 발생했습니다.")
 
 
 @router.get("/search/history", response_model=HomeshoppingSearchHistoryResponse)
@@ -379,22 +391,31 @@ async def delete_search_history(
     """
     logger.info(f"홈쇼핑 검색 이력 삭제 요청: user_id={current_user.user_id}, history_id={delete_data.homeshopping_history_id}")
     
-    success = await delete_homeshopping_search_history(db, current_user.user_id, delete_data.homeshopping_history_id)
-    
-    if not success:
-        raise HTTPException(status_code=404, detail="삭제할 검색 이력을 찾을 수 없습니다.")
-    
-    # 검색 이력 삭제 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="homeshopping_search_history_delete", 
-            event_data={"history_id": delete_data.homeshopping_history_id}
-        )
-    
-    logger.info(f"홈쇼핑 검색 이력 삭제 완료: user_id={current_user.user_id}, history_id={delete_data.homeshopping_history_id}")
-    return {"message": "검색 이력이 삭제되었습니다."}
+    try:
+        success = await delete_homeshopping_search_history(db, current_user.user_id, delete_data.homeshopping_history_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="삭제할 검색 이력을 찾을 수 없습니다.")
+        
+        await db.commit()
+        
+        # 검색 이력 삭제 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="homeshopping_search_history_delete", 
+                event_data={"history_id": delete_data.homeshopping_history_id}
+            )
+        
+        logger.info(f"홈쇼핑 검색 이력 삭제 완료: user_id={current_user.user_id}, history_id={delete_data.homeshopping_history_id}")
+        return {"message": "검색 이력이 삭제되었습니다."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"홈쇼핑 검색 이력 삭제 실패: user_id={current_user.user_id}, history_id={delete_data.homeshopping_history_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="검색 이력 삭제 중 오류가 발생했습니다.")
 
 
 # ================================
@@ -413,24 +434,30 @@ async def toggle_likes(
     """
     logger.info(f"홈쇼핑 찜 토글 요청: user_id={current_user.user_id}, product_id={like_data.product_id}")
     
-    liked = await toggle_homeshopping_likes(db, current_user.user_id, like_data.product_id)
-    
-    # 찜 토글 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="homeshopping_likes_toggle", 
-            event_data={"product_id": like_data.product_id, "liked": liked}
-        )
-    
-    message = "찜이 등록되었습니다." if liked else "찜이 해제되었습니다."
-    logger.info(f"홈쇼핑 찜 토글 완료: user_id={current_user.user_id}, product_id={like_data.product_id}, liked={liked}")
-    
-    return {
-        "liked": liked,
-        "message": message
-    }
+    try:
+        liked = await toggle_homeshopping_likes(db, current_user.user_id, like_data.product_id)
+        await db.commit()
+        
+        # 찜 토글 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="homeshopping_likes_toggle", 
+                event_data={"product_id": like_data.product_id, "liked": liked}
+            )
+        
+        message = "찜이 등록되었습니다." if liked else "찜이 해제되었습니다."
+        logger.info(f"홈쇼핑 찜 토글 완료: user_id={current_user.user_id}, product_id={like_data.product_id}, liked={liked}")
+        
+        return {
+            "liked": liked,
+            "message": message
+        }
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"홈쇼핑 찜 토글 실패: user_id={current_user.user_id}, product_id={like_data.product_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="찜 토글 중 오류가 발생했습니다.")
 
 
 @router.get("/likes", response_model=HomeshoppingLikesResponse)
@@ -631,6 +658,8 @@ async def mark_notification_read_api(
         if not success:
             raise HTTPException(status_code=404, detail="알림을 찾을 수 없습니다.")
         
+        await db.commit()
+        
         # 알림 읽음 처리 로그 기록
         if background_tasks:
             background_tasks.add_task(
@@ -643,7 +672,10 @@ async def mark_notification_read_api(
         logger.info(f"홈쇼핑 알림 읽음 처리 완료: notification_id={notification_id}")
         return {"message": "알림이 읽음으로 표시되었습니다."}
         
+    except HTTPException:
+        raise
     except Exception as e:
+        await db.rollback()
         logger.error(f"홈쇼핑 알림 읽음 처리 실패: notification_id={notification_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail="알림 읽음 처리 중 오류가 발생했습니다.")
 
