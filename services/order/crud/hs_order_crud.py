@@ -2,10 +2,10 @@
 홈쇼핑 주문 관련 CRUD 함수들
 CRUD 계층: 모든 DB 트랜잭션 처리 담당
 """
+import asyncio
 from datetime import datetime, timedelta
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
-import asyncio
 
 from services.order.models.order_model import (
     Order, HomeShoppingOrder, HomeShoppingOrderStatusHistory, StatusMaster
@@ -13,12 +13,11 @@ from services.order.models.order_model import (
 from services.homeshopping.models.homeshopping_model import (
     HomeshoppingList, HomeshoppingProductInfo, HomeshoppingNotification
 )   
-
 from services.order.crud.order_common import (
     get_status_by_code,
     NOTIFICATION_TITLES, NOTIFICATION_MESSAGES
 )
-
+from common.database.mariadb_service import get_maria_service_db
 from common.logger import get_logger
 
 logger = get_logger(__name__)
@@ -445,7 +444,6 @@ async def start_hs_auto_update(
             # 5. 백그라운드에서 나머지 상태 업데이트 시작
             try:
                 # 현재 세션을 사용하여 백그라운드에서 자동 업데이트 시작
-                import asyncio
                 asyncio.create_task(auto_update_hs_order_status(homeshopping_order_id, db))
                 logger.info(f"백그라운드 자동 상태 업데이트 시작: homeshopping_order_id={homeshopping_order_id}")
             except Exception as e:
@@ -513,18 +511,20 @@ async def auto_update_hs_order_status(homeshopping_order_id: int, db: AsyncSessi
             break
 
 
-async def start_auto_hs_order_status_update(homeshopping_order_id: int, db_session_generator):
+async def start_auto_hs_order_status_update(homeshopping_order_id: int):
     """
-    백그라운드에서 홈쇼핑 주문 자동 상태 업데이트를 시작하는 함수
+    홈쇼핑 주문 자동 상태 업데이트를 백그라운드에서 시작하는 함수
+    CRUD 계층: 백그라운드 작업 시작 담당
     """
-    async for db in db_session_generator:
-        try:
+    try:
+        # 새로운 DB 세션 생성
+        async for db in get_maria_service_db():
             await auto_update_hs_order_status(homeshopping_order_id, db)
-        except Exception as e:
-            logger.error(f"홈쇼핑 주문 자동 상태 업데이트 중 오류 발생: {str(e)}")
-        finally:
-            await db.close()
-        break  # 한 번만 실행
+            break  # 첫 번째 세션만 사용
+            
+    except Exception as e:
+        logger.error(f"홈쇼핑 주문 자동 상태 업데이트 백그라운드 작업 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
+        # 백그라운드 작업 실패는 전체 프로세스를 중단하지 않음
 
 
 # -----------------------------

@@ -18,6 +18,7 @@ from services.order.crud.order_common import (
     NOTIFICATION_TITLES, NOTIFICATION_MESSAGES
 )
 
+from common.database.mariadb_service import get_maria_service_db
 from common.logger import get_logger
 from typing import List
 
@@ -380,18 +381,19 @@ async def auto_update_order_status(kok_order_id: int, db: AsyncSession):
             break
 
 
-async def start_auto_kok_order_status_update(kok_order_id: int, db_session_generator):
+async def start_auto_kok_order_status_update(kok_order_id: int):
     """
     백그라운드에서 자동 상태 업데이트를 시작하는 함수
     """
-    async for db in db_session_generator:
-        try:
+    try:
+        # 새로운 DB 세션 생성
+        async for db in get_maria_service_db():
             await auto_update_order_status(kok_order_id, db)
-        except Exception as e:
-            logger.error(f"자동 상태 업데이트 중 오류 발생: {str(e)}")
-        finally:
-            await db.close()
-        break  # 한 번만 실행
+            break  # 첫 번째 세션만 사용
+            
+    except Exception as e:
+        logger.error(f"콕 주문 자동 상태 업데이트 백그라운드 작업 실패: kok_order_id={kok_order_id}, error={str(e)}")
+        # 백그라운드 작업 실패는 전체 프로세스를 중단하지 않음
 
 
 async def get_kok_order_notifications_history(

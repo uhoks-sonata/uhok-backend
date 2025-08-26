@@ -3,15 +3,9 @@
 Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입만 담당
 비즈니스 로직은 CRUD 계층에 위임, 직접 DB 처리(트랜잭션)는 하지 않음
 """
-import requests
-import asyncio
-from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, status, Header
-from sqlalchemy import select, func, desc
+from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta
-from typing import List
-
-from services.order.models.order_model import Order
 
 from services.order.schemas.order_schema import (
     OrderRead, 

@@ -422,8 +422,7 @@ async def start_auto_status_update_api(
         if background_tasks:
             background_tasks.add_task(
                 start_auto_kok_order_status_update,
-                kok_order_id=kok_order_id,
-                db_session_generator=get_maria_service_db()
+                kok_order_id=kok_order_id
             )
         
         return {"message": f"주문 {kok_order_id}의 자동 상태 업데이트가 시작되었습니다. (현재 상태: {current_status.status_name})"}

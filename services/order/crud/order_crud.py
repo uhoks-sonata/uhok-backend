@@ -3,13 +3,14 @@ ORDERS + 서비스별 주문 상세를 트랜잭션으로 한 번에 생성/조�
 CRUD 계층: 모든 DB 트랜잭션 처리 담당
 """
 from __future__ import annotations
+from datetime import datetime
 from typing import Dict, Any, List
 import httpx
 from fastapi import HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession 
+
 from services.order.models.order_model import (
     Order, KokOrder, HomeShoppingOrder, KokOrderStatusHistory, HomeShoppingOrderStatusHistory, StatusMaster
 )
@@ -453,3 +454,89 @@ async def _ensure_order_access(db: AsyncSession, order_id: int, user_id: int) ->
     logger.info(f"주문 접근 권한 확인 완료: order_id={order_id}, user_id={user_id}")
     return order_data
 
+
+async def cancel_order(db: AsyncSession, order_id: int, reason: str = "결제 시간 초과"):
+    """
+    주문을 취소하는 함수
+    CRUD 계층: DB 상태 변경 담당
+    """
+    try:
+        # 주문 조회
+        order_result = await db.execute(
+            select(Order)
+            .where(Order.order_id == order_id)
+        )
+        order = order_result.scalar_one_or_none()
+        
+        if not order:
+            raise ValueError(f"주문을 찾을 수 없습니다: {order_id}")
+        
+        # 취소 시간 설정
+        current_time = datetime.utcnow()
+        
+        # cancel_time 업데이트
+        order.cancel_time = current_time
+        
+        # 하위 주문들 조회
+        kok_orders_result = await db.execute(
+            select(KokOrder)
+            .where(KokOrder.order_id == order_id)
+        )
+        kok_orders = kok_orders_result.scalars().all()
+        
+        hs_orders_result = await db.execute(
+            select(HomeShoppingOrder)
+            .where(HomeShoppingOrder.order_id == order_id)
+        )
+        hs_orders = hs_orders_result.scalars().all()
+        
+        # 콕 주문 상태를 CANCELLED로 업데이트
+        for kok_order in kok_orders:
+            # 상태 히스토리에 CANCELLED 기록 추가
+            new_status_history = KokOrderStatusHistory(
+                kok_order_id=kok_order.kok_order_id,
+                status_id=await _get_status_id_by_code(db, "CANCELLED"),
+                changed_at=current_time,
+                changed_by=1  # 시스템 자동 취소
+            )
+            db.add(new_status_history)
+        
+        # 홈쇼핑 주문 상태를 CANCELLED로 업데이트
+        for hs_order in hs_orders:
+            # 상태 히스토리에 CANCELLED 기록 추가
+            new_status_history = HomeShoppingOrderStatusHistory(
+                homeshopping_order_id=hs_order.homeshopping_order_id,
+                status_id=await _get_status_id_by_code(db, "CANCELLED"),
+                changed_at=current_time,
+                changed_by=1  # 시스템 자동 취소
+            )
+            db.add(new_status_history)
+        
+        await db.commit()
+        
+        logger.info(f"주문 취소 완료: order_id={order_id}, cancel_time={current_time}, reason={reason}")
+        
+        return {
+            "order_id": order_id,
+            "cancel_time": current_time,
+            "reason": reason,
+            "cancelled_kok_orders": len(kok_orders),
+            "cancelled_hs_orders": len(hs_orders)
+        }
+        
+    except Exception as e:
+        logger.error(f"주문 취소 실패: order_id={order_id}, error={str(e)}")
+        raise
+
+async def _get_status_id_by_code(db: AsyncSession, status_code: str) -> int:
+    """
+    상태 코드로 status_id를 조회하는 헬퍼 함수
+    """
+    status_result = await db.execute(
+        select(StatusMaster.status_id)
+        .where(StatusMaster.status_code == status_code)
+    )
+    status_id = status_result.scalar_one_or_none()
+    if not status_id:
+        raise ValueError(f"상태 코드를 찾을 수 없습니다: {status_code}")
+    return status_id

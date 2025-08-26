@@ -27,7 +27,7 @@ logger = get_logger("payment_crud")
 async def _poll_payment_status(
     payment_id: str,
     *,
-    max_attempts: int = 30,
+    max_attempts: int = 5,  # 최대 시도 횟수
     initial_sleep: float = 5.0,
     step: float = 0.0,  # 5초 고정 간격으로 변경
     max_sleep: float = 5.0,  # 최대 대기 시간도 5초로 고정
@@ -82,7 +82,6 @@ async def _poll_payment_status(
 
     logger.error(f"결제 상태 확인 시간 초과: payment_id={payment_id}, max_attempts={max_attempts}")
     return "TIMEOUT", last_payload
-
 
 
 async def confirm_payment_and_update_status_v1(
