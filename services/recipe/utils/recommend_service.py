@@ -1,11 +1,11 @@
-# backend/services/recommend/recommend_service.py
+# backend/services/recipe/utils/recommend_service.py
 from typing import List, Tuple, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
-from services.recommend.ports import VectorSearcherPort, RecommenderPort
-from services.recommend.core import get_model
+from .ports import VectorSearcherPort, RecommenderPort
+from .core import get_model
 import pandas as pd
-from services.recommend.core import recommend_by_recipe_name_core  # 로컬 코사인용
+from .core import recommend_by_recipe_name_core  # 로컬 코사인용
 from common.logger import get_logger
 import time
 # (import 보강)

@@ -1,4 +1,4 @@
-# backend/services/recommend/ports.py
+# backend/services/recipe/utils/ports.py
 from typing import Protocol, List, Tuple, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 import pandas as pd
