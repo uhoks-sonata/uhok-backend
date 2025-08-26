@@ -6,6 +6,8 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from services.order.models.order_model import StatusMaster
+from services.user.models.user_model import User
+from common.database.mariadb_auth import get_maria_auth_db
 
 # 상태 코드 상수 정의
 STATUS_CODES = {
@@ -75,10 +77,7 @@ async def initialize_status_master(db: AsyncSession):
 async def validate_user_exists(user_id: int, db: AsyncSession) -> bool:
     """
     사용자 ID가 유효한지 검증 (AUTH_DB.USERS 테이블 확인)
-    """
-    from services.user.models.user_model import User
-    from common.database.mariadb_auth import get_maria_auth_db
-    
+    """  
     # AUTH_DB에서 사용자 조회
     auth_db = get_maria_auth_db()
     async for auth_session in auth_db:
