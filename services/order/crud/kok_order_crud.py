@@ -170,26 +170,6 @@ async def create_orders_from_selected_carts(
         "kok_order_ids": created_kok_order_ids,
     }
 
-# async def update_status_to_payment_requested():
-        
-#         try:
-#             # 각 주문에 대해 상태 변경 및 알림 생성
-#             for kok_order_id in created_kok_order_ids:
-#                 await update_kok_order_status(
-#                     db=db,
-#                     kok_order_id=kok_order_id,
-#                     new_status_code="PAYMENT_REQUESTED",
-#                     changed_by=user_id
-#                 )
-            
-#             logger.info(f"콕 주문 상태 변경 완료: order_id={main_order.order_id}, status=PAYMENT_REQUESTED, count={len(created_kok_order_ids)}")
-                
-#         except Exception as e:
-#             logger.error(f"콕 주문 상태 변경 실패: order_id={main_order.order_id}, error={str(e)}")
-    
-#     # 백그라운드에서 상태 변경 실행
-#     asyncio.create_task(update_status_to_payment_requested())
-
 async def get_kok_current_status(db: AsyncSession, kok_order_id: int) -> KokOrderStatusHistory:
     """
     콕 주문의 현재 상태(가장 최근 상태 이력) 조회

@@ -14,7 +14,7 @@ from fastapi import HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.order.schemas.payment_schema import PaymentConfirmV1Request, PaymentConfirmV1Response
-from services.order.crud.order_crud import _ensure_order_access, calculate_order_total_price, _post_json, _get_json
+from services.order.crud.order_crud import _ensure_order_access, calculate_order_total_price, _post_json, _get_json, cancel_order
 from services.order.crud.kok_order_crud import update_kok_order_status
 from services.order.crud.hs_order_crud import update_hs_order_status
 
@@ -204,21 +204,47 @@ async def confirm_payment_and_update_status_v1(
 
     if final_status == "PAYMENT_FAILED":
         logger.error(f"결제 실패: order_id={order_id}, payment_id={payment_id}")
-        raise HTTPException(status_code=400, detail="결제가 실패했습니다.")
+        # 결제 실패 시 주문 취소 처리
+        try:
+            await cancel_order(db, order_id, "결제 실패로 인한 자동 취소")
+            logger.info(f"결제 실패로 주문 취소 완료: order_id={order_id}")
+        except Exception as e:
+            logger.error(f"주문 취소 처리 실패: order_id={order_id}, error={str(e)}")
+        
+        raise HTTPException(status_code=400, detail="결제가 실패하여 주문이 취소되었습니다.")
+        
     if final_status == "TIMEOUT":
         logger.error(f"결제 상태 확인 시간 초과: order_id={order_id}, payment_id={payment_id}")
-        raise HTTPException(status_code=408, detail="결제 상태 확인 시간 초과")
+        # 결제 시간 초과 시 주문 취소 처리
+        try:
+            await cancel_order(db, order_id, "결제 상태 확인 시간 초과")
+            logger.info(f"결제 시간 초과로 주문 취소 완료: order_id={order_id}")
+        except Exception as e:
+            logger.error(f"주문 취소 처리 실패: order_id={order_id}, error={str(e)}")
+        
+        raise HTTPException(status_code=408, detail="결제 상태 확인 시간 초과로 주문이 취소되었습니다.")
 
-    # (5) 완료 → 하위 주문 상태 갱신
+    # (5) 완료 → 하위 주문 상태 갱신 (PAYMENT_COMPLETED)
     logger.info(f"하위 주문 상태 갱신 시작: order_id={order_id}")
     kok_orders = order_data.get("kok_orders", [])
     hs_orders = order_data.get("homeshopping_orders", [])
     logger.info(f"하위 주문 정보: order_id={order_id}, kok_count={len(kok_orders)}, hs_count={len(hs_orders)}")
     
+    # 결제 완료 상태로 업데이트
     for kok_order in kok_orders:
-        await _update_kok_order_to_payment_requested(db, kok_order.id, user_id)
+        await update_kok_order_status(
+            db=db,
+            kok_order_id=kok_order.kok_order_id,
+            new_status_code="PAYMENT_COMPLETED",
+            changed_by=user_id
+        )
     for hs_order in hs_orders:
-        await _update_hs_order_to_payment_requested(db, hs_order.id, user_id)
+        await update_hs_order_status(
+            db=db,
+            homeshopping_order_id=hs_order.homeshopping_order_id,
+            new_status_code="PAYMENT_COMPLETED",
+            changed_by=user_id
+        )
 
     logger.info(f"하위 주문 상태 갱신 완료: order_id={order_id}")
 
