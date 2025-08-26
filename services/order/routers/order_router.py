@@ -16,13 +16,13 @@ from services.order.schemas.order_schema import (
     OrderGroupItem,
     OrdersListResponse
 )
-from services.order.crud.order_crud import get_order_by_id, get_user_orders, get_delivery_info
-
+from services.order.crud.order_crud import (
+    get_order_by_id, get_user_orders, get_delivery_info
+)
 from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
 from common.log_utils import send_user_log
 from common.logger import get_logger
-
 
 router = APIRouter(prefix="/api/orders", tags=["Orders"])
 logger = get_logger("order_router")

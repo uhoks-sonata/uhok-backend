@@ -3,7 +3,7 @@
 CRUD 계층: 모든 DB 트랜잭션 처리 담당
 """
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +17,7 @@ from services.order.crud.order_common import (
     get_status_by_code,
     NOTIFICATION_TITLES, NOTIFICATION_MESSAGES
 )
+
 from common.database.mariadb_service import get_maria_service_db
 from common.logger import get_logger
 
@@ -99,7 +100,8 @@ async def create_hs_notification_for_status_change(
     )
     
     db.add(notification)
-    # 라우터에서 트랜잭션을 관리하므로 commit() 호출하지 않음
+    await db.commit()
+    logger.info(f"홈쇼핑 주문 알림 생성 완료: homeshopping_order_id={homeshopping_order_id}, status_id={status_id}")
 
 
 async def update_hs_order_status(
@@ -151,7 +153,7 @@ async def update_hs_order_status(
         user_id=order.user_id
     )
     
-    # 라우터에서 트랜잭션을 관리하므로 commit() 호출하지 않음
+    await db.commit()
     logger.info(f"홈쇼핑 주문 상태 변경 완료: homeshopping_order_id={homeshopping_order_id}, status={new_status_code}")
     
     return hs_order

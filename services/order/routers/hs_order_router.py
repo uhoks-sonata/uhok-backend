@@ -3,8 +3,8 @@
 Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입만 담당
 비즈니스 로직은 CRUD 계층에 위임, 직접 DB 처리(트랜잭션)는 하지 않음
 """
-from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, status
-from sqlalchemy import select, func, desc
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
+from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.database.mariadb_service import get_maria_service_db
@@ -24,7 +24,6 @@ from services.order.schemas.hs_order_schema import (
     HomeshoppingOrderWithStatusResponse,
     PaymentConfirmResponse
 )  
-
 from services.order.crud.hs_order_crud import (
     create_homeshopping_order,
     get_hs_order_status_history,
@@ -34,6 +33,7 @@ from services.order.crud.hs_order_crud import (
     get_hs_current_status,
     start_auto_hs_order_status_update
 )
+
 
 router = APIRouter(prefix="/api/orders/homeshopping", tags=["HomeShopping Orders"])
 logger = get_logger("hs_order_router")

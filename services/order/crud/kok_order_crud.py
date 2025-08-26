@@ -3,6 +3,7 @@
 CRUD 계층: 모든 DB 트랜잭션 처리 담당
 """
 import asyncio
+from typing import List
 from datetime import datetime
 from sqlalchemy import select, desc, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +21,6 @@ from services.order.crud.order_common import (
 
 from common.database.mariadb_service import get_maria_service_db
 from common.logger import get_logger
-from typing import List
 
 logger = get_logger(__name__)
 
@@ -169,26 +169,6 @@ async def create_orders_from_selected_carts(
         "message": f"{total_created}개의 상품이 주문되었습니다.",
         "kok_order_ids": created_kok_order_ids,
     }
-
-# async def update_status_to_payment_requested():
-        
-#         try:
-#             # 각 주문에 대해 상태 변경 및 알림 생성
-#             for kok_order_id in created_kok_order_ids:
-#                 await update_kok_order_status(
-#                     db=db,
-#                     kok_order_id=kok_order_id,
-#                     new_status_code="PAYMENT_REQUESTED",
-#                     changed_by=user_id
-#                 )
-            
-#             logger.info(f"콕 주문 상태 변경 완료: order_id={main_order.order_id}, status=PAYMENT_REQUESTED, count={len(created_kok_order_ids)}")
-                
-#         except Exception as e:
-#             logger.error(f"콕 주문 상태 변경 실패: order_id={main_order.order_id}, error={str(e)}")
-    
-#     # 백그라운드에서 상태 변경 실행
-#     asyncio.create_task(update_status_to_payment_requested())
 
 async def get_kok_current_status(db: AsyncSession, kok_order_id: int) -> KokOrderStatusHistory:
     """

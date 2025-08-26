@@ -13,9 +13,9 @@ from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
 from common.logger import get_logger
 
-
 router = APIRouter(prefix="/api/orders/payment", tags=["Orders/Payment"])
 logger = get_logger("payment_router")
+
 
 @router.post("/{order_id}/confirm/v1", response_model=PaymentConfirmV1Response, status_code=status.HTTP_200_OK)
 async def confirm_payment_v1(
