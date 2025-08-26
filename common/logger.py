@@ -80,6 +80,12 @@ def get_logger(
         max_file_size: 로그 파일 최대 크기 (사용되지 않음)
         backup_count: 백업 파일 개수 (사용되지 않음)
     """
+    # SQLAlchemy 쿼리 로깅 비활성화
+    logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
+    logging.getLogger('sqlalchemy.pool').setLevel(logging.WARNING)
+    logging.getLogger('sqlalchemy.dialects').setLevel(logging.WARNING)
+    logging.getLogger('sqlalchemy.orm').setLevel(logging.WARNING)
+    
     logger = logging.getLogger(name)
     
     # 이미 핸들러가 설정되어 있으면 기존 로거 반환

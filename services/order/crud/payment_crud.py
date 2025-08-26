@@ -120,8 +120,6 @@ async def _update_hs_order_to_payment_requested(db: AsyncSession, homeshopping_o
         raise
 
 
-
-
 async def confirm_payment_and_update_status_v1(
     *,
     db: AsyncSession,
