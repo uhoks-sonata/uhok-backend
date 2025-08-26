@@ -1,6 +1,8 @@
 """
 홈쇼핑 주문 관련 CRUD 함수들
+CRUD 계층: 모든 DB 트랜잭션 처리 담당
 """
+import asyncio
 from datetime import datetime, timedelta
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,12 +13,11 @@ from services.order.models.order_model import (
 from services.homeshopping.models.homeshopping_model import (
     HomeshoppingList, HomeshoppingProductInfo, HomeshoppingNotification
 )   
-
 from services.order.crud.order_common import (
     get_status_by_code,
     NOTIFICATION_TITLES, NOTIFICATION_MESSAGES
 )
-
+from common.database.mariadb_service import get_maria_service_db
 from common.logger import get_logger
 
 logger = get_logger(__name__)
@@ -25,6 +26,7 @@ logger = get_logger(__name__)
 async def get_hs_current_status(db: AsyncSession, homeshopping_order_id: int) -> HomeShoppingOrderStatusHistory:
     """
     홈쇼핑 주문의 현재 상태(가장 최근 상태 이력) 조회
+    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
     """
     result = await db.execute(
         select(HomeShoppingOrderStatusHistory)
@@ -71,6 +73,7 @@ async def create_hs_notification_for_status_change(
 ):
     """
     홈쇼핑 주문 상태 변경 시 알림 생성
+    CRUD 계층: DB 상태 변경 담당, 트랜잭션 단위 책임
     """
     # 상태 정보 조회
     status_result = await db.execute(
@@ -96,7 +99,7 @@ async def create_hs_notification_for_status_change(
     )
     
     db.add(notification)
-    await db.commit()
+    # 라우터에서 트랜잭션을 관리하므로 commit() 호출하지 않음
 
 
 async def update_hs_order_status(
@@ -107,6 +110,7 @@ async def update_hs_order_status(
 ) -> HomeShoppingOrder:
     """
     홈쇼핑 주문 상태 업데이트 (INSERT만 사용) + 알림 생성
+    CRUD 계층: 트랜잭션 단위 책임
     """
     # 1. 새로운 상태 조회
     new_status = await get_status_by_code(db, new_status_code)
@@ -139,7 +143,7 @@ async def update_hs_order_status(
     
     db.add(status_history)
     
-    # 5. 알림 생성
+    # 5. 알림 생성 (트랜잭션 내에서 처리)
     await create_hs_notification_for_status_change(
         db=db,
         homeshopping_order_id=homeshopping_order_id,
@@ -147,7 +151,7 @@ async def update_hs_order_status(
         user_id=order.user_id
     )
     
-    await db.commit()
+    # 라우터에서 트랜잭션을 관리하므로 commit() 호출하지 않음
     logger.info(f"홈쇼핑 주문 상태 변경 완료: homeshopping_order_id={homeshopping_order_id}, status={new_status_code}")
     
     return hs_order
@@ -159,6 +163,7 @@ async def get_hs_order_status_history(
 ) -> list[HomeShoppingOrderStatusHistory]:
     """
     홈쇼핑 주문의 상태 변경 이력 조회
+    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
     """
     result = await db.execute(
         select(HomeShoppingOrderStatusHistory)
@@ -188,6 +193,7 @@ async def get_hs_order_with_status(
 ) -> dict:
     """
     홈쇼핑 주문과 현재 상태를 함께 조회
+    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
     """
     # 주문 상세 정보 조회
     hs_order_result = await db.execute(
@@ -292,6 +298,7 @@ async def confirm_hs_payment(
 ) -> dict:
     """
     홈쇼핑 주문 결제 확인 (PAYMENT_REQUESTED → PAYMENT_COMPLETED)
+    CRUD 계층: 트랜잭션 단위 책임
     """
     # 1. 주문 조회 및 권한 확인
     hs_order_result = await db.execute(
@@ -358,41 +365,166 @@ async def start_hs_auto_update(
 ) -> dict:
     """
     홈쇼핑 주문 자동 상태 업데이트 시작 (테스트용)
+    CRUD 계층: 트랜잭션 단위 책임
     """
-    # 1. 주문 조회 및 권한 확인
-    hs_order_result = await db.execute(
-        select(HomeShoppingOrder, Order)
-        .join(Order, HomeShoppingOrder.order_id == Order.order_id)
-        .where(HomeShoppingOrder.homeshopping_order_id == homeshopping_order_id)
-    )
+    try:
+        # 1. 주문 조회 및 권한 확인
+        hs_order_result = await db.execute(
+            select(HomeShoppingOrder, Order)
+            .join(Order, HomeShoppingOrder.order_id == Order.order_id)
+            .where(HomeShoppingOrder.homeshopping_order_id == homeshopping_order_id)
+        )
+        
+        order_data = hs_order_result.first()
+        if not order_data:
+            raise ValueError("해당 주문을 찾을 수 없습니다")
+        
+        hs_order, order = order_data
+        
+        # 주문자 본인 확인
+        if order.user_id != user_id:
+            raise ValueError("주문자 본인만 자동 업데이트를 시작할 수 있습니다")
+        
+        # 2. 현재 상태 확인
+        current_status = await get_hs_current_status(db, homeshopping_order_id)
+        if not current_status:
+            raise ValueError("주문 상태 정보를 찾을 수 없습니다")
+        
+        if not current_status.status:
+            raise ValueError("주문 상태 정보가 올바르지 않습니다")
+        
+        logger.info(f"자동 상태 업데이트 시작: homeshopping_order_id={homeshopping_order_id}, current_status={current_status.status.status_code}")
+        
+        # 3. 현재 상태에 따른 다음 상태 결정 및 업데이트
+        current_status_code = current_status.status.status_code
+        next_status_code = None
+        
+        # 상태 전환 로직
+        if current_status_code == "PAYMENT_COMPLETED":
+            next_status_code = "PREPARING"
+        elif current_status_code == "PREPARING":
+            next_status_code = "SHIPPING"
+        elif current_status_code == "SHIPPING":
+            next_status_code = "DELIVERED"
+        elif current_status_code == "DELIVERED":
+            # 이미 배송완료 상태이므로 더 이상 업데이트 불가
+            return {
+                "homeshopping_order_id": homeshopping_order_id,
+                "message": "이미 배송완료 상태입니다",
+                "auto_update_started": False,
+                "current_status": current_status_code,
+                "next_status": None
+            }
+        else:
+            # 다른 상태들은 자동 업데이트 대상이 아님
+            return {
+                "homeshopping_order_id": homeshopping_order_id,
+                "message": f"현재 상태({current_status_code})에서는 자동 업데이트를 할 수 없습니다",
+                "auto_update_started": False,
+                "current_status": current_status_code,
+                "next_status": None
+            }
+        
+        # 4. 상태 업데이트 실행
+        if next_status_code:
+            logger.info(f"상태 업데이트 실행: {current_status_code} -> {next_status_code}")
+            
+            # 상태 업데이트 함수 호출
+            updated_order = await update_hs_order_status(
+                db=db,
+                homeshopping_order_id=homeshopping_order_id,
+                new_status_code=next_status_code,
+                changed_by=user_id
+            )
+            
+            # 상태 업데이트 후 commit하여 DB에 반영
+            await db.commit()
+            logger.info(f"상태 업데이트 완료 및 DB 반영: homeshopping_order_id={homeshopping_order_id}, {current_status_code} -> {next_status_code}")
+            
+            # 5. 백그라운드에서 나머지 상태 업데이트 시작
+            try:
+                # 현재 세션을 사용하여 백그라운드에서 자동 업데이트 시작
+                asyncio.create_task(auto_update_hs_order_status(homeshopping_order_id, db))
+                logger.info(f"백그라운드 자동 상태 업데이트 시작: homeshopping_order_id={homeshopping_order_id}")
+            except Exception as e:
+                logger.warning(f"백그라운드 자동 상태 업데이트 시작 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
+            
+            return {
+                "homeshopping_order_id": homeshopping_order_id,
+                "message": f"상태가 {current_status_code}에서 {next_status_code}로 업데이트되었습니다. 백그라운드에서 자동 업데이트가 시작됩니다.",
+                "auto_update_started": True,
+                "current_status": current_status_code,
+                "next_status": next_status_code
+            }
+        
+        return {
+            "homeshopping_order_id": homeshopping_order_id,
+            "message": "자동 상태 업데이트가 시작되었습니다",
+            "auto_update_started": True,
+            "current_status": current_status_code,
+            "next_status": next_status_code
+        }
+        
+    except Exception as e:
+        logger.error(f"자동 상태 업데이트 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
+        # 트랜잭션 롤백을 위해 예외를 다시 발생시킴
+        raise
+
+
+async def auto_update_hs_order_status(homeshopping_order_id: int, db: AsyncSession):
+    """
+    홈쇼핑 주문 후 자동으로 상태를 업데이트하는 함수
+    PAYMENT_COMPLETED -> PREPARING -> SHIPPING -> DELIVERED 순서로 업데이트
+    """
+    status_sequence = [
+        "PAYMENT_COMPLETED",
+        "PREPARING", 
+        "SHIPPING",
+        "DELIVERED"
+    ]
     
-    order_data = hs_order_result.first()
-    if not order_data:
-        raise ValueError("해당 주문을 찾을 수 없습니다")
-    
-    hs_order, order = order_data
-    
-    # 주문자 본인 확인
-    if order.user_id != user_id:
-        raise ValueError("주문자 본인만 자동 업데이트를 시작할 수 있습니다")
-    
-    # 2. 현재 상태 확인
-    current_status = await get_hs_current_status(db, homeshopping_order_id)
-    if not current_status:
-        raise ValueError("주문 상태 정보를 찾을 수 없습니다")
-    
-    if not current_status.status:
-        raise ValueError("주문 상태 정보가 올바르지 않습니다")
-    
-    # 3. 자동 업데이트 로직 (테스트용)
-    # 실제로는 백그라운드 태스크나 스케줄러를 사용해야 함
-    logger.info(f"자동 상태 업데이트 시작: homeshopping_order_id={homeshopping_order_id}, current_status={current_status.status.status_code}")
-    
-    return {
-        "homeshopping_order_id": homeshopping_order_id,
-        "message": "자동 상태 업데이트가 시작되었습니다",
-        "auto_update_started": True
-    }
+    for i, status_code in enumerate(status_sequence):
+        try:
+            # 첫 단계는 이미 설정되었을 수 있으므로 건너뜀
+            if i == 0:
+                logger.info(f"홈쇼핑 주문 {homeshopping_order_id} 상태가 '{status_code}'로 이미 설정되어 있습니다.")
+                continue
+                
+            # 5초 대기
+            await asyncio.sleep(5)
+            
+            # 상태 업데이트
+            await update_hs_order_status(
+                db=db,
+                homeshopping_order_id=homeshopping_order_id,
+                new_status_code=status_code,
+                changed_by=1  # 시스템 자동 업데이트
+            )
+            
+            # 상태 업데이트 후 commit하여 DB에 반영
+            await db.commit()
+            
+            logger.info(f"홈쇼핑 주문 {homeshopping_order_id} 상태가 '{status_code}'로 업데이트되었습니다.")
+            
+        except Exception as e:
+            logger.error(f"홈쇼핑 주문 {homeshopping_order_id} 상태 업데이트 실패: {str(e)}")
+            break
+
+
+async def start_auto_hs_order_status_update(homeshopping_order_id: int):
+    """
+    홈쇼핑 주문 자동 상태 업데이트를 백그라운드에서 시작하는 함수
+    CRUD 계층: 백그라운드 작업 시작 담당
+    """
+    try:
+        # 새로운 DB 세션 생성
+        async for db in get_maria_service_db():
+            await auto_update_hs_order_status(homeshopping_order_id, db)
+            break  # 첫 번째 세션만 사용
+            
+    except Exception as e:
+        logger.error(f"홈쇼핑 주문 자동 상태 업데이트 백그라운드 작업 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
+        # 백그라운드 작업 실패는 전체 프로세스를 중단하지 않음
 
 
 # -----------------------------
@@ -406,6 +538,7 @@ async def calculate_homeshopping_order_price(
 ) -> dict:
     """
     홈쇼핑 주문 금액 계산
+    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
     """
     logger.info(f"홈쇼핑 주문 금액 계산 시작: product_id={product_id}, quantity={quantity}")
     
@@ -459,6 +592,7 @@ async def create_homeshopping_order(
 ) -> dict:
     """
     홈쇼핑 주문 생성 (단건 주문)
+    CRUD 계층: 트랜잭션 단위 책임
     """
     logger.info(f"홈쇼핑 주문 생성 시작: user_id={user_id}, product_id={product_id}, quantity={quantity}")
     
@@ -518,51 +652,7 @@ async def create_homeshopping_order(
         )
         
         db.add(new_notification)
-        
-        # 6. 모든 변경사항 커밋
         await db.commit()
-        
-        # 9. 즉시 PAYMENT_REQUESTED 상태로 변경 (백그라운드 작업 제거)
-        try:
-            logger.info(f"즉시 상태 변경 시작: homeshopping_order_id={new_homeshopping_order.homeshopping_order_id}")
-            
-            # PAYMENT_REQUESTED 상태 조회
-            payment_status_stmt = select(StatusMaster).where(
-                StatusMaster.status_code == "PAYMENT_REQUESTED"
-            )
-            payment_status_result = await db.execute(payment_status_stmt)
-            payment_status = payment_status_result.scalar_one_or_none()
-            
-            if payment_status:
-                # 새로운 상태 이력 생성 (1초 후 시간으로 설정하여 순서 보장)
-                payment_time = order_time + timedelta(seconds=1)
-                payment_status_history = HomeShoppingOrderStatusHistory(
-                    homeshopping_order_id=new_homeshopping_order.homeshopping_order_id,
-                    status_id=payment_status.status_id,
-                    changed_at=payment_time,
-                    changed_by=user_id
-                )
-                db.add(payment_status_history)
-                
-                # 알림 생성
-                payment_notification = HomeshoppingNotification(
-                    user_id=user_id,
-                    homeshopping_order_id=new_homeshopping_order.homeshopping_order_id,
-                    status_id=payment_status.status_id,
-                    title="결제 요청",
-                    message="결제가 요청되었습니다."
-                )
-                db.add(payment_notification)
-                
-                # 상태 변경 커밋
-                await db.commit()
-                logger.info(f"즉시 상태 변경 완료: homeshopping_order_id={new_homeshopping_order.homeshopping_order_id}, status=PAYMENT_REQUESTED")
-            else:
-                logger.error("PAYMENT_REQUESTED 상태를 찾을 수 없습니다")
-                
-        except Exception as e:
-            logger.error(f"즉시 상태 변경 실패: homeshopping_order_id={new_homeshopping_order.homeshopping_order_id}, error={str(e)}")
-            # 상태 변경 실패해도 주문 생성은 성공으로 처리
         
         logger.info(f"홈쇼핑 주문 생성 완료: user_id={user_id}, order_id={new_order.order_id}, homeshopping_order_id={new_homeshopping_order.homeshopping_order_id}")
         

@@ -1,3 +1,8 @@
+"""
+홈쇼핑 주문 관련 API 라우터
+Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입만 담당
+비즈니스 로직은 CRUD 계층에 위임, 직접 DB 처리(트랜잭션)는 하지 않음
+"""
 from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, status
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,16 +15,15 @@ from common.logger import get_logger
 from services.user.schemas.user_schema import UserOut
 
 from services.order.models.order_model import (
-    Order, StatusMaster
+    Order, StatusMaster, HomeShoppingOrder, HomeShoppingOrderStatusHistory
 )
 from services.order.schemas.hs_order_schema import (
     HomeshoppingOrderRequest,
     HomeshoppingOrderResponse,
     HomeshoppingOrderStatusResponse,
     HomeshoppingOrderWithStatusResponse,
-    PaymentConfirmResponse,
-    AutoUpdateResponse
-)
+    PaymentConfirmResponse
+)  
 
 from services.order.crud.hs_order_crud import (
     create_homeshopping_order,
@@ -27,7 +31,8 @@ from services.order.crud.hs_order_crud import (
     get_hs_order_with_status,
     confirm_hs_payment,
     start_hs_auto_update,
-    get_hs_current_status
+    get_hs_current_status,
+    start_auto_hs_order_status_update
 )
 
 router = APIRouter(prefix="/api/orders/homeshopping", tags=["HomeShopping Orders"])
@@ -46,10 +51,13 @@ async def create_order(
 ):
     """
     홈쇼핑 주문 생성 (단건 주문)
+    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+    비즈니스 로직은 CRUD 계층에 위임
     """
     logger.info(f"홈쇼핑 주문 생성 요청: user_id={current_user.user_id}, product_id={order_data.product_id}, quantity={order_data.quantity}")
     
     try:
+        # CRUD 계층에 주문 생성 위임
         order_result = await create_homeshopping_order(
             db, 
             current_user.user_id, 
@@ -91,12 +99,14 @@ async def get_order_status(
 ):
     """
     홈쇼핑 주문 상태 조회
+    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+    비즈니스 로직은 CRUD 계층에 위임
     특정 홈쇼핑 주문의 현재 상태와 모든 상태 변경 이력을 조회합니다.
     """
     logger.info(f"홈쇼핑 주문 상태 조회 요청: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
     
     try:
-        # 1. 주문 존재 여부 확인
+        # CRUD 계층에 주문 상태 조회 위임
         order_data = await get_hs_order_with_status(db, homeshopping_order_id)
         if not order_data:
             raise HTTPException(status_code=404, detail="해당 홈쇼핑 주문을 찾을 수 없습니다.")
@@ -255,6 +265,14 @@ async def confirm_payment(
                 }
             )
         
+        # 결제 확인 후 자동 상태 업데이트 시작
+        if payment_result["current_status"] == "PAYMENT_COMPLETED":
+            background_tasks.add_task(
+                start_hs_auto_update,
+                homeshopping_order_id=homeshopping_order_id,
+                db_session_generator=get_maria_service_db()
+            )
+        
         logger.info(f"홈쇼핑 결제 확인 완료: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
         
         return payment_result
@@ -267,48 +285,85 @@ async def confirm_payment(
         raise HTTPException(status_code=500, detail="결제 확인 중 오류가 발생했습니다.")
 
 
-@router.post("/{homeshopping_order_id}/auto-update", response_model=AutoUpdateResponse)
-async def start_auto_update(
-        homeshopping_order_id: int,
-        current_user: UserOut = Depends(get_current_user),
-        background_tasks: BackgroundTasks = None,
-        db: AsyncSession = Depends(get_maria_service_db)
+@router.post("/{homeshopping_order_id}/auto-update", status_code=status.HTTP_200_OK)
+async def start_auto_status_update_api(
+    homeshopping_order_id: int,
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db),
+    user=Depends(get_current_user)
 ):
     """
-    자동 상태 업데이트 시작 (테스트용)
-    특정 주문의 자동 상태 업데이트를 수동으로 시작합니다.
-    테스트 목적으로 특정 주문에 대해 자동 상태 업데이트를 시작합니다.
+    특정 주문의 자동 상태 업데이트 시작 (테스트용)
+    - 결제 완료 상태인 경우에만 자동 업데이트 시작
     """
-    logger.info(f"홈쇼핑 자동 상태 업데이트 시작 요청: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
-    
     try:
-        # 1. 주문 존재 여부 확인
-        order_data = await get_hs_order_with_status(db, homeshopping_order_id)
-        if not order_data:
+        # 사용자 권한 확인
+        hs_order_result = await db.execute(
+            select(HomeShoppingOrder).where(HomeShoppingOrder.homeshopping_order_id == homeshopping_order_id)
+        )
+        hs_order = hs_order_result.scalars().first()
+        if not hs_order:
             raise HTTPException(status_code=404, detail="해당 홈쇼핑 주문을 찾을 수 없습니다.")
         
-        # 2. 자동 업데이트 시작
-        auto_update_result = await start_hs_auto_update(db, homeshopping_order_id, current_user.user_id)
+        order_result = await db.execute(
+            select(Order).where(Order.order_id == hs_order.order_id)
+        )
+        order = order_result.scalars().first()
+        if not order or order.user_id != user.user_id:
+            raise HTTPException(status_code=403, detail="해당 주문에 대한 권한이 없습니다.")
         
-        # 자동 업데이트 시작 로그 기록
-        if background_tasks:
-            background_tasks.add_task(
-                send_user_log, 
-                user_id=current_user.user_id, 
-                event_type="homeshopping_auto_update_start", 
-                event_data={
-                    "homeshopping_order_id": homeshopping_order_id,
-                    "auto_update_started": auto_update_result["auto_update_started"]
-                }
+        # 디버깅: 직접 상태 이력 조회
+        
+        # 1단계: 상태 이력만 조회
+        history_result = await db.execute(
+            select(HomeShoppingOrderStatusHistory)
+            .where(HomeShoppingOrderStatusHistory.homeshopping_order_id == homeshopping_order_id)
+            .order_by(desc(HomeShoppingOrderStatusHistory.changed_at))
+            .limit(1)
+        )
+        
+        current_history = history_result.scalars().first()
+        if not current_history:
+            raise HTTPException(
+                status_code=400, 
+                detail="주문이 생성되었지만 아직 상태 이력이 없습니다."
             )
         
-        logger.info(f"홈쇼핑 자동 상태 업데이트 시작 완료: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
+        logger.info(f"상태 이력 조회 성공: history_id={current_history.history_id}, status_id={current_history.status_id}")
         
-        return auto_update_result
+        # 2단계: 상태 정보 조회
+        status_result = await db.execute(
+            select(StatusMaster).where(StatusMaster.status_id == current_history.status_id)
+        )
         
-    except ValueError as e:
-        logger.warning(f"홈쇼핑 자동 상태 업데이트 시작 실패 (검증 오류): user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        current_status = status_result.scalars().first()
+        if not current_status:
+            logger.error(f"상태 ID {current_history.status_id}에 해당하는 상태 정보를 찾을 수 없습니다.")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"상태 ID {current_history.status_id}에 해당하는 상태 정보를 찾을 수 없습니다."
+            )
+        
+        logger.info(f"상태 정보 조회 성공: status_id={current_status.status_id}, status_code={current_status.status_code}, status_name={current_status.status_name}")
+        
+        # 결제 완료 상태가 아니면 에러 반환
+        if current_status.status_code != "PAYMENT_COMPLETED":
+            raise HTTPException(
+                status_code=400, 
+                detail=f"결제 완료 상태가 아닙니다. 현재 상태: {current_status.status_name} ({current_status.status_code})"
+            )
+        
+        # 자동 상태 업데이트 시작
+        if background_tasks:
+            background_tasks.add_task(
+                start_auto_hs_order_status_update,
+                homeshopping_order_id=homeshopping_order_id
+            )
+        
+        return {"message": f"주문 {homeshopping_order_id}의 자동 상태 업데이트가 시작되었습니다. (현재 상태: {current_status.status_name})"}
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"홈쇼핑 자동 상태 업데이트 시작 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
-        raise HTTPException(status_code=500, detail="자동 상태 업데이트 시작 중 오류가 발생했습니다.")
+        logger.error(f"자동 상태 업데이트 시작 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail=f"서버 오류가 발생했습니다: {str(e)}")

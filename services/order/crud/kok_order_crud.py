@@ -1,3 +1,7 @@
+"""
+콕 주문 관련 CRUD 함수들
+CRUD 계층: 모든 DB 트랜잭션 처리 담당
+"""
 import asyncio
 from datetime import datetime
 from sqlalchemy import select, desc, func, delete
@@ -14,6 +18,7 @@ from services.order.crud.order_common import (
     NOTIFICATION_TITLES, NOTIFICATION_MESSAGES
 )
 
+from common.database.mariadb_service import get_maria_service_db
 from common.logger import get_logger
 from typing import List
 
@@ -27,6 +32,7 @@ async def calculate_kok_order_price(
 ) -> dict:
     """
     콕 주문 금액 계산
+    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
     """
     logger.info(f"콕 주문 금액 계산 시작: kok_price_id={kok_price_id}, kok_product_id={kok_product_id}, quantity={quantity}")
     
@@ -74,6 +80,7 @@ async def create_orders_from_selected_carts(
 ) -> dict:
     """
     장바구니에서 선택된 항목들로 한 번에 주문 생성
+    CRUD 계층: DB 트랜잭션 처리 담당
     - 각 선택 항목에 대해 kok_price_id를 조회하여 KokOrder를 생성
     - KokCart.recipe_id가 있으면 KokOrder.recipe_id로 전달
     - 처리 후 선택된 장바구니 항목 삭제
@@ -155,29 +162,6 @@ async def create_orders_from_selected_carts(
     # 선택된 장바구니 삭제
     await db.execute(delete(KokCart).where(KokCart.kok_cart_id.in_(cart_ids)))
     await db.commit()
-    
-    # 1초 후 PAYMENT_REQUESTED 상태로 변경 (백그라운드 작업)
-    
-    async def update_status_to_payment_requested():
-        await asyncio.sleep(1)  # 1초 대기
-        
-        try:
-            # 각 주문에 대해 상태 변경 및 알림 생성
-            for kok_order_id in created_kok_order_ids:
-                await update_kok_order_status(
-                    db=db,
-                    kok_order_id=kok_order_id,
-                    new_status_code="PAYMENT_REQUESTED",
-                    changed_by=user_id
-                )
-            
-            logger.info(f"콕 주문 상태 변경 완료: order_id={main_order.order_id}, status=PAYMENT_REQUESTED, count={len(created_kok_order_ids)}")
-                
-        except Exception as e:
-            logger.error(f"콕 주문 상태 변경 실패: order_id={main_order.order_id}, error={str(e)}")
-    
-    # 백그라운드에서 상태 변경 실행
-    asyncio.create_task(update_status_to_payment_requested())
 
     return {
         "order_id": main_order.order_id,
@@ -186,10 +170,30 @@ async def create_orders_from_selected_carts(
         "kok_order_ids": created_kok_order_ids,
     }
 
+# async def update_status_to_payment_requested():
+        
+#         try:
+#             # 각 주문에 대해 상태 변경 및 알림 생성
+#             for kok_order_id in created_kok_order_ids:
+#                 await update_kok_order_status(
+#                     db=db,
+#                     kok_order_id=kok_order_id,
+#                     new_status_code="PAYMENT_REQUESTED",
+#                     changed_by=user_id
+#                 )
+            
+#             logger.info(f"콕 주문 상태 변경 완료: order_id={main_order.order_id}, status=PAYMENT_REQUESTED, count={len(created_kok_order_ids)}")
+                
+#         except Exception as e:
+#             logger.error(f"콕 주문 상태 변경 실패: order_id={main_order.order_id}, error={str(e)}")
+    
+#     # 백그라운드에서 상태 변경 실행
+#     asyncio.create_task(update_status_to_payment_requested())
 
 async def get_kok_current_status(db: AsyncSession, kok_order_id: int) -> KokOrderStatusHistory:
     """
     콕 주문의 현재 상태(가장 최근 상태 이력) 조회
+    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
     """
     result = await db.execute(
         select(KokOrderStatusHistory)
@@ -373,18 +377,19 @@ async def auto_update_order_status(kok_order_id: int, db: AsyncSession):
             break
 
 
-async def start_auto_kok_order_status_update(kok_order_id: int, db_session_generator):
+async def start_auto_kok_order_status_update(kok_order_id: int):
     """
     백그라운드에서 자동 상태 업데이트를 시작하는 함수
     """
-    async for db in db_session_generator:
-        try:
+    try:
+        # 새로운 DB 세션 생성
+        async for db in get_maria_service_db():
             await auto_update_order_status(kok_order_id, db)
-        except Exception as e:
-            logger.error(f"자동 상태 업데이트 중 오류 발생: {str(e)}")
-        finally:
-            await db.close()
-        break  # 한 번만 실행
+            break  # 첫 번째 세션만 사용
+            
+    except Exception as e:
+        logger.error(f"콕 주문 자동 상태 업데이트 백그라운드 작업 실패: kok_order_id={kok_order_id}, error={str(e)}")
+        # 백그라운드 작업 실패는 전체 프로세스를 중단하지 않음
 
 
 async def get_kok_order_notifications_history(
