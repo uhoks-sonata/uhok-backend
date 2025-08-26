@@ -1,5 +1,7 @@
 """
 통합 주문 조회/상세/통계 API 라우터 (콕, HomeShopping 모두 지원)
+Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입만 담당
+비즈니스 로직은 CRUD 계층에 위임, 직접 DB 처리(트랜잭션)는 하지 않음
 """
 import requests
 import asyncio
@@ -20,7 +22,7 @@ from services.order.schemas.order_schema import (
     OrderGroupItem,
     OrdersListResponse
 )
-from services.order.crud.order_crud import get_order_by_id, get_user_orders
+from services.order.crud.order_crud import get_order_by_id, get_user_orders, get_delivery_info
 
 from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
@@ -41,7 +43,10 @@ async def list_orders(
 ):
     """
     내 주문 리스트 (order_id로 그룹화하여 표시)
+    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+    비즈니스 로직은 CRUD 계층에 위임
     """
+    # CRUD 계층에 주문 조회 위임
     order_list = await get_user_orders(db, user.user_id, limit, 0)
     
     # order_id별로 그룹화
@@ -62,13 +67,25 @@ async def list_orders(
         
         # 콕 주문 처리
         for kok_order in order.get("kok_orders", []):
+            try:
+                # CRUD 계층에 배송 정보 조회 위임
+                delivery_status, delivery_date = await get_delivery_info(db, "kok", kok_order.kok_order_id)
+            except Exception as e:
+                logger.warning(f"콕 주문 배송 정보 조회 실패: kok_order_id={kok_order.kok_order_id}, error={str(e)}")
+                delivery_status, delivery_date = "상태 조회 실패", "배송 정보 없음"
+            
+            # 상품명이 None인 경우 기본값 제공
+            product_name = getattr(kok_order, "product_name", None)
+            if product_name is None:
+                product_name = f"콕 상품 (ID: {kok_order.kok_product_id})"
+            
             item = OrderGroupItem(
-                product_name=getattr(kok_order, "product_name", f"콕 상품 (ID: {kok_order.kok_product_id})"),
+                product_name=product_name,
                 product_image=getattr(kok_order, "product_image", None),
                 price=getattr(kok_order, "order_price", 0) or 0,  # order_price 필드 사용
                 quantity=getattr(kok_order, "quantity", 1),
-                delivery_status="배송완료",  # 실제 배송 상태로 변경 필요
-                delivery_date="7/28(월) 도착",  # 실제 도착일로 변경 필요
+                delivery_status=delivery_status,
+                delivery_date=delivery_date,
                 recipe_related=True,  # 콕 주문은 레시피 관련
                 recipe_title=getattr(kok_order, "recipe_title", None),
                 recipe_rating=getattr(kok_order, "recipe_rating", 0.0),
@@ -82,13 +99,25 @@ async def list_orders(
         
         # 홈쇼핑 주문 처리
         for hs_order in order.get("homeshopping_orders", []):
+            try:
+                # CRUD 계층에 배송 정보 조회 위임
+                delivery_status, delivery_date = await get_delivery_info(db, "homeshopping", hs_order.homeshopping_order_id)
+            except Exception as e:
+                logger.warning(f"홈쇼핑 주문 배송 정보 조회 실패: homeshopping_order_id={hs_order.homeshopping_order_id}, error={str(e)}")
+                delivery_status, delivery_date = "상태 조회 실패", "배송 정보 없음"
+            
+            # 상품명이 None인 경우 기본값 제공
+            product_name = getattr(hs_order, "product_name", None)
+            if product_name is None:
+                product_name = f"홈쇼핑 상품 (ID: {hs_order.product_id})"
+            
             item = OrderGroupItem(
-                product_name=getattr(hs_order, "product_name", f"홈쇼핑 상품 (ID: {hs_order.product_id})"),
+                product_name=product_name,
                 product_image=getattr(hs_order, "product_image", None),
                 price=getattr(hs_order, "order_price", 0) or 0,  # order_price 필드 사용
                 quantity=getattr(hs_order, "quantity", 1),
-                delivery_status="배송완료",  # 실제 배송 상태로 변경 필요
-                delivery_date="7/28(월) 도착",  # 실제 도착일로 변경 필요
+                delivery_status=delivery_status,
+                delivery_date=delivery_date,
                 recipe_related=False,  # 홈쇼핑 주문은 일반 상품
                 recipe_title=None,
                 recipe_rating=None,
@@ -116,7 +145,7 @@ async def list_orders(
         background_tasks.add_task(
             send_user_log, 
             user_id=user.user_id, 
-            event_type="order_list_view", 
+            event_type="orders_list_view", 
             event_data={"limit": limit, "order_count": len(order_groups)}
         )
     
@@ -127,45 +156,19 @@ async def list_orders(
     )
 
 
-@router.get("/{order_id}", response_model=OrderRead)
-async def read_order(
-        order_id: int,
-        background_tasks: BackgroundTasks = None,
-        db: AsyncSession = Depends(get_maria_service_db),
-        user=Depends(get_current_user)
-):
-    """
-    단일 주문 조회 (공통+콕+HomeShopping 상세 포함)
-    """
-    order_data = await get_order_by_id(db, order_id)
-    if not order_data or order_data["user_id"] != user.user_id:
-        raise HTTPException(status_code=404, detail="주문 내역이 없습니다.")
-
-    # 주문 상세 조회 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log,
-            user_id=user.user_id,
-            event_type="order_detail_view",
-            event_data={"order_id": order_id}
-        )
-
-    return order_data
-
-
 @router.get("/count", response_model=OrderCountResponse)
-async def order_count(
+async def get_order_count(
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db),
     user=Depends(get_current_user)
 ):
     """
-    로그인 사용자의 전체 주문 개수 조회
+    내 주문 개수 조회 (전체)
+    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+    비즈니스 로직은 CRUD 계층에 위임
     """
-    result = await db.execute(
-        select(func.count()).select_from(Order).where(Order.user_id == user.user_id) # type: ignore
-    )
-    count = result.scalar()
+    # CRUD 계층에 주문 조회 위임
+    order_list = await get_user_orders(db, user.user_id, limit=1000, offset=0)
     
     # 주문 개수 조회 로그 기록
     if background_tasks:
@@ -173,33 +176,36 @@ async def order_count(
             send_user_log, 
             user_id=user.user_id, 
             event_type="order_count_view", 
-            event_data={"order_count": count}
+            event_data={"order_count": len(order_list)}
         )
     
-    return OrderCountResponse(order_count=count)
+    return OrderCountResponse(
+        order_count=len(order_list)
+    )
+
 
 @router.get("/recent", response_model=RecentOrdersResponse)
-async def recent_orders(
-    days: int = Query(7, description="최근 조회 일수 (default=7)"),
+async def get_recent_orders(
+    days: int = Query(7, description="조회 기간 (일)"),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db),
     user=Depends(get_current_user)
 ):
     """
-    최근 N일간 주문 내역 리스트 조회 (이미지 형태로 표시)
+    최근 주문 조회 (최근 N일)
+    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+    비즈니스 로직은 CRUD 계층에 위임
     """
-    since = datetime.now() - timedelta(days=days)
+    # CRUD 계층에 주문 조회 위임
+    order_list = await get_user_orders(db, user.user_id, limit=1000, offset=0)
     
-    # 최근 N일간 주문 조회 (get_user_orders 사용)
-    order_list = await get_user_orders(db, user.user_id, 100, 0)  # 충분히 큰 limit
-    
-    # 날짜 필터링
+    # 최근 N일 필터링
+    cutoff_date = datetime.now() - timedelta(days=days)
     filtered_orders = [
         order for order in order_list 
-        if order["order_time"] >= since
+        if order["order_time"] >= cutoff_date
     ]
     
-    # 이미지 형태에 맞는 데이터 변환
     recent_order_items = []
     
     for order in filtered_orders:
@@ -213,13 +219,25 @@ async def recent_orders(
         
         # 콕 주문 처리
         for kok_order in order.get("kok_orders", []):
+            try:
+                # CRUD 계층에 배송 정보 조회 위임
+                delivery_status, delivery_date = await get_delivery_info(db, "kok", kok_order.kok_order_id)
+            except Exception as e:
+                logger.warning(f"콕 주문 배송 정보 조회 실패: kok_order_id={kok_order.kok_order_id}, error={str(e)}")
+                delivery_status, delivery_date = "상태 조회 실패", "배송 정보 없음"
+            
+            # 상품명이 None인 경우 기본값 제공
+            product_name = getattr(kok_order, "product_name", None)
+            if product_name is None:
+                product_name = f"콕 상품 (ID: {kok_order.kok_product_id})"
+            
             item = RecentOrderItem(
                 order_id=order["order_id"],
                 order_number=order_number,
                 order_date=order_date,
-                delivery_status="배송완료",  # 실제 배송 상태로 변경 필요
-                delivery_date="7/28(월) 도착",  # 실제 도착일로 변경 필요
-                product_name=getattr(kok_order, "product_name", f"콕 상품 (ID: {kok_order.kok_product_id})"),
+                delivery_status=delivery_status,
+                delivery_date=delivery_date,
+                product_name=product_name,
                 product_image=getattr(kok_order, "product_image", None),
                 price=getattr(kok_order, "order_price", 0) or 0,  # order_price 필드 사용
                 quantity=getattr(kok_order, "quantity", 1),
@@ -235,13 +253,25 @@ async def recent_orders(
         
         # 홈쇼핑 주문 처리
         for hs_order in order.get("homeshopping_orders", []):
+            try:
+                # CRUD 계층에 배송 정보 조회 위임
+                delivery_status, delivery_date = await get_delivery_info(db, "homeshopping", hs_order.homeshopping_order_id)
+            except Exception as e:
+                logger.warning(f"홈쇼핑 주문 배송 정보 조회 실패: homeshopping_order_id={hs_order.homeshopping_order_id}, error={str(e)}")
+                delivery_status, delivery_date = "상태 조회 실패", "배송 정보 없음"
+            
+            # 상품명이 None인 경우 기본값 제공
+            product_name = getattr(hs_order, "product_name", None)
+            if product_name is None:
+                product_name = f"홈쇼핑 상품 (ID: {hs_order.product_id})"
+            
             item = RecentOrderItem(
                 order_id=order["order_id"],
                 order_number=order_number,
                 order_date=order_date,
-                delivery_status="배송완료",  # 실제 배송 상태로 변경 필요
-                delivery_date="7/28(월) 도착",  # 실제 도착일로 변경 필요
-                product_name=getattr(hs_order, "product_name", f"홈쇼핑 상품 (ID: {hs_order.product_id})"),
+                delivery_status=delivery_status,
+                delivery_date=delivery_date,
+                product_name=product_name,
                 product_image=getattr(hs_order, "product_image", None),
                 price=getattr(hs_order, "order_price", 0) or 0,  # order_price 필드 사용
                 quantity=getattr(hs_order, "quantity", 1),
@@ -269,3 +299,32 @@ async def recent_orders(
         order_count=len(recent_order_items),
         orders=recent_order_items
     )
+
+
+@router.get("/{order_id}", response_model=OrderRead)
+async def read_order(
+        order_id: int,
+        background_tasks: BackgroundTasks = None,
+        db: AsyncSession = Depends(get_maria_service_db),
+        user=Depends(get_current_user)
+):
+    """
+    단일 주문 조회 (공통+콕+HomeShopping 상세 포함)
+    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+    비즈니스 로직은 CRUD 계층에 위임
+    """
+    # CRUD 계층에 주문 조회 위임
+    order_data = await get_order_by_id(db, order_id)
+    if not order_data or order_data["user_id"] != user.user_id:
+        raise HTTPException(status_code=404, detail="주문 내역이 없습니다.")
+
+    # 주문 상세 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log,
+            user_id=user.user_id,
+            event_type="order_detail_view",
+            event_data={"order_id": order_id}
+        )
+
+    return order_data

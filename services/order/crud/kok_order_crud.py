@@ -1,3 +1,7 @@
+"""
+콕 주문 관련 CRUD 함수들
+CRUD 계층: 모든 DB 트랜잭션 처리 담당
+"""
 import asyncio
 from datetime import datetime
 from sqlalchemy import select, desc, func, delete
@@ -27,6 +31,7 @@ async def calculate_kok_order_price(
 ) -> dict:
     """
     콕 주문 금액 계산
+    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
     """
     logger.info(f"콕 주문 금액 계산 시작: kok_price_id={kok_price_id}, kok_product_id={kok_product_id}, quantity={quantity}")
     
@@ -74,6 +79,7 @@ async def create_orders_from_selected_carts(
 ) -> dict:
     """
     장바구니에서 선택된 항목들로 한 번에 주문 생성
+    CRUD 계층: DB 트랜잭션 처리 담당
     - 각 선택 항목에 대해 kok_price_id를 조회하여 KokOrder를 생성
     - KokCart.recipe_id가 있으면 KokOrder.recipe_id로 전달
     - 처리 후 선택된 장바구니 항목 삭제
@@ -190,6 +196,7 @@ async def create_orders_from_selected_carts(
 async def get_kok_current_status(db: AsyncSession, kok_order_id: int) -> KokOrderStatusHistory:
     """
     콕 주문의 현재 상태(가장 최근 상태 이력) 조회
+    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
     """
     result = await db.execute(
         select(KokOrderStatusHistory)

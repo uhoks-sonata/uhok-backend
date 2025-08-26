@@ -1,5 +1,6 @@
 """
 ORDERS + 서비스별 주문 상세를 트랜잭션으로 한 번에 생성/조회 (HomeShopping 명칭 통일)
+CRUD 계층: 모든 DB 트랜잭션 처리 담당
 """
 from __future__ import annotations
 from typing import Dict, Any, List
@@ -7,10 +8,10 @@ import httpx
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sqlalchemy import select
+from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession 
 from services.order.models.order_model import (
-    Order, KokOrder, HomeShoppingOrder
+    Order, KokOrder, HomeShoppingOrder, KokOrderStatusHistory, HomeShoppingOrderStatusHistory, StatusMaster
 )
 from services.kok.models.kok_model import KokProductInfo, KokImageInfo
 from services.homeshopping.models.homeshopping_model import HomeshoppingList, HomeshoppingImgUrl
@@ -24,9 +25,76 @@ from common.logger import get_logger
 logger = get_logger("order_crud")
 
 
+async def get_delivery_info(db: AsyncSession, order_type: str, order_id: int) -> tuple[str, str]:
+    """
+    주문의 배송 상태와 배송완료 날짜를 조회하는 헬퍼 함수
+    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+    
+    Args:
+        db: 데이터베이스 세션
+        order_type: 주문 타입 ("kok" 또는 "homeshopping")
+        order_id: 주문 ID (kok_order_id 또는 homeshopping_order_id)
+    
+    Returns:
+        tuple: (delivery_status, delivery_date)
+    """
+    try:
+        if order_type == "kok":
+            # 콕 주문의 현재 상태 조회
+            result = await db.execute(
+                select(KokOrderStatusHistory, StatusMaster)
+                .join(StatusMaster, KokOrderStatusHistory.status_id == StatusMaster.status_id)
+                .where(KokOrderStatusHistory.kok_order_id == order_id)
+                .order_by(desc(KokOrderStatusHistory.changed_at))
+                .limit(1)
+            )
+            status_history = result.first()
+        else:
+            # 홈쇼핑 주문의 현재 상태 조회
+            result = await db.execute(
+                select(HomeShoppingOrderStatusHistory, StatusMaster)
+                .join(StatusMaster, HomeShoppingOrderStatusHistory.status_id == StatusMaster.status_id)
+                .where(HomeShoppingOrderStatusHistory.homeshopping_order_id == order_id)
+                .order_by(desc(HomeShoppingOrderStatusHistory.changed_at))
+                .limit(1)
+            )
+            status_history = result.first()
+        
+        if not status_history or len(status_history) < 2:
+            return "주문접수", "배송 정보 없음"
+        
+        # status_history[0]은 상태 이력, status_history[1]은 상태 마스터
+        status_record = status_history[0]
+        status_master = status_history[1]
+        
+        if not status_record or not status_master:
+            return "주문접수", "배송 정보 없음"
+        
+        current_status = status_master.status_name
+        changed_at = status_record.changed_at
+        
+        # 배송완료 상태인 경우 배송완료 날짜 설정
+        if current_status == "배송완료":
+            # 배송완료 날짜를 한국어 형식으로 포맷팅
+            month = changed_at.month
+            day = changed_at.day
+            weekday = ["월", "화", "수", "목", "금", "토", "일"][changed_at.weekday()]
+            delivery_date = f"{month}/{day}({weekday}) 도착"
+        else:
+            # 배송완료가 아닌 경우 상태에 따른 메시지
+            delivery_date = "배송 정보 없음"
+        
+        return current_status, delivery_date
+        
+    except Exception as e:
+        logger.warning(f"배송 정보 조회 실패: order_type={order_type}, order_id={order_id}, error={str(e)}")
+        return "상태 조회 실패", "배송 정보 없음"
+
+
 async def get_order_by_id(db: AsyncSession, order_id: int) -> dict:
     """
     주문 ID로 통합 주문 조회 (공통 정보 + 서비스별 상세)
+    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
     """
     # 주문 기본 정보 조회
     result = await db.execute(
@@ -63,6 +131,7 @@ async def get_order_by_id(db: AsyncSession, order_id: int) -> dict:
 async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offset: int = 0) -> list:
     """
     사용자별 주문 목록 조회 (공통 정보 + 서비스별 상세 + 상품 이미지)
+    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
     """
     # 주문 기본 정보 조회
     result = await db.execute(
@@ -216,6 +285,7 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
 async def calculate_order_total_price(db: AsyncSession, order_id: int) -> int:
     """
     주문 ID로 총 주문 금액 계산 (콕 주문 + 홈쇼핑 주문)
+    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
     각 주문 타입별로 이미 계산된 order_price 사용
     """
     logger.info(f"주문 총액 계산 시작: order_id={order_id}")
@@ -323,6 +393,7 @@ async def _mark_all_children_paid(
 ) -> None:
     """
     하위 주문(콕/홈쇼핑)을 PAYMENT_COMPLETED로 일괄 갱신
+    CRUD 계층: DB 상태 변경 담당, 트랜잭션 단위 책임
     - 기존 트랜잭션 사용 (새로운 트랜잭션 시작하지 않음)
     - 실패 시 상위에서 롤백 처리
     """
@@ -353,7 +424,7 @@ async def _mark_all_children_paid(
             )
             logger.info(f"홈쇼핑 주문 상태 갱신 완료: hs_order_id={h.homeshopping_order_id}")
         except Exception as e:
-            logger.error(f"홈쇼핑 주문 상태 갱신 실패: hs_order_id={h.homeshopping_order_id}, error={str(e)}")
+            logger.error(f"홈쇼핑 주문 상태 갱신 실패: homeshopping_order_id={h.homeshopping_order_id}, error={str(e)}")
             raise
     
     logger.info(f"모든 하위 주문 상태 갱신 완료")
@@ -362,6 +433,7 @@ async def _mark_all_children_paid(
 async def _ensure_order_access(db: AsyncSession, order_id: int, user_id: int) -> Dict[str, Any]:
     """
     주문 존재/권한 확인 유틸
+    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
     - 해당 order_id가 존재하고, 소유자가 user_id인지 확인
     - dict(order) 반환, 없거나 권한 없으면 404
     """

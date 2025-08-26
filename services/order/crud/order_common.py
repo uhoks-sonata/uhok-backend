@@ -1,5 +1,6 @@
 """
 주문 관련 공통 상수와 함수들
+CRUD 계층: 모든 DB 트랜잭션 처리 담당
 순환 import 방지를 위해 별도 파일로 분리
 """
 
@@ -51,6 +52,7 @@ NOTIFICATION_MESSAGES = {
 async def get_status_by_code(db: AsyncSession, status_code: str) -> StatusMaster:
     """
     상태 코드로 상태 정보 조회
+    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
     """
     result = await db.execute(
         select(StatusMaster).where(StatusMaster.status_code == status_code)
@@ -60,6 +62,7 @@ async def get_status_by_code(db: AsyncSession, status_code: str) -> StatusMaster
 async def initialize_status_master(db: AsyncSession):
     """
     STATUS_MASTER 테이블에 기본 상태 코드들을 초기화
+    CRUD 계층: DB 상태 변경 담당, 트랜잭션 단위 책임
     """
     for status_code, status_name in STATUS_CODES.items():
         # 기존 상태 코드 확인
@@ -77,6 +80,7 @@ async def initialize_status_master(db: AsyncSession):
 async def validate_user_exists(user_id: int, db: AsyncSession) -> bool:
     """
     사용자 ID가 유효한지 검증 (AUTH_DB.USERS 테이블 확인)
+    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
     """  
     # AUTH_DB에서 사용자 조회
     auth_db = get_maria_auth_db()

@@ -1,3 +1,8 @@
+"""
+콕 주문 관련 API 라우터
+Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입만 담당
+비즈니스 로직은 CRUD 계층에 위임, 직접 DB 처리(트랜잭션)는 하지 않음
+"""
 from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, status
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,12 +51,18 @@ async def order_from_selected_carts(
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db),
 ):
+    """
+    장바구니에서 선택된 항목들로 주문 생성
+    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+    비즈니스 로직은 CRUD 계층에 위임
+    """
     logger.info(f"장바구니 주문 시작: user_id={current_user.user_id}, selected_items_count={len(request.selected_items)}")
     
     if not request.selected_items:
         logger.warning(f"선택된 항목이 없음: user_id={current_user.user_id}")
         raise HTTPException(status_code=400, detail="선택된 항목이 없습니다.")
 
+    # CRUD 계층에 주문 생성 위임
     result = await create_orders_from_selected_carts(
         db, current_user.user_id, [i.model_dump() for i in request.selected_items]
     )
@@ -86,7 +97,9 @@ async def update_kok_order_status_api(
     user=Depends(get_current_user)
 ):
     """
-    콕 주문 상태 업데이트 (INSERT만 사용)
+    콕 주문 상태 업데이트
+    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+    비즈니스 로직은 CRUD 계층에 위임
     """
     try:
         # 사용자 권한 확인 - order 정보 명시적으로 로드

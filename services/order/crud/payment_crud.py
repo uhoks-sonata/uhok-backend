@@ -1,3 +1,7 @@
+"""
+주문 결제 관련 CRUD 함수들
+CRUD 계층: 모든 DB 트랜잭션 처리 담당
+"""
 from __future__ import annotations
 import os
 from typing import Dict, Any, Optional, Tuple
@@ -30,6 +34,7 @@ async def _poll_payment_status(
 ) -> Tuple[str, Dict[str, Any]]:
     """
     외부 결제 상태를 폴링하는 비동기 함수
+    CRUD 계층: 외부 API 호출만 담당, DB 트랜잭션 변경 없음
     - 5초 고정 간격으로 상태 확인
     - 반환: (최종상태 문자열, 상태 응답 JSON)
       * 최종상태: "PAYMENT_COMPLETED" | "PAYMENT_FAILED" | "TIMEOUT"
@@ -90,6 +95,7 @@ async def confirm_payment_and_update_status_v1(
 ) -> PaymentConfirmV1Response:
     """
     결제 확인 v1 메인 로직 (CRUD 계층)
+    CRUD 계층: DB 트랜잭션 처리 담당
     1) 주문 확인/권한 확인
     2) 총액 계산
     3) 외부 결제 생성 호출 (idempotency key 포함 권장)

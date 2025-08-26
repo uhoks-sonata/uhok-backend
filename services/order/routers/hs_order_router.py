@@ -1,3 +1,8 @@
+"""
+홈쇼핑 주문 관련 API 라우터
+Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입만 담당
+비즈니스 로직은 CRUD 계층에 위임, 직접 DB 처리(트랜잭션)는 하지 않음
+"""
 from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, status
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,10 +51,13 @@ async def create_order(
 ):
     """
     홈쇼핑 주문 생성 (단건 주문)
+    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+    비즈니스 로직은 CRUD 계층에 위임
     """
     logger.info(f"홈쇼핑 주문 생성 요청: user_id={current_user.user_id}, product_id={order_data.product_id}, quantity={order_data.quantity}")
     
     try:
+        # CRUD 계층에 주문 생성 위임
         order_result = await create_homeshopping_order(
             db, 
             current_user.user_id, 
@@ -91,12 +99,14 @@ async def get_order_status(
 ):
     """
     홈쇼핑 주문 상태 조회
+    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+    비즈니스 로직은 CRUD 계층에 위임
     특정 홈쇼핑 주문의 현재 상태와 모든 상태 변경 이력을 조회합니다.
     """
     logger.info(f"홈쇼핑 주문 상태 조회 요청: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
     
     try:
-        # 1. 주문 존재 여부 확인
+        # CRUD 계층에 주문 상태 조회 위임
         order_data = await get_hs_order_with_status(db, homeshopping_order_id)
         if not order_data:
             raise HTTPException(status_code=404, detail="해당 홈쇼핑 주문을 찾을 수 없습니다.")
