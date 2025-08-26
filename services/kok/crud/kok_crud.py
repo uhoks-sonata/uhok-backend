@@ -1,5 +1,11 @@
 """
 콕 쇼핑몰 DB 접근(CRUD) 함수 (MariaDB)
+
+계층별 역할:
+- 이 파일은 데이터 액세스 계층(Data Access Layer)을 담당
+- ORM(Session)과 직접 상호작용하여 DB 상태 변경 로직 처리
+- db.add(), db.delete() 같은 DB 상태 변경은 여기서 수행
+- 트랜잭션 관리(commit/rollback)는 상위 계층(라우터)에서 담당
 """
 
 import asyncio
@@ -808,7 +814,6 @@ async def toggle_kok_likes(
     if existing_like:
         # 찜 해제
         await db.delete(existing_like)
-        await db.commit()
         logger.info(f"찜 해제 완료: user_id={user_id}, product_id={kok_product_id}")
         return False
     else:
@@ -822,7 +827,6 @@ async def toggle_kok_likes(
         )
         
         db.add(new_like)
-        await db.commit()
         logger.info(f"찜 등록 완료: user_id={user_id}, product_id={kok_product_id}")
         return True
 
@@ -931,7 +935,6 @@ async def add_kok_cart(
     if existing_cart:
         # 수량 업데이트
         existing_cart.kok_quantity += kok_quantity
-        await db.commit()
         logger.info(f"장바구니 수량 업데이트 완료: cart_id={existing_cart.kok_cart_id}, new_quantity={existing_cart.kok_quantity}")
         return {
             "kok_cart_id": existing_cart.kok_cart_id,
@@ -950,7 +953,6 @@ async def add_kok_cart(
         )
         
         db.add(new_cart)
-        await db.commit()
         await db.refresh(new_cart)
         
         logger.info(f"장바구니 새 항목 추가 완료: cart_id={new_cart.kok_cart_id}")
@@ -983,7 +985,6 @@ async def update_kok_cart_quantity(
     
     # 수량 변경
     cart_item.kok_quantity = kok_quantity
-    await db.commit()
     
     return {
         "kok_cart_id": cart_item.kok_cart_id,
@@ -1014,7 +1015,6 @@ async def delete_kok_cart_item(
     
     # 장바구니에서 삭제
     await db.delete(cart_item)
-    await db.commit()
     return True
 
 
@@ -1129,7 +1129,6 @@ async def add_kok_search_history(
     )
     
     db.add(new_history)
-    await db.commit()
     await db.refresh(new_history)
     
     logger.info(f"검색 이력 추가 완료: history_id={new_history.kok_history_id}")
@@ -1162,7 +1161,6 @@ async def delete_kok_search_history(
     
     if history:
         await db.delete(history)
-        await db.commit()
         logger.info(f"검색 이력 삭제 완료: user_id={user_id}, history_id={kok_history_id}")
         return True
     

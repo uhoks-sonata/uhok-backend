@@ -2,7 +2,9 @@
 레시피/재료/별점 DB 접근(CRUD) 함수
 - 모든 recipe_url 생성은 get_recipe_url 함수로 일원화
 - 중복 dict 변환 등 최소화
-- 추천/유사도 계산은 services.recommend의 포트(RecommenderPort)에 위임
+- 추천/유사도 계산은 recipe.utils의 포트(RecommenderPort)에 위임
+- 데이터 액세스 계층: db.add(), db.delete() 등 DB 상태 변경 로직 수행
+- 트랜잭션 관리(commit/rollback)는 상위 계층(router)에서 담당
 """
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,7 +25,7 @@ from services.homeshopping.models.homeshopping_model import (
 )
 
 # ⬇️ 추가: 추천 포트(로컬/원격 어댑터)는 라우터/서비스에서 DI로 주입하여 사용
-from services.recommend.ports import VectorSearcherPort
+from ..utils.ports import VectorSearcherPort
 
 # ⬇️ 추가: 추천 관련 유틸리티 함수들
 from ..utils.recommendation_utils import (
@@ -668,7 +670,6 @@ async def set_recipe_rating(db: AsyncSession, recipe_id: int, user_id: int, rati
     """
     new_rating = RecipeRating(recipe_id=recipe_id, user_id=user_id, rating=rating)
     db.add(new_rating)
-    await db.commit()
     return rating
 
 

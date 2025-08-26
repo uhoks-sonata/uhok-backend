@@ -1,5 +1,9 @@
 """
 레시피 상세/재료/만개의레시피 url, 후기, 별점 API 라우터 (MariaDB)
+- HTTP 요청/응답을 담당
+- 파라미터 파싱, 유저 인증/권한 확인, 의존성 주입 (Depends)
+- 비즈니스 로직은 호출만 하고 직접 DB 처리(트랜잭션)는 하지 않음
+- 트랜잭션 관리(commit/rollback)를 담당
 """
 
 from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, Path, Body
@@ -32,8 +36,8 @@ from services.recipe.crud.recipe_crud import (
 )
 from services.kok.crud.kok_crud import get_kok_products_by_ingredient
 
-from services.recommend.recommend_service import get_db_vector_searcher
-from services.recommend.ports import VectorSearcherPort
+from ..utils.recommend_service import get_db_vector_searcher
+from ..utils.ports import VectorSearcherPort
 
 from common.database.mariadb_service import get_maria_service_db
 from common.database.postgres_recommend import get_postgres_recommend_db
@@ -503,22 +507,34 @@ async def post_rating(
     레시피 별점 등록 (0~5 정수만 허용)
     """
     logger.info(f"레시피 별점 등록 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}, rating={req.rating}")
-    # 실제 서비스에서는 user_id를 인증에서 추출
-    rating = await set_recipe_rating(db, recipe_id, user_id=current_user.user_id, rating=int(req.rating))
     
-    # 레시피 별점 등록 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="recipe_rating_create", 
-            event_data={
-                "recipe_id": recipe_id,
-                "rating": int(req.rating)
-            }
-        )
-    
-    return {"recipe_id": recipe_id, "rating": rating}
+    try:
+        # 실제 서비스에서는 user_id를 인증에서 추출
+        rating = await set_recipe_rating(db, recipe_id, user_id=current_user.user_id, rating=int(req.rating))
+        
+        # 트랜잭션 커밋
+        await db.commit()
+        
+        # 레시피 별점 등록 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="recipe_rating_create", 
+                event_data={
+                    "recipe_id": recipe_id,
+                    "rating": int(req.rating)
+                }
+            )
+        
+        logger.info(f"레시피 별점 등록 완료: recipe_id={recipe_id}, rating={rating}")
+        return {"recipe_id": recipe_id, "rating": rating}
+        
+    except Exception as e:
+        # 트랜잭션 롤백
+        await db.rollback()
+        logger.error(f"레시피 별점 등록 실패: recipe_id={recipe_id}, user_id={current_user.user_id}, error={e}")
+        raise HTTPException(status_code=500, detail="레시피 별점 등록 중 오류가 발생했습니다.")
 
 
 ###########################################################
