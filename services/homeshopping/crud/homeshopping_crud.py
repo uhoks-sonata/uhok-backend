@@ -1,5 +1,11 @@
 """
 홈쇼핑 관련 DB 접근(CRUD) 함수 (MariaDB)
+
+계층별 역할:
+- 이 파일은 데이터 액세스 계층(Data Access Layer)을 담당
+- ORM(Session)과 직접 상호작용하여 DB 상태 변경 로직 처리
+- db.add(), db.delete() 같은 DB 상태 변경은 여기서 수행
+- 트랜잭션 관리(commit/rollback)는 상위 계층(라우터)에서 담당
 """
 import asyncio
 import os
@@ -168,7 +174,6 @@ async def add_homeshopping_search_history(
     )
     
     db.add(new_history)
-    await db.commit()
     await db.refresh(new_history)
     
     logger.info(f"홈쇼핑 검색 이력 추가 완료: history_id={new_history.homeshopping_history_id}")
@@ -254,7 +259,6 @@ async def delete_homeshopping_search_history(
         return False
     
     await db.delete(history)
-    await db.commit()
     
     logger.info(f"홈쇼핑 검색 이력 삭제 완료: user_id={user_id}, history_id={homeshopping_history_id}")
     return True
@@ -471,7 +475,6 @@ async def toggle_homeshopping_likes(
             
             # 찜 레코드 삭제
             await db.delete(existing_like)
-            await db.commit()
             
             logger.info(f"홈쇼핑 찜 해제 완료: user_id={user_id}, product_id={product_id}")
             return False
@@ -487,7 +490,6 @@ async def toggle_homeshopping_likes(
                 homeshopping_like_created_at=datetime.now()
             )
             db.add(new_like)
-            await db.commit()
             
             # 방송 정보 조회하여 알림 생성
             live_info = await db.execute(
@@ -515,7 +517,6 @@ async def toggle_homeshopping_likes(
             
     except Exception as e:
         logger.error(f"홈쇼핑 찜 토글 실패: user_id={user_id}, product_id={product_id}, error={str(e)}")
-        await db.rollback()
         raise
 
 
@@ -644,7 +645,6 @@ async def create_broadcast_notification(
         # 알림 레코드 생성
         stmt = insert(HomeshoppingNotification).values(**notification_data)
         result = await db.execute(stmt)
-        await db.commit()
         
         notification_id = result.inserted_primary_key[0]
         
@@ -657,7 +657,6 @@ async def create_broadcast_notification(
         
     except Exception as e:
         logger.error(f"방송 찜 알림 생성 실패: user_id={user_id}, error={str(e)}")
-        await db.rollback()
         raise
 
 
@@ -682,7 +681,6 @@ async def delete_broadcast_notification(
         )
         
         result = await db.execute(stmt)
-        await db.commit()
         
         deleted_count = result.rowcount
         
@@ -695,7 +693,6 @@ async def delete_broadcast_notification(
             
     except Exception as e:
         logger.error(f"방송 찜 알림 삭제 실패: user_id={user_id}, error={str(e)}")
-        await db.rollback()
         raise
 
 
@@ -731,7 +728,6 @@ async def create_order_status_notification(
         # 알림 레코드 생성
         stmt = insert(HomeshoppingNotification).values(**notification_data)
         result = await db.execute(stmt)
-        await db.commit()
         
         notification_id = result.inserted_primary_key[0]
         
@@ -744,7 +740,6 @@ async def create_order_status_notification(
         
     except Exception as e:
         logger.error(f"주문 상태 변경 알림 생성 실패: user_id={user_id}, error={str(e)}")
-        await db.rollback()
         raise
 
 
@@ -855,7 +850,6 @@ async def mark_notification_as_read(
         )
         
         result = await db.execute(stmt)
-        await db.commit()
         
         updated_count = result.rowcount
         
@@ -868,7 +862,6 @@ async def mark_notification_as_read(
             
     except Exception as e:
         logger.error(f"알림 읽음 처리 실패: notification_id={notification_id}, error={str(e)}")
-        await db.rollback()
         raise
 
 

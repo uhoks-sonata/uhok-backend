@@ -1,6 +1,12 @@
 """
 콕 쇼핑몰 API 라우터 (MariaDB)
 - 메인화면 상품정보, 상품 상세, 검색, 찜, 장바구니 기능
+
+계층별 역할:
+- 이 파일은 API 라우터 계층을 담당
+- HTTP 요청/응답 처리, 파라미터 파싱, 유저 인증/권한 확인
+- 비즈니스 로직은 CRUD 함수 호출만 하고 직접 DB 처리하지 않음
+- 트랜잭션 관리(commit/rollback)를 담당하여 데이터 일관성 보장
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks, Request
@@ -446,23 +452,29 @@ async def add_search_history(
     """
     logger.info(f"검색 이력 추가 요청: user_id={current_user.user_id}, keyword='{search_data.keyword}'")
     
-    saved_history = await add_kok_search_history(db, current_user.user_id, search_data.keyword)
-    
-    logger.info(f"검색 이력 추가 완료: user_id={current_user.user_id}, history_id={saved_history['kok_history_id']}")
-    
-    # 검색 이력 저장 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="search_history_save", 
-            event_data={"keyword": search_data.keyword}
-        )
-    
-    return {
-        "message": "검색 이력이 저장되었습니다.",
-        "saved": saved_history
-    }
+    try:
+        saved_history = await add_kok_search_history(db, current_user.user_id, search_data.keyword)
+        await db.commit()
+        
+        logger.info(f"검색 이력 추가 완료: user_id={current_user.user_id}, history_id={saved_history['kok_history_id']}")
+        
+        # 검색 이력 저장 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="search_history_save", 
+                event_data={"keyword": search_data.keyword}
+            )
+        
+        return {
+            "message": "검색 이력이 저장되었습니다.",
+            "saved": saved_history
+        }
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"검색 이력 추가 실패: user_id={current_user.user_id}, keyword='{search_data.keyword}', error={str(e)}")
+        raise HTTPException(status_code=500, detail="검색 이력 저장 중 오류가 발생했습니다.")
 
 
 @router.delete("/search/history/{history_id}", response_model=KokSearchHistoryDeleteResponse)
@@ -477,24 +489,32 @@ async def delete_search_history(
     """
     logger.info(f"검색 이력 삭제 요청: user_id={current_user.user_id}, history_id={history_id}")
     
-    deleted = await delete_kok_search_history(db, current_user.user_id, history_id)
-    
-    if deleted:
-        logger.info(f"검색 이력 삭제 완료: user_id={current_user.user_id}, history_id={history_id}")
+    try:
+        deleted = await delete_kok_search_history(db, current_user.user_id, history_id)
         
-        # 검색 이력 삭제 로그 기록
-        if background_tasks:
-            background_tasks.add_task(
-                send_user_log, 
-                user_id=current_user.user_id, 
-                event_type="search_history_delete", 
-                event_data={"history_id": history_id}
-            )
-        
-        return {"message": f"검색 이력 ID {history_id}가 삭제되었습니다."}
-    else:
-        logger.warning(f"검색 이력을 찾을 수 없음: user_id={current_user.user_id}, history_id={history_id}")
-        raise HTTPException(status_code=404, detail="해당 검색 이력을 찾을 수 없습니다.")
+        if deleted:
+            await db.commit()
+            logger.info(f"검색 이력 삭제 완료: user_id={current_user.user_id}, history_id={history_id}")
+            
+            # 검색 이력 삭제 로그 기록
+            if background_tasks:
+                background_tasks.add_task(
+                    send_user_log, 
+                    user_id=current_user.user_id, 
+                    event_type="search_history_delete", 
+                    event_data={"history_id": history_id}
+                )
+            
+            return {"message": f"검색 이력 ID {history_id}가 삭제되었습니다."}
+        else:
+            logger.warning(f"검색 이력을 찾을 수 없음: user_id={current_user.user_id}, history_id={history_id}")
+            raise HTTPException(status_code=404, detail="해당 검색 이력을 찾을 수 없습니다.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"검색 이력 삭제 실패: user_id={current_user.user_id}, history_id={history_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="검색 이력 삭제 중 오류가 발생했습니다.")
 
 
 # ================================
@@ -513,32 +533,38 @@ async def toggle_likes(
     """
     logger.info(f"찜 토글 요청: user_id={current_user.user_id}, product_id={like_data.kok_product_id}")
     
-    liked = await toggle_kok_likes(db, current_user.user_id, like_data.kok_product_id)
-    
-    logger.info(f"찜 토글 완료: user_id={current_user.user_id}, product_id={like_data.kok_product_id}, liked={liked}")
-    
-    # 찜 토글 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="likes_toggle", 
-            event_data={
-                "product_id": like_data.kok_product_id,
-                "liked": liked
+    try:
+        liked = await toggle_kok_likes(db, current_user.user_id, like_data.kok_product_id)
+        await db.commit()
+        
+        logger.info(f"찜 토글 완료: user_id={current_user.user_id}, product_id={like_data.kok_product_id}, liked={liked}")
+        
+        # 찜 토글 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="likes_toggle", 
+                event_data={
+                    "product_id": like_data.kok_product_id,
+                    "liked": liked
+                }
+            )
+        
+        if liked:
+            return {
+                "liked": True,
+                "message": "상품을 찜했습니다."
             }
-        )
-    
-    if liked:
-        return {
-            "liked": True,
-            "message": "상품을 찜했습니다."
-        }
-    else:
-        return {
-            "liked": False,
-            "message": "찜이 취소되었습니다."
-        }
+        else:
+            return {
+                "liked": False,
+                "message": "찜이 취소되었습니다."
+            }
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"찜 토글 실패: user_id={current_user.user_id}, product_id={like_data.kok_product_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="찜 토글 중 오류가 발생했습니다.")
 
 
 @router.get("/likes", response_model=KokLikedProductsResponse)
@@ -584,34 +610,40 @@ async def add_cart_item(
     """
     logger.info(f"장바구니 추가 요청: user_id={current_user.user_id}, product_id={cart_data.kok_product_id}, quantity={cart_data.kok_quantity}, recipe_id={cart_data.recipe_id}")
     
-    result = await add_kok_cart(
-        db,
-        current_user.user_id,
-        cart_data.kok_product_id,
-        cart_data.kok_quantity,
-        cart_data.recipe_id,
-    )
-    
-    logger.info(f"장바구니 추가 완료: user_id={current_user.user_id}, cart_id={result['kok_cart_id']}, message={result['message']}")
-    
-    # 장바구니 추가 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="cart_add", 
-            event_data={
-                "product_id": cart_data.kok_product_id,
-                "quantity": cart_data.kok_quantity,
-                "cart_id": result["kok_cart_id"],
-                "recipe_id": cart_data.recipe_id
-            }
+    try:
+        result = await add_kok_cart(
+            db,
+            current_user.user_id,
+            cart_data.kok_product_id,
+            cart_data.kok_quantity,
+            cart_data.recipe_id,
         )
-    
-    return KokCartAddResponse(
-        kok_cart_id=result["kok_cart_id"],
-        message=result["message"]
-    )
+        await db.commit()
+        
+        logger.info(f"장바구니 추가 완료: user_id={current_user.user_id}, cart_id={result['kok_cart_id']}, message={result['message']}")
+        
+        # 장바구니 추가 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="cart_add", 
+                event_data={
+                    "product_id": cart_data.kok_product_id,
+                    "quantity": cart_data.kok_quantity,
+                    "cart_id": result["kok_cart_id"],
+                    "recipe_id": cart_data.recipe_id
+                }
+            )
+        
+        return KokCartAddResponse(
+            kok_cart_id=result["kok_cart_id"],
+            message=result["message"]
+        )
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"장바구니 추가 실패: user_id={current_user.user_id}, product_id={cart_data.kok_product_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="장바구니 추가 중 오류가 발생했습니다.")
     
 
 @router.get("/carts", response_model=KokCartItemsResponse)
@@ -654,6 +686,7 @@ async def update_cart_quantity(
     """
     try:
         result = await update_kok_cart_quantity(db, current_user.user_id, cart_id, update_data.kok_quantity)
+        await db.commit()
         
         # 장바구니 수량 변경 로그 기록
         if background_tasks:
@@ -673,7 +706,12 @@ async def update_cart_quantity(
             message=result["message"]
         )
     except ValueError as e:
+        await db.rollback()
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"장바구니 수량 변경 실패: user_id={current_user.user_id}, cart_id={cart_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="장바구니 수량 변경 중 오류가 발생했습니다.")
 
 
 @router.delete("/carts/{cart_id}", response_model=KokCartDeleteResponse)
@@ -686,21 +724,30 @@ async def delete_cart_item(
     """
     장바구니에서 상품 삭제
     """
-    deleted = await delete_kok_cart_item(db, current_user.user_id, cart_id)
-    
-    if deleted:
-        # 장바구니 삭제 로그 기록
-        if background_tasks:
-            background_tasks.add_task(
-                send_user_log, 
-                user_id=current_user.user_id, 
-                event_type="cart_delete", 
-                event_data={"cart_id": cart_id}
-            )
+    try:
+        deleted = await delete_kok_cart_item(db, current_user.user_id, cart_id)
         
-        return KokCartDeleteResponse(message="장바구니에서 상품이 삭제되었습니다.")
-    else:
-        raise HTTPException(status_code=404, detail="장바구니 항목을 찾을 수 없습니다.")
+        if deleted:
+            await db.commit()
+            
+            # 장바구니 삭제 로그 기록
+            if background_tasks:
+                background_tasks.add_task(
+                    send_user_log, 
+                    user_id=current_user.user_id, 
+                    event_type="cart_delete", 
+                    event_data={"cart_id": cart_id}
+                )
+            
+            return KokCartDeleteResponse(message="장바구니에서 상품이 삭제되었습니다.")
+        else:
+            raise HTTPException(status_code=404, detail="장바구니 항목을 찾을 수 없습니다.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"장바구니 삭제 실패: user_id={current_user.user_id}, cart_id={cart_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="장바구니 삭제 중 오류가 발생했습니다.")
 
 
 @router.post("/carts/recipe-recommend", response_model=KokCartRecipeRecommendResponse)
