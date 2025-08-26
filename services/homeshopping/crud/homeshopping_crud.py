@@ -403,8 +403,8 @@ async def get_recipe_recommendations_for_ingredient(
         # TODO: 레시피 서비스와 연동하여 실제 레시피 추천 로직 구현
         # 현재는 더미 데이터 반환
         
-        # 상품명 조회
-        stmt = select(HomeshoppingList.product_name).where(HomeshoppingList.product_id == product_id)
+        # 상품명 조회 (가장 최근 방송 정보에서 선택)
+        stmt = select(HomeshoppingList.product_name).where(HomeshoppingList.product_id == product_id).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
         result = await db.execute(stmt)
         product_name = result.scalar_one_or_none()
         
@@ -451,12 +451,18 @@ async def toggle_homeshopping_likes(
 ) -> bool:
     """
     홈쇼핑 상품 찜 등록/해제
+    - product_id를 찜 목록에서 조회한 후 없을 경우 추가
+    - product_id를 찜 목록에서 조회했을 때 있는 경우에는 삭제
     """
     logger.info(f"홈쇼핑 찜 토글 시작: user_id={user_id}, product_id={product_id}")
     
     try:
+        # 데이터베이스 연결 상태 확인
+        logger.info(f"데이터베이스 세션 상태 확인: {db.is_active}")
+        
         # 기존 찜 여부 확인
-        existing_like = await db.execute(
+        logger.info(f"기존 찜 조회 시작: user_id={user_id}, product_id={product_id}")
+        existing_like_result = await db.execute(
             select(HomeshoppingLikes).where(
                 and_(
                     HomeshoppingLikes.user_id == user_id,
@@ -464,17 +470,23 @@ async def toggle_homeshopping_likes(
                 )
             )
         )
-        existing_like = existing_like.scalar_one_or_none()
+        existing_like = existing_like_result.scalar_one_or_none()
+        logger.info(f"기존 찜 조회 결과: {existing_like is not None}")
         
         if existing_like:
             # 기존 찜이 있으면 찜 해제
             logger.info(f"기존 찜 발견, 찜 해제 처리: like_id={existing_like.homeshopping_like_id}")
             
-            # 방송 알림도 함께 삭제
-            await delete_broadcast_notification(db, user_id, existing_like.homeshopping_like_id)
+            try:
+                # 방송 알림도 함께 삭제
+                await delete_broadcast_notification(db, user_id, existing_like.homeshopping_like_id)
+                logger.info("방송 알림 삭제 완료")
+            except Exception as e:
+                logger.warning(f"방송 알림 삭제 실패 (무시하고 진행): {str(e)}")
             
             # 찜 레코드 삭제
             await db.delete(existing_like)
+            logger.info("찜 레코드 삭제 완료")
             
             logger.info(f"홈쇼핑 찜 해제 완료: user_id={user_id}, product_id={product_id}")
             return False
@@ -490,33 +502,45 @@ async def toggle_homeshopping_likes(
                 homeshopping_like_created_at=datetime.now()
             )
             db.add(new_like)
+            logger.info("찜 레코드 생성 완료")
             
-            # 방송 정보 조회하여 알림 생성
-            live_info = await db.execute(
-                select(HomeshoppingList).where(
-                    HomeshoppingList.product_id == product_id
+            try:
+                # 방송 정보 조회하여 알림 생성 (가장 최근 방송 정보 선택)
+                logger.info(f"방송 정보 조회 시작: product_id={product_id}")
+                live_info_result = await db.execute(
+                    select(HomeshoppingList).where(
+                        HomeshoppingList.product_id == product_id
+                    ).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
                 )
-            )
-            live_info = live_info.scalar_one_or_none()
-            
-            if live_info and live_info.live_date and live_info.live_start_time:
-                # 방송 시작 알림 생성
-                await create_broadcast_notification(
-                    db=db,
-                    user_id=user_id,
-                    homeshopping_like_id=new_like.homeshopping_like_id,
-                    product_id=product_id,
-                    product_name=live_info.product_name,
-                    broadcast_date=live_info.live_date,
-                    broadcast_start_time=live_info.live_start_time
-                )
-                logger.info(f"방송 시작 알림 생성 완료: like_id={new_like.homeshopping_like_id}")
+                live_info = live_info_result.scalar_one_or_none()
+                logger.info(f"방송 정보 조회 결과: {live_info is not None}")
+                
+                if live_info and live_info.live_date and live_info.live_start_time:
+                    # 방송 시작 알림 생성
+                    await create_broadcast_notification(
+                        db=db,
+                        user_id=user_id,
+                        homeshopping_like_id=new_like.homeshopping_like_id,
+                        product_id=product_id,
+                        product_name=live_info.product_name,
+                        broadcast_date=live_info.live_date,
+                        broadcast_start_time=live_info.live_start_time
+                    )
+                    logger.info(f"방송 시작 알림 생성 완료: like_id={new_like.homeshopping_like_id}")
+                else:
+                    logger.info("방송 정보가 부족하여 알림을 생성하지 않음")
+            except Exception as e:
+                logger.warning(f"방송 알림 생성 실패 (무시하고 진행): {str(e)}")
             
             logger.info(f"홈쇼핑 찜 등록 완료: user_id={user_id}, product_id={product_id}, like_id={new_like.homeshopping_like_id}")
             return True
             
     except Exception as e:
         logger.error(f"홈쇼핑 찜 토글 실패: user_id={user_id}, product_id={product_id}, error={str(e)}")
+        logger.error(f"에러 타입: {type(e).__name__}")
+        logger.error(f"에러 상세: {str(e)}")
+        import traceback
+        logger.error(f"스택 트레이스: {traceback.format_exc()}")
         raise
 
 
@@ -576,8 +600,8 @@ async def get_homeshopping_stream_info(
     """
     logger.info(f"홈쇼핑 스트리밍 정보 조회 시작: product_id={product_id}")
     
-    # 상품 정보 조회
-    stmt = select(HomeshoppingList).where(HomeshoppingList.product_id == product_id)
+    # 상품 정보 조회 (가장 최근 방송 정보 선택)
+    stmt = select(HomeshoppingList).where(HomeshoppingList.product_id == product_id).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
     result = await db.execute(stmt)
     product = result.scalar_one_or_none()
     
@@ -789,13 +813,13 @@ async def get_notifications_with_filter(
             product_name = None
             if notification.homeshopping_order_id:
                 try:
-                    # HomeShoppingOrder와 HomeshoppingList를 조인하여 상품명 조회
+                    # HomeShoppingOrder와 HomeshoppingList를 조인하여 상품명 조회 (가장 최근 방송 정보에서 선택)
                     product_query = select(HomeshoppingList.product_name).join(
                         HomeShoppingOrder, 
                         HomeShoppingOrder.product_id == HomeshoppingList.product_id
                     ).where(
                         HomeShoppingOrder.homeshopping_order_id == notification.homeshopping_order_id
-                    )
+                    ).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
                     product_result = await db.execute(product_query)
                     product_name = product_result.scalar_one_or_none()
                 except Exception as e:
@@ -927,7 +951,7 @@ async def get_homeshopping_product_name(
     logger.info(f"홈쇼핑 상품명 조회 시작: product_id={product_id}")
     
     try:
-        stmt = select(HomeshoppingList.product_name).where(HomeshoppingList.product_id == product_id)
+        stmt = select(HomeshoppingList.product_name).where(HomeshoppingList.product_id == product_id).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
         result = await db.execute(stmt)
         product_name = result.scalar_one_or_none()
         
