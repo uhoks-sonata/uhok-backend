@@ -36,8 +36,8 @@ from services.recipe.crud.recipe_crud import (
 )
 from services.kok.crud.kok_crud import get_kok_products_by_ingredient
 
-from services.recommend.recommend_service import get_db_vector_searcher
-from services.recommend.ports import VectorSearcherPort
+from ..utils.recommend_service import get_db_vector_searcher
+from ..utils.ports import VectorSearcherPort
 
 from common.database.mariadb_service import get_maria_service_db
 from common.database.postgres_recommend import get_postgres_recommend_db
