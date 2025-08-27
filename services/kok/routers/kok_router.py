@@ -22,23 +22,18 @@ from services.kok.schemas.kok_schema import (
     KokProductDetailResponse,
     KokProductInfoResponse,
     KokProductTabsResponse,
-    
     # 리뷰 관련 스키마      
     KokReviewResponse,
-    
     # 상품 상세정보 스키마
     KokProductDetailsResponse,
-    
     # 메인화면 상품 리스트 스키마
     KokDiscountedProductsResponse,
     KokTopSellingProductsResponse,
     KokStoreBestProductsResponse,
-    
     # 찜 관련 스키마
     KokLikesToggleRequest,
     KokLikesToggleResponse,
     KokLikedProductsResponse,
-    
     # 장바구니 관련 스키마
     KokCartItemsResponse,
     KokCartAddRequest,
@@ -48,33 +43,27 @@ from services.kok.schemas.kok_schema import (
     KokCartDeleteResponse,
     KokCartRecipeRecommendRequest,
     KokCartRecipeRecommendResponse,
-    
     # 검색 관련 스키마
     KokSearchResponse,
     KokSearchHistoryResponse,
     KokSearchHistoryCreate,
     KokSearchHistoryDeleteResponse
 )
-
 from services.kok.crud.kok_crud import (
     # 제품 관련 CRUD
     get_kok_product_full_detail,
     get_kok_product_info,
     get_kok_product_tabs,
     get_kok_product_seller_details,
-    
     # 리뷰 관련 CRUD
     get_kok_review_data,
-    
     # 메인화면 상품 리스트 CRUD
     get_kok_discounted_products,
     get_kok_top_selling_products,
     get_kok_store_best_items,
-    
     # 찜 관련 CRUD
     toggle_kok_likes,
     get_kok_liked_products,
-    
     # 장바구니 관련 CRUD
     get_kok_cart_items,
     add_kok_cart,
@@ -83,7 +72,6 @@ from services.kok.crud.kok_crud import (
     get_ingredients_from_selected_cart_items,
     get_ingredients_from_cart_product_ids,
     get_cart_product_names_by_ids,
-    
     # 검색 관련 CRUD
     search_kok_products,
     get_kok_search_history,
@@ -94,6 +82,7 @@ from services.recipe.crud.recipe_crud import recommend_by_recipe_pgvector
 
 from common.database.mariadb_service import get_maria_service_db
 from common.log_utils import send_user_log
+
 from common.logger import get_logger
 logger = get_logger("kok_router")
 

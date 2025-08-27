@@ -7,11 +7,9 @@
 - db.add(), db.delete() 같은 DB 상태 변경은 여기서 수행
 - 트랜잭션 관리(commit/rollback)는 상위 계층(라우터)에서 담당
 """
-
-import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, delete, text
-from typing import Optional, List, Tuple, Dict
+from sqlalchemy import select, func
+from typing import Optional, List, Tuple
 from datetime import datetime, timedelta
 
 from services.order.models.order_model import (
@@ -31,8 +29,8 @@ from services.kok.models.kok_model import (
 from services.recipe.models.recipe_model import Recipe
 
 from common.logger import get_logger
-
 logger = get_logger("kok_crud")
+
 
 async def get_kok_product_full_detail(
         db: AsyncSession,

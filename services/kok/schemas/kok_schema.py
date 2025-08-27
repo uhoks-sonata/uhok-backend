@@ -4,10 +4,9 @@
 - DB ORM과 분리, API 직렬화/유효성 검증용
 - DB 데이터 정의서 기반으로 변수명 통일 (KOK_ 접두사 제거 후 소문자)
 """
-
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
-from datetime import datetime, date, time
+from datetime import datetime
 
 # -----------------------------
 # 이미지 정보 스키마
