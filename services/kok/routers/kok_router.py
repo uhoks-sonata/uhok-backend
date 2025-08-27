@@ -96,6 +96,10 @@ from services.kok.crud.kok_crud import (
     add_kok_search_history,
     delete_kok_search_history
 )
+from services.kok.utils.kok_homeshopping import (
+    get_recommendation_strategy
+)
+
 from services.recipe.crud.recipe_crud import recommend_by_recipe_pgvector
 
 from common.database.mariadb_service import get_maria_service_db
