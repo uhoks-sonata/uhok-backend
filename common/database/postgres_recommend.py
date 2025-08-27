@@ -7,10 +7,10 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from common.config import get_settings
 from common.logger import get_logger
 
-logger = get_logger("postgres_recommend", sqlalchemy_logging={'enable': False})
+logger = get_logger("postgres_recommend")
 
 settings = get_settings()
-engine = create_async_engine(settings.postgres_recommend_url, echo=settings.debug)
+engine = create_async_engine(settings.postgres_recommend_url, echo=False)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 logger.info(f"PostgreSQL Recommend 엔진 생성됨, URL: {settings.postgres_recommend_url}")

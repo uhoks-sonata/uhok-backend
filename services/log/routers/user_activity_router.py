@@ -18,7 +18,7 @@ router = APIRouter(
 )
 
 from common.logger import get_logger
-logger = get_logger("user_activity_router", sqlalchemy_logging={'enable': False})
+logger = get_logger("user_activity_router")
 
 
 @router.post("/", response_model=Dict[str, Any], status_code=status.HTTP_201_CREATED)
