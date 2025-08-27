@@ -4,6 +4,8 @@
 """
 from fastapi import APIRouter, Depends, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import SQLAlchemyError
+from typing import List
 
 from services.log.schemas.log_schema import UserLogCreate, UserLogRead
 from services.log.crud.log_crud import create_user_log, get_user_logs
@@ -11,18 +13,7 @@ from common.database.postgres_log import get_postgres_log_db
 from common.errors import BadRequestException, InternalServerErrorException
 from common.log_utils import send_user_log
 
-from sqlalchemy.exc import SQLAlchemyError
-from typing import List
-
-# 로그 관련 API 라우터
-# - prefix="/log" : 이 라우터에 포함된 모든 경로 앞에 "/log"가 자동으로 붙는다
-#   예) @router.post("/") → POST /log/
-# - tags=["log"] : Swagger 문서에서 log 그룹으로 분류
-router = APIRouter(
-    prefix="/log",   # 이 라우터의 모든 엔드포인트 URL 앞에 "/log"를 자동으로 추가
-    tags=["Log"]     # API 문서(Swagger)에서 'log' 그룹으로 분류
-)
-
+router = APIRouter(prefix="/log", tags=["Log"])
 
 @router.get("/health")
 async def health_check():
@@ -60,7 +51,6 @@ async def write_log(
                     "event_data": log.event_data
                 }
             )
-
         return log_obj
     except BadRequestException as e:
         raise e
@@ -94,7 +84,6 @@ async def read_user_logs(
                     "log_count": len(logs)
                 }
             )
-
         return logs
     except Exception:
         raise InternalServerErrorException("로그 조회 중 오류가 발생했습니다.")
