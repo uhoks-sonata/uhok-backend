@@ -11,11 +11,14 @@ from services.order.crud.payment_crud import confirm_payment_and_update_status_v
 
 from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
+
 from common.logger import get_logger
+logger = get_logger("payment_router", sqlalchemy_logging={'enable': False})
+from common.logging_config import disable_sqlalchemy_logging
+disable_sqlalchemy_logging()
+
 
 router = APIRouter(prefix="/api/orders/payment", tags=["Orders/Payment"])
-logger = get_logger("payment_router")
-
 
 @router.post("/{order_id}/confirm/v1", response_model=PaymentConfirmV1Response, status_code=status.HTTP_200_OK)
 async def confirm_payment_v1(
