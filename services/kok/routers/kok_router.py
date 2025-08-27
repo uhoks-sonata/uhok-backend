@@ -100,7 +100,7 @@ from services.kok.models.kok_model import KokProductInfo, KokCart
 from sqlalchemy import select
 
 router = APIRouter(prefix="/api/kok", tags=["Kok"])
-logger = get_logger("kok_router")
+logger = get_logger("kok_router", sqlalchemy_logging={'enable': False})
 
 
 # ================================
