@@ -78,29 +78,47 @@ async def order_from_selected_carts(
         logger.warning(f"선택된 항목이 없음: user_id={current_user.user_id}")
         raise HTTPException(status_code=400, detail="선택된 항목이 없습니다.")
 
-    # CRUD 계층에 주문 생성 위임
-    result = await create_orders_from_selected_carts(
-        db, current_user.user_id, [i.model_dump() for i in request.selected_items]
-    )
-
-    logger.info(f"장바구니 주문 완료: user_id={current_user.user_id}, order_id={result['order_id']}, order_count={result['order_count']}")
-
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log,
-            user_id=current_user.user_id,
-            event_type="cart_order_create",
-            event_data=result,
+    try:
+        # CRUD 계층에 주문 생성 위임
+        result = await create_orders_from_selected_carts(
+            db, current_user.user_id, [i.model_dump() for i in request.selected_items]
         )
 
-    return KokCartOrderResponse(
-        order_id=result["order_id"],
-        total_amount=result["total_amount"],
-        order_count=result["order_count"],
-        order_details=result["order_details"],
-        message=result["message"],
-        order_time=result["order_time"],
-    )
+        logger.info(f"장바구니 주문 완료: user_id={current_user.user_id}, order_id={result['order_id']}, order_count={result['order_count']}")
+
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log,
+                user_id=current_user.user_id,
+                event_type="cart_order_create",
+                event_data=result,
+            )
+
+        return KokCartOrderResponse(
+            order_id=result["order_id"],
+            total_amount=result["total_amount"],
+            order_count=result["order_count"],
+            order_details=result["order_details"],
+            message=result["message"],
+            order_time=result["order_time"],
+        )
+        
+    except ValueError as e:
+        logger.warning(f"장바구니 주문 생성 실패 (검증 오류): user_id={current_user.user_id}, error={str(e)}")
+        # 사용자에게 더 친화적인 에러 메시지 제공
+        error_message = str(e)
+        if "선택된 장바구니 항목을 찾을 수 없습니다" in error_message:
+            error_message = "선택한 장바구니 항목이 존재하지 않거나 이미 삭제되었습니다. 장바구니를 다시 확인해주세요."
+        elif "상품 정보나 가격 정보를 찾을 수 없습니다" in error_message:
+            error_message = "선택한 상품의 정보를 찾을 수 없습니다. 상품이 삭제되었거나 가격 정보가 누락되었을 수 있습니다."
+        elif "유효한 주문 항목을 생성할 수 없습니다" in error_message:
+            error_message = "주문할 수 있는 유효한 상품이 없습니다. 상품 정보를 확인해주세요."
+        
+        raise HTTPException(status_code=400, detail=error_message)
+        
+    except Exception as e:
+        logger.error(f"장바구니 주문 생성 실패 (시스템 오류): user_id={current_user.user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="주문 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
 
 
 # ================================
