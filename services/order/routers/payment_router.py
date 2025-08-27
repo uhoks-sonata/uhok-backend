@@ -13,7 +13,7 @@ from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
 
 from common.logger import get_logger
-logger = get_logger("payment_router", sqlalchemy_logging={'enable': False})
+logger = get_logger("payment_router")
 from common.logging_config import disable_sqlalchemy_logging
 disable_sqlalchemy_logging()
 

@@ -28,7 +28,7 @@ from common.log_utils import send_user_log
 from common.logger import get_logger
 
 router = APIRouter(prefix="/api/user", tags=["User"])
-logger = get_logger("user_router", sqlalchemy_logging={'enable': False})
+logger = get_logger("user_router")
 
 
 @router.post("/signup", response_model=UserOut, status_code=status.HTTP_201_CREATED)

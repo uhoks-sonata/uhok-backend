@@ -10,7 +10,7 @@ from common.logger import get_logger
 logger = get_logger("mariadb_service")
 
 settings = get_settings()
-engine = create_async_engine(settings.mariadb_service_url, echo=settings.debug)
+engine = create_async_engine(settings.mariadb_service_url, echo=False)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 logger.info(f"MariaDB Service 엔진 생성됨, URL: {settings.mariadb_service_url}")

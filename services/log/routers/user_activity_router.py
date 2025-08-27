@@ -11,13 +11,13 @@ from services.log.crud.user_activity_crud import create_user_activity_log
 from common.database.postgres_log import get_postgres_log_db
 from common.dependencies import get_current_user
 from services.user.schemas.user_schema import UserOut
-from common.logger import get_logger
 
 router = APIRouter(
     prefix="/user-activity",
     tags=["UserActivity"]
 )
 
+from common.logger import get_logger
 logger = get_logger("user_activity_router")
 
 
