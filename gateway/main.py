@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from common.config import get_settings
 from common.logger import get_logger
 from services.user.routers.user_router import router as user_router
-from services.log.routers.log_router import router as log_router
+from services.log.routers.user_event_log_router import router as user_event_log_router
 from services.order.routers.order_router import router as order_router
 from services.order.routers.payment_router import router as payment_router
 from services.homeshopping.routers.homeshopping_router import router as homeshopping_router
@@ -46,10 +46,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 logger.info("CORS 미들웨어 설정 완료")
 
-# 라우터 등록 (각 서비스별 router를 include)
 logger.info("서비스 라우터 등록 중...")
 
 logger.debug("사용자 라우터 포함 중...")
@@ -57,7 +55,7 @@ app.include_router(user_router)
 logger.info("사용자 라우터 포함 완료")
 
 logger.debug("로그 라우터 포함 중...")
-app.include_router(log_router)
+app.include_router(user_event_log_router)
 logger.info("로그 라우터 포함 완료")
 
 logger.debug("주문 라우터 포함 중...")
@@ -88,10 +86,11 @@ logger.debug("레시피 라우터 포함 중...")
 app.include_router(recipe_router)
 logger.info("레시피 라우터 포함 완료")
 
+logger.info("모든 서비스 라우터 등록 완료")
+
 logger.info("API Gateway 시작 완료")    
 logger.info(f"앱 제목: {settings.app_name}")
 logger.info(f"디버그 모드: {settings.debug}")
-logger.info("모든 서비스 라우터 등록 완료")
 
 
 # TODO: 다른 서비스 라우터도 아래와 같이 추가
