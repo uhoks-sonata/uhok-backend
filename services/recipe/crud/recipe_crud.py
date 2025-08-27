@@ -968,7 +968,7 @@ async def get_recipe_ingredients_status(
                     "homeshopping_orders": []
                 })
             
-            for order_id, order_time, hs_order_id, hs_product_id, hs_quantity, hs_product_name in homeshopping_orders:
+            for order_id, order_time, hs_order_id, hs_product_id, quantity, hs_product_name in homeshopping_orders:
                 recent_orders.append({
                     "order_id": order_id,
                     "order_time": order_time,
@@ -976,7 +976,7 @@ async def get_recipe_ingredients_status(
                     "homeshopping_orders": [{
                         "homeshopping_order_id": hs_order_id,
                         "product_id": hs_product_id,
-                        "quantity": hs_quantity,
+                        "quantity": quantity,
                         "product_name": hs_product_name
                     }]
                 })
@@ -989,23 +989,34 @@ async def get_recipe_ingredients_status(
         from services.kok.models.kok_model import KokCart
         
         # 콕 장바구니 조회
-        kok_cart_stmt = select(KokCart).where(KokCart.user_id == user_id)
-        kok_cart_result = await db.execute(kok_cart_stmt)
-        kok_cart_items = kok_cart_result.scalars().all()
+        kok_cart_items = []
+        try:
+            kok_cart_stmt = select(KokCart).where(KokCart.user_id == user_id)
+            kok_cart_result = await db.execute(kok_cart_stmt)
+            kok_cart_items = kok_cart_result.scalars().all()
+        except Exception as e:
+            logger.warning(f"콕 장바구니 조회 실패: {e}")
+            kok_cart_items = []
         
         # 홈쇼핑 장바구니 조회 (상품명 포함, 테이블이 없을 수 있음)
         homeshopping_cart_items = []
         try:
-            from services.homeshopping.models.homeshopping_model import HomeshoppingCart, HomeshoppingList
-            homeshopping_cart_stmt = (
-                select(HomeshoppingCart, HomeshoppingList.product_name)
-                .join(HomeshoppingList, HomeshoppingCart.product_id == HomeshoppingList.product_id)
-                .where(HomeshoppingCart.user_id == user_id)
-            )
-            homeshopping_cart_result = await db.execute(homeshopping_cart_stmt)
-            homeshopping_cart_items = homeshopping_cart_result.all()
+            # 테이블 존재 여부를 먼저 확인
+            from sqlalchemy import inspect
+            inspector = inspect(db.bind)
+            if 'HOMESHOPPING_CART' in inspector.get_table_names():
+                from services.homeshopping.models.homeshopping_model import HomeshoppingCart, HomeshoppingList
+                homeshopping_cart_stmt = (
+                    select(HomeshoppingCart, HomeshoppingList.product_name)
+                    .join(HomeshoppingList, HomeshoppingCart.product_id == HomeshoppingList.product_id)
+                    .where(HomeshoppingCart.user_id == user_id)
+                )
+                homeshopping_cart_result = await db.execute(homeshopping_cart_stmt)
+                homeshopping_cart_items = homeshopping_cart_result.all()
+            else:
+                logger.info("홈쇼핑 장바구니 테이블이 존재하지 않음")
         except Exception as e:
-            logger.info(f"홈쇼핑 장바구니 테이블이 없거나 조회 실패: {e}")
+            logger.info(f"홈쇼핑 장바구니 조회 실패: {e}")
             homeshopping_cart_items = []
         
         # 5. 각 재료별 상태 판별
@@ -1057,28 +1068,36 @@ async def get_recipe_ingredients_status(
             if status != "owned":
                 # 콕 장바구니 확인
                 for cart_item in kok_cart_items:
-                    if hasattr(cart_item, 'product') and cart_item.product:
-                        if material_name.lower() in cart_item.product.kok_product_name.lower():
-                            status = "cart"
-                            cart_info = {
-                                "cart_id": cart_item.kok_cart_id,
-                                "cart_type": "kok",
-                                "product_name": cart_item.product.kok_product_name,
-                                "quantity": cart_item.kok_quantity
-                            }
-                            break
+                    try:
+                        if hasattr(cart_item, 'product') and cart_item.product:
+                            if material_name.lower() in cart_item.product.kok_product_name.lower():
+                                status = "cart"
+                                cart_info = {
+                                    "cart_id": cart_item.kok_cart_id,
+                                    "cart_type": "kok",
+                                    "product_name": cart_item.product.kok_product_name,
+                                    "quantity": cart_item.kok_quantity
+                                }
+                                break
+                    except Exception as e:
+                        logger.debug(f"콕 장바구니 아이템 처리 중 오류: {e}")
+                        continue
                 
                 # 홈쇼핑 장바구니 확인
                 for cart_item, product_name in homeshopping_cart_items:
-                    if product_name and material_name.lower() in product_name.lower():
-                        status = "cart"
-                        cart_info = {
-                            "cart_id": cart_item.cart_id,
-                            "cart_type": "homeshopping",
-                            "product_name": product_name,
-                            "quantity": cart_item.quantity
-                        }
-                        break
+                    try:
+                        if product_name and material_name.lower() in product_name.lower():
+                            status = "cart"
+                            cart_info = {
+                                "cart_id": cart_item.cart_id,
+                                "cart_type": "homeshopping",
+                                "product_name": product_name,
+                                "quantity": cart_item.quantity
+                            }
+                            break
+                    except Exception as e:
+                        logger.debug(f"홈쇼핑 장바구니 아이템 처리 중 오류: {e}")
+                        continue
                 
 
             
