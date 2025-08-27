@@ -3,7 +3,7 @@
 Homeshopping 서비스 유틸리티 모듈
 """
 
-from .recommendation_utils import (
+from .homeshopping_kok import (
     # 파라미터
     DYN_MAX_TERMS, DYN_MAX_EXTRAS, DYN_SAMPLE_ROWS,
     DYN_NGRAM_MIN, DYN_NGRAM_MAX, NGRAM_N,

@@ -11,6 +11,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime
 
 from common.dependencies import get_current_user, debug_optional_auth, get_current_user_optional
 from services.user.schemas.user_schema import UserOut
@@ -78,6 +79,8 @@ from services.kok.crud.kok_crud import (
     update_kok_cart_quantity,
     delete_kok_cart_item,
     get_ingredients_from_selected_cart_items,
+    get_ingredients_from_cart_product_ids,
+    get_cart_product_names_by_ids,
     
     # 검색 관련 CRUD
     search_kok_products,
@@ -86,9 +89,14 @@ from services.kok.crud.kok_crud import (
     delete_kok_search_history
 )
 
+from services.recipe.crud.recipe_crud import recommend_recipes_by_ingredients
+
 from common.database.mariadb_service import get_maria_service_db
 from common.log_utils import send_user_log
 from common.logger import get_logger
+
+from services.kok.models.kok_model import KokProductInfo, KokCart
+from sqlalchemy import select
 
 router = APIRouter(prefix="/api/kok", tags=["Kok"])
 logger = get_logger("kok_router")
@@ -620,7 +628,18 @@ async def add_cart_item(
         )
         await db.commit()
         
-        logger.info(f"장바구니 추가 완료: user_id={current_user.user_id}, cart_id={result['kok_cart_id']}, message={result['message']}")
+        # commit 후에 새로 생성된 cart_id를 조회
+        from sqlalchemy import select
+        stmt = select(KokCart).where(
+            KokCart.user_id == current_user.user_id,
+            KokCart.kok_product_id == cart_data.kok_product_id
+        ).order_by(KokCart.kok_cart_id.desc()).limit(1)
+        
+        cart_result = await db.execute(stmt)
+        new_cart = cart_result.scalar_one()
+        actual_cart_id = new_cart.kok_cart_id if new_cart else 0
+        
+        logger.info(f"장바구니 추가 완료: user_id={current_user.user_id}, cart_id={actual_cart_id}, message={result['message']}")
         
         # 장바구니 추가 로그 기록
         if background_tasks:
@@ -631,13 +650,13 @@ async def add_cart_item(
                 event_data={
                     "product_id": cart_data.kok_product_id,
                     "quantity": cart_data.kok_quantity,
-                    "cart_id": result["kok_cart_id"],
+                    "cart_id": actual_cart_id,
                     "recipe_id": cart_data.recipe_id
                 }
             )
         
         return KokCartAddResponse(
-            kok_cart_id=result["kok_cart_id"],
+            kok_cart_id=actual_cart_id,
             message=result["message"]
         )
     except Exception as e:
@@ -750,43 +769,60 @@ async def delete_cart_item(
         raise HTTPException(status_code=500, detail="장바구니 삭제 중 오류가 발생했습니다.")
 
 
-@router.post("/carts/recipe-recommend", response_model=KokCartRecipeRecommendResponse)
+@router.get("/carts/recipe-recommend", response_model=KokCartRecipeRecommendResponse)
 async def recommend_recipes_from_cart_items(
-    recommend_request: KokCartRecipeRecommendRequest,
+    kok_product_ids: str = Query(..., description="선택된 상품의 kok_product_id 목록 (쉼표로 구분)"),
+    page: int = Query(1, ge=1, description="페이지 번호 (1부터 시작)"),
+    size: int = Query(10, ge=1, le=100, description="페이지당 레시피 수"),
     current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    선택된 장바구니 상품들의 재료로 레시피 추천
+    장바구니에서 선택한 상품들의 kok_product_id를 받아서 KOK_CLASSIFY 테이블에서 cls_ing이 1인 상품만 사용하여 레시피를 추천
+    - kok_product_id로 KOK_CLASSIFY 테이블에서 cls_ing이 1인 상품만 필터링
+    - 해당 상품들의 product_name에서 키워드 추출
+    - recipe 폴더 내에서 식재료명 기반 레시피 추천 로직을 사용
     """
     try:
-        logger.info(f"레시피 추천 요청: user_id={current_user.user_id}, cart_ids={recommend_request.selected_cart_ids}")
+        # 쉼표로 구분된 kok_product_ids를 리스트로 변환
+        product_ids = [int(pid.strip()) for pid in kok_product_ids.split(",") if pid.strip().isdigit()]
         
-        # 선택된 장바구니 상품들에서 재료명 추출
-        ingredients = await get_ingredients_from_selected_cart_items(
-            db, current_user.user_id, recommend_request.selected_cart_ids
+        if not product_ids:
+            raise HTTPException(status_code=400, detail="유효한 상품 ID가 없습니다.")
+        
+        logger.info(f"레시피 추천 요청: user_id={current_user.user_id}, kok_product_ids={product_ids}, page={page}, size={size}")
+        
+        # KOK_CLASSIFY 테이블에서 cls_ing이 1인 상품만 사용하여 재료명 추출
+        ingredients = await get_ingredients_from_cart_product_ids(
+            db, product_ids
         )
         
+        # 상품명 목록 조회
+        product_names = await get_cart_product_names_by_ids(db, product_ids)
+        
         if not ingredients:
-            logger.warning(f"장바구니 상품에서 재료를 추출할 수 없음: user_id={current_user.user_id}, cart_ids={recommend_request.selected_cart_ids}")
-            raise HTTPException(status_code=400, detail="재료를 추출할 수 있는 상품이 없습니다.")
+            logger.warning(f"추출된 재료가 없음: user_id={current_user.user_id}")
+            return KokCartRecipeRecommendResponse(
+                recipes=[],
+                total_count=0,
+                page=page,
+                size=size,
+                total_pages=0,
+                ingredients_used=[],
+                product_names=product_names
+            )
         
         logger.info(f"재료 추출 성공: {ingredients}")
         
-        # 레시피 추천 서비스 호출
-        from services.recipe.crud.recipe_crud import recommend_recipes_by_ingredients
-        
-        recipes, total = await recommend_recipes_by_ingredients(
-            db, 
-            ingredients, 
-            amounts=None,  # 장바구니 기반 추천에서는 분량 정보 없음
-            units=None,    # 장바구니 기반 추천에서는 단위 정보 없음
-            page=recommend_request.page, 
-            size=recommend_request.size
+        # 추출된 재료를 기반으로 레시피 추천 (recipe 폴더 내의 로직 사용)
+        recipes, total_count = await recommend_recipes_by_ingredients(
+            db, ingredients, page, size
         )
         
-        logger.info(f"레시피 추천 완료: {len(recipes)}개 레시피 발견, 총 {total}개")
+        total_pages = (total_count + size - 1) // size
+        
+        logger.info(f"레시피 추천 완료: {len(recipes)}개 레시피, 총 {total_count}개")
         
         # 레시피 추천 로그 기록
         if background_tasks:
@@ -795,19 +831,23 @@ async def recommend_recipes_from_cart_items(
                 user_id=current_user.user_id, 
                 event_type="cart_recipe_recommend", 
                 event_data={
-                    "selected_cart_ids": recommend_request.selected_cart_ids,
-                    "ingredients_used": ingredients,
-                    "page": recommend_request.page,
-                    "size": recommend_request.size,
-                    "total_results": total
+                    "kok_product_ids": product_ids,
+                    "extracted_ingredients": ingredients,
+                    "product_names": product_names,
+                    "recommended_recipes_count": len(recipes),
+                    "page": page,
+                    "size": size
                 }
             )
         
         return KokCartRecipeRecommendResponse(
             recipes=recipes,
-            page=recommend_request.page,
-            total=total,
-            ingredients_used=ingredients
+            total_count=total_count,
+            page=page,
+            size=size,
+            total_pages=total_pages,
+            ingredients_used=ingredients,
+            product_names=product_names
         )
     except ValueError as e:
         logger.warning(f"레시피 추천 검증 오류: {str(e)}")
@@ -858,7 +898,7 @@ async def get_homeshopping_recommendations(
         
         # 2. 각 KOK 상품명 조회 및 추천 키워드 수집
         from services.homeshopping.crud.homeshopping_crud import get_kok_product_name_by_id
-        from services.kok.utils.recommendation_utils import get_recommendation_strategy
+        from services.kok.utils.kok_homeshopping import get_recommendation_strategy
         
         all_search_terms = set()
         kok_product_names = []

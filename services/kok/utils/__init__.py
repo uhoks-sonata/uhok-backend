@@ -3,7 +3,7 @@
 KOK 서비스 유틸리티 모듈
 """
 
-from .recommendation_utils import (
+from .kok_homeshopping import (
     get_recommendation_strategy,
     recommend_by_last_word,
     recommend_by_core_keywords,

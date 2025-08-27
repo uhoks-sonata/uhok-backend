@@ -706,7 +706,7 @@ async def get_homeshopping_recommendations_by_kok(
             raise HTTPException(status_code=404, detail="KOK 상품을 찾을 수 없습니다.")
         
         # 2. 추천 전략 선택 및 실행
-        from services.kok.utils.recommendation_utils import get_recommendation_strategy
+        from services.kok.utils.kok_homeshopping import get_recommendation_strategy
         
         strategy_result = get_recommendation_strategy(kok_product_name, k)
         algorithm_info = {

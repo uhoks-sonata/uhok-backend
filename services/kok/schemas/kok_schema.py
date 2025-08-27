@@ -6,7 +6,7 @@
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from datetime import datetime, date, time
 
 # -----------------------------
@@ -508,13 +508,15 @@ class KokNotificationResponse(BaseModel):
 class KokCartRecipeRecommendRequest(BaseModel):
     """장바구니 상품 기반 레시피 추천 요청"""
     selected_cart_ids: List[int] = Field(..., description="선택된 장바구니 상품 ID 목록")
-    page: int = Field(1, ge=1, description="페이지 번호")
-    size: int = Field(10, ge=1, le=50, description="페이지 크기")
-
+    page: int = Field(1, ge=1, description="페이지 번호 (1부터 시작)")
+    size: int = Field(10, ge=1, le=100, description="페이지당 레시피 수")
 
 class KokCartRecipeRecommendResponse(BaseModel):
     """장바구니 상품 기반 레시피 추천 응답"""
-    recipes: List[Dict] = Field(default_factory=list, description="추천 레시피 목록")
+    recipes: List[Dict[str, Any]] = Field(..., description="추천된 레시피 목록")
+    total_count: int = Field(..., description="전체 레시피 수")
     page: int = Field(..., description="현재 페이지 번호")
-    total: int = Field(..., description="전체 결과 개수")
-    ingredients_used: List[str] = Field(..., description="사용된 재료 목록")
+    size: int = Field(..., description="페이지당 레시피 수")
+    total_pages: int = Field(..., description="전체 페이지 수")
+    ingredients_used: List[str] = Field(..., description="사용된 재료 키워드 목록")
+    product_names: List[str] = Field(..., description="분석된 상품명 목록")

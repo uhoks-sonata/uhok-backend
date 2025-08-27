@@ -302,7 +302,7 @@ async def get_homeshopping_product_detail(
             HomeshoppingLikes.product_id == product_id
         )
         like_result = await db.execute(like_stmt)
-        is_liked = like_result.scalar_one_or_none() is not None
+        is_liked = like_result.scalars().first() is not None
     
     # 상세 정보 조회
     detail_stmt = (
@@ -1254,7 +1254,7 @@ async def test_kok_db_connection(db: AsyncSession) -> bool:
 # 추천 관련 유틸리티 함수들 (utils 폴더 사용)
 # -----------------------------
 
-from ..utils.recommendation_utils import (
+from ..utils.homeshopping_kok import (
     DYN_MAX_TERMS, DYN_MAX_EXTRAS, DYN_SAMPLE_ROWS,
     TAIL_MAX_DF_RATIO, TAIL_MAX_TERMS, NGRAM_N,
     DYN_NGRAM_MIN, DYN_NGRAM_MAX,

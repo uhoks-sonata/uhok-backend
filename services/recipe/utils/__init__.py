@@ -3,7 +3,7 @@
 Recipe 서비스 유틸리티 모듈
 """
 
-from .recommendation_utils import (
+from .inventory_recipe import (
     recommend_sequentially_for_inventory,
     get_recipe_url,
     format_recipe_for_response,
