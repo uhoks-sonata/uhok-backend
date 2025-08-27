@@ -603,7 +603,7 @@ async def add_cart_item(
     """
     장바구니에 상품 추가
     """
-    logger.info(f"장바구니 추가 요청: user_id={current_user.user_id}, product_id={cart_data.kok_product_id}, quantity={cart_data.kok_quantity}, recipe_id={cart_data.recipe_id}")
+    logger.info(f"장바구니 추가 요청: user_id={current_user.user_id}, kok_product_id={cart_data.kok_product_id}, kok_quantity={cart_data.kok_quantity}, recipe_id={cart_data.recipe_id}")
     
     try:
         result = await add_kok_cart(
@@ -635,8 +635,8 @@ async def add_cart_item(
                 user_id=current_user.user_id, 
                 event_type="cart_add", 
                 event_data={
-                    "product_id": cart_data.kok_product_id,
-                    "quantity": cart_data.kok_quantity,
+                    "kok_product_id": cart_data.kok_product_id,
+                    "kok_quantity": cart_data.kok_quantity,
                     "cart_id": actual_cart_id,
                     "recipe_id": cart_data.recipe_id
                 }
