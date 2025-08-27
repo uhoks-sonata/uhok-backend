@@ -7,6 +7,9 @@ from datetime import datetime
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.database.mariadb_service import get_maria_service_db
+from common.logger import get_logger
+
 from services.order.models.order_model import (
     Order, HomeShoppingOrder, HomeShoppingOrderStatusHistory, StatusMaster
 )
@@ -18,11 +21,7 @@ from services.order.crud.order_common import (
     NOTIFICATION_TITLES, NOTIFICATION_MESSAGES
 )
 
-from common.database.mariadb_service import get_maria_service_db
-
-from common.logger import get_logger
 logger = get_logger("hs_order_crud")
-
 
 async def get_hs_current_status(
     db: AsyncSession, 

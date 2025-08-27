@@ -7,6 +7,11 @@ from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, s
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.database.mariadb_service import get_maria_service_db
+from common.dependencies import get_current_user
+from common.log_utils import send_user_log
+from common.logger import get_logger
+
 from services.order.models.order_model import (
     Order, KokOrder, KokOrderStatusHistory, StatusMaster
 )
@@ -29,15 +34,7 @@ from services.order.crud.kok_order_crud import (
     get_kok_order_notifications_history
 )
 
-
-from common.database.mariadb_service import get_maria_service_db
-from common.dependencies import get_current_user
-from common.log_utils import send_user_log
-
-from common.logger import get_logger
 logger = get_logger("kok_order_router")
-
-
 router = APIRouter(prefix="/api/orders/kok", tags=["Kok Orders"])
 
 # ================================

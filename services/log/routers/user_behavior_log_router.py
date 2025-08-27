@@ -8,14 +8,13 @@ from typing import Dict, Any
 
 from common.dependencies import get_current_user
 from common.database.postgres_log import get_postgres_log_db
+from common.logger import get_logger
 
 from services.user.schemas.user_schema import UserOut
 from services.log.schemas.user_activity_schema import UserActivityLog
 from services.log.crud.user_behavior_log_crud import create_user_activity_log
 
-from common.logger import get_logger
 logger = get_logger("user_behavior_log_router")
-
 router = APIRouter(prefix="/user-behavior-log", tags=["UserBehaviorLog"])
 
 

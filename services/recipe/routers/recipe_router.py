@@ -12,6 +12,13 @@ from typing import List, Optional
 import pandas as pd
 import time
 
+from common.dependencies import get_current_user
+from common.database.mariadb_service import get_maria_service_db
+from common.database.postgres_recommend import get_postgres_recommend_db
+from common.log_utils import send_user_log
+from common.logger import get_logger
+
+from services.user.schemas.user_schema import UserOut
 from services.recipe.schemas.recipe_schema import (
     RecipeDetailResponse,
     RecipeUrlResponse,
@@ -36,23 +43,13 @@ from services.recipe.crud.recipe_crud import (
     get_homeshopping_products_by_ingredient,
     get_recipe_ingredients_status
 )
-from services.kok.crud.kok_crud import get_kok_products_by_ingredient
 
 from ..utils.recommend_service import get_db_vector_searcher
 from ..utils.ports import VectorSearcherPort
-
-from common.database.mariadb_service import get_maria_service_db
-from common.database.postgres_recommend import get_postgres_recommend_db
-
-from common.dependencies import get_current_user
-from services.user.schemas.user_schema import UserOut
-from common.log_utils import send_user_log
-from common.logger import get_logger
 from services.recipe.utils.combination_tracker import combination_tracker
 
 # 로거 초기화
 logger = get_logger("recipe_router")
-
 router = APIRouter(prefix="/api/recipes", tags=["Recipe"])
 
 @router.get("/by-ingredients", response_model=RecipeByIngredientsListResponse)

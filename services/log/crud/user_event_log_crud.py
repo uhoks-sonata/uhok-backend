@@ -4,10 +4,11 @@ USER_LOG 테이블 CRUD 함수
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from services.log.models.log_model import UserLog
 from common.errors import BadRequestException, InternalServerErrorException
-
 from common.logger import get_logger
+
+from services.log.models.log_model import UserLog
+
 logger = get_logger("user_event_log_crud")
 
 async def create_user_log(db: AsyncSession, log_data: dict) -> UserLog:

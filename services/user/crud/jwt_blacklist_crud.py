@@ -4,14 +4,14 @@ JWT 블랙리스트 CRUD 작업
 
 import hashlib
 from datetime import datetime
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from services.user.models.jwt_blacklist_model import JWTBlacklist
 from common.logger import get_logger
 
-logger = get_logger("jwt_blacklist_crud")
+from services.user.models.jwt_blacklist_model import JWTBlacklist
 
+logger = get_logger("jwt_blacklist_crud")
 
 async def add_token_to_blacklist(
     db: AsyncSession, 

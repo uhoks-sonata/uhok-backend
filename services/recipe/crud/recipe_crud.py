@@ -8,22 +8,21 @@
 """
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, func, text
+from sqlalchemy import select, desc, func
 from typing import List, Optional, Dict, Tuple
 import pandas as pd
-import copy
 from datetime import datetime, timedelta
 
-from services.order.models.order_model import Order, KokOrder, HomeShoppingOrder
-from services.kok.models.kok_model import KokProductInfo
+from common.logger import get_logger
 
-from services.recipe.models.recipe_model import (
-    Recipe, Material, RecipeRating, RecipeVector
-)
+from services.order.models.order_model import Order, KokOrder, HomeShoppingOrder
 from services.homeshopping.models.homeshopping_model import (
     HomeshoppingList, HomeshoppingProductInfo, HomeshoppingImgUrl
 )
-
+from services.kok.models.kok_model import KokProductInfo
+from services.recipe.models.recipe_model import (
+    Recipe, Material, RecipeRating, RecipeVector
+)
 # ⬇️ 추가: 추천 포트(로컬/원격 어댑터)는 라우터/서비스에서 DI로 주입하여 사용
 from ..utils.ports import VectorSearcherPort
 
@@ -32,8 +31,6 @@ from ..utils.inventory_recipe import (
     get_recipe_url,
     recommend_sequentially_for_inventory
 )
-
-from common.logger import get_logger
 
 # 로거 초기화
 logger = get_logger("recipe_crud")

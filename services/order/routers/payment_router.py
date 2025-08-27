@@ -6,16 +6,14 @@ Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입�
 from fastapi import APIRouter, Depends, BackgroundTasks, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.database.mariadb_service import get_maria_service_db
+from common.dependencies import get_current_user
+from common.logger import get_logger
+
 from services.order.schemas.payment_schema import PaymentConfirmV1Request, PaymentConfirmV1Response
 from services.order.crud.payment_crud import confirm_payment_and_update_status_v1
 
-from common.database.mariadb_service import get_maria_service_db
-from common.dependencies import get_current_user
-
-from common.logger import get_logger
 logger = get_logger("payment_router")
-
-
 router = APIRouter(prefix="/api/orders/payment", tags=["Orders/Payment"])
 
 @router.post("/{order_id}/confirm/v1", response_model=PaymentConfirmV1Response, status_code=status.HTTP_200_OK)

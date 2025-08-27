@@ -8,6 +8,9 @@ from datetime import datetime
 from sqlalchemy import select, desc, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.database.mariadb_service import get_maria_service_db
+from common.logger import get_logger
+
 from services.order.models.order_model import (
     Order, KokOrder, StatusMaster, KokOrderStatusHistory
 )
@@ -19,10 +22,7 @@ from services.order.crud.order_common import (
     NOTIFICATION_TITLES, NOTIFICATION_MESSAGES
 )
 
-from common.database.mariadb_service import get_maria_service_db
-from common.logger import get_logger
 logger = get_logger("kok_order_crud")
-
 
 async def calculate_kok_order_price(
     db: AsyncSession,

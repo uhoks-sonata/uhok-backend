@@ -6,7 +6,6 @@ KOK 상품 기반 홈쇼핑 추천 유틸리티
 
 import re
 from typing import Dict, List, Set, Any
-from collections import Counter
 
 # -------------------- 기본 설정값 --------------------
 DEFAULT_STOPWORDS: Set[str] = set("""

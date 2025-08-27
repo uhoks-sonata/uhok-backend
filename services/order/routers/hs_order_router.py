@@ -7,9 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.database.mariadb_service import get_maria_service_db
+from common.dependencies import get_current_user
+from common.log_utils import send_user_log
+from common.logger import get_logger
+
 from services.user.schemas.user_schema import UserOut
 from services.order.models.order_model import (
-    Order, StatusMaster, HomeShoppingOrder, HomeShoppingOrderStatusHistory
+    StatusMaster, HomeShoppingOrder, HomeShoppingOrderStatusHistory
 )
 from services.order.schemas.hs_order_schema import (
     HomeshoppingOrderRequest,
@@ -28,14 +33,7 @@ from services.order.crud.hs_order_crud import (
     start_auto_hs_order_status_update
 )
 
-from common.database.mariadb_service import get_maria_service_db
-from common.dependencies import get_current_user
-from common.log_utils import send_user_log
-
-from common.logger import get_logger
 logger = get_logger("hs_order_router")
-
-
 router = APIRouter(prefix="/api/orders/homeshopping", tags=["HomeShopping Orders"])
 
 # ================================

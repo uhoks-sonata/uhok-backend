@@ -6,7 +6,13 @@ from fastapi import APIRouter, Depends, status, Query, BackgroundTasks, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
+
+from common.dependencies import get_current_user
+from common.auth.jwt_handler import create_access_token, get_token_expiration, extract_user_id_from_token
+from common.database.mariadb_auth import get_maria_auth_db
+from common.errors import ConflictException, NotAuthenticatedException, InvalidTokenException
+from common.log_utils import send_user_log
+from common.logger import get_logger
 
 from services.user.schemas.user_schema import (
     UserCreate,
@@ -20,16 +26,9 @@ from services.user.crud.user_crud import (
 )
 from services.user.crud.jwt_blacklist_crud import add_token_to_blacklist
 
-from common.database.mariadb_auth import get_maria_auth_db
-from common.errors import ConflictException, NotAuthenticatedException, InvalidTokenException
-from common.auth.jwt_handler import create_access_token, get_token_expiration, extract_user_id_from_token
-from common.dependencies import get_current_user
-from common.log_utils import send_user_log
-from common.logger import get_logger
 
 router = APIRouter(prefix="/api/user", tags=["User"])
 logger = get_logger("user_router")
-
 
 @router.post("/signup", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def signup(

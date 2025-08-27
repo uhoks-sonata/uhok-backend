@@ -7,12 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 from typing import List
 
-from services.log.schemas.user_log_schema import UserLogCreate, UserLogRead
-from services.log.crud.user_event_log_crud import create_user_log, get_user_logs
 from common.database.postgres_log import get_postgres_log_db
 from common.errors import BadRequestException, InternalServerErrorException
 from common.log_utils import send_user_log
 from common.logger import get_logger
+
+from services.log.schemas.user_log_schema import UserLogCreate, UserLogRead
+from services.log.crud.user_event_log_crud import create_user_log, get_user_logs
 
 logger = get_logger("user_event_log_router")
 router = APIRouter(prefix="/user-event-log", tags=["UserEventLog"])

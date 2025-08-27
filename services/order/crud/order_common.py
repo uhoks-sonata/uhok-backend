@@ -6,9 +6,11 @@ CRUD 계층: 모든 DB 트랜잭션 처리 담당
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from services.order.models.order_model import StatusMaster
-from services.user.models.user_model import User
+
 from common.database.mariadb_auth import get_maria_auth_db
+
+from services.user.models.user_model import User
+from services.order.models.order_model import StatusMaster
 
 # 상태 코드 상수 정의
 STATUS_CODES = {

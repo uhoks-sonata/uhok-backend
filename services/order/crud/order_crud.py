@@ -3,13 +3,15 @@ ORDERS + 서비스별 주문 상세를 트랜잭션으로 한 번에 생성/조�
 CRUD 계층: 모든 DB 트랜잭션 처리 담당
 """
 from __future__ import annotations
-from datetime import datetime
-from typing import Dict, Any, List
 import httpx
 from fastapi import HTTPException
+from datetime import datetime
+from typing import Dict, Any, List
 
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession 
+
+from common.logger import get_logger
 
 from services.order.models.order_model import (
     Order, KokOrder, KokOrderStatusHistory, 
@@ -24,7 +26,6 @@ from services.order.crud.kok_order_crud import update_kok_order_status, calculat
 from services.order.crud.hs_order_crud import calculate_homeshopping_order_price, update_hs_order_status
 from services.recipe.crud.recipe_crud import fetch_recipe_ingredients_status
 
-from common.logger import get_logger
 logger = get_logger("order_crud")
 
 

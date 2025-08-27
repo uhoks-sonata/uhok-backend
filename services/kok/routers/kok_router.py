@@ -16,6 +16,9 @@ import pandas as pd
 from common.dependencies import (
     get_current_user, debug_optional_auth, get_current_user_optional
 )
+from common.database.mariadb_service import get_maria_service_db
+from common.log_utils import send_user_log
+from common.logger import get_logger
 
 from services.kok.models.kok_model import KokCart
 from services.user.schemas.user_schema import UserOut
@@ -99,15 +102,9 @@ from services.kok.crud.kok_crud import (
 from services.kok.utils.kok_homeshopping import (
     get_recommendation_strategy
 )
-
 from services.recipe.crud.recipe_crud import recommend_by_recipe_pgvector
 
-from common.database.mariadb_service import get_maria_service_db
-from common.log_utils import send_user_log
-
-from common.logger import get_logger
 logger = get_logger("kok_router")
-
 router = APIRouter(prefix="/api/kok", tags=["Kok"])
 
 
