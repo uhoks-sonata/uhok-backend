@@ -953,11 +953,12 @@ async def add_kok_cart(
         )
         
         db.add(new_cart)
-        await db.refresh(new_cart)
+        # refresh는 commit 후에 호출해야 하므로 여기서는 제거
+        # await db.refresh(new_cart)
         
-        logger.info(f"장바구니 새 항목 추가 완료: cart_id={new_cart.kok_cart_id}")
+        logger.info(f"장바구니 새 항목 추가 완료: user_id={user_id}, product_id={kok_product_id}")
         return {
-            "kok_cart_id": new_cart.kok_cart_id,
+            "kok_cart_id": 0,  # commit 후에 실제 ID를 얻을 수 있음
             "message": "장바구니에 상품이 추가되었습니다."
         }
 
@@ -1208,13 +1209,14 @@ async def get_ingredients_from_selected_cart_items(
     """
     선택된 장바구니 상품들에서 재료명을 추출
     - 상품명에서 식재료 관련 키워드를 추출하여 반환
+    - keyword_extraction.py의 로직을 사용하여 정확한 재료 추출
     """
     logger.info(f"장바구니 상품에서 재료 추출 시작: user_id={user_id}, cart_ids={selected_cart_ids}")
-    
+
     if not selected_cart_ids:
         logger.warning("선택된 장바구니 항목이 없음")
         return []
-    
+
     # 선택된 장바구니 상품들의 상품 정보 조회
     stmt = (
         select(KokCart, KokProductInfo)
@@ -1222,46 +1224,204 @@ async def get_ingredients_from_selected_cart_items(
         .where(KokCart.user_id == user_id)
         .where(KokCart.kok_cart_id.in_(selected_cart_ids))
     )
+
+    result = await db.execute(stmt)
+    cart_items = result.fetchall()
+
+    if not cart_items:
+        logger.warning(f"장바구니 상품을 찾을 수 없음: user_id={user_id}, cart_ids={selected_cart_ids}")
+        return []
+
+    # 표준 재료 어휘 로드 (TEST_MTRL.MATERIAL_NAME)
+    from services.kok.utils.keyword_extraction import load_ing_vocab
+
+    ing_vocab = set()
+    try:
+        # 환경변수에서 자동으로 DB 설정을 가져와서 표준 재료 어휘 로드
+        ing_vocab = load_ing_vocab()
+        logger.info(f"표준 재료 어휘 로드 완료: {len(ing_vocab)}개")
+    except Exception as e:
+        logger.error(f"표준 재료 어휘 로드 실패: {str(e)}")
+        logger.info("기본 키워드로 폴백하여 진행")
+        # 실패 시 기본 키워드로 폴백
+        ing_vocab = {
+            "감자", "양파", "당근", "양배추", "상추", "시금치", "깻잎", "청경채", "브로콜리", "콜리플라워",
+            "피망", "파프리카", "오이", "가지", "애호박", "고구마", "마늘", "생강", "대파", "쪽파",
+            "돼지고기", "소고기", "닭고기", "양고기", "오리고기", "삼겹살", "목살", "등심", "안심",
+            "새우", "고등어", "연어", "참치", "조기", "갈치", "꽁치", "고등어", "삼치", "전복",
+            "홍합", "굴", "바지락", "조개", "새우", "게", "랍스터", "문어", "오징어", "낙지",
+            "계란", "달걀", "우유", "치즈", "버터", "생크림", "요거트", "두부", "순두부", "콩나물",
+            "숙주나물", "미나리", "깻잎", "상추", "치커리", "로메인", "아이스버그", "양상추", "적상추",
+            "청상추", "배추", "무", "순무", "우엉", "연근", "토란", "토마토", "가지", "애호박",
+            "호박", "단호박", "단감", "사과", "배", "복숭아", "자두", "포도", "딸기", "블루베리",
+            "라즈베리", "블랙베리", "크랜베리", "오렌지", "레몬", "라임", "자몽", "귤", "한라봉",
+            "천혜향", "레드향", "금귤", "유자", "석류", "무화과", "대추", "밤", "호두", "아몬드",
+            "땅콩", "해바라기씨", "호박씨", "참깨", "들깨", "깨", "소금", "설탕", "간장", "된장",
+            "고추장", "쌈장", "초고추장", "마요네즈", "케찹", "머스타드", "와사비", "겨자", "식초",
+            "레몬즙", "라임즙", "올리브오일", "식용유", "참기름", "들기름", "고추기름", "마늘기름"
+        }
+
+    # 키워드 추출 로직 import
+    from services.kok.utils.keyword_extraction import extract_ingredient_keywords
+
+    extracted_ingredients = set()
+
+    # 각 상품명에서 재료 키워드 추출
+    for cart_item, product_info in cart_items:
+        product_name = product_info.kok_product_name
+        if not product_name:
+            continue
+
+        logger.info(f"상품명 분석 중: {product_name}")
+
+        try:
+            # keyword_extraction.py의 고급 로직으로 재료 추출
+            result = extract_ingredient_keywords(
+                product_name=product_name,
+                ing_vocab=ing_vocab,
+                use_bigrams=True,      # 다단어 재료 매칭
+                drop_first_token=True, # 브랜드명 제거
+                strip_digits=True,     # 숫자/프로모션 제거
+                keep_longest_only=True # 가장 긴 키워드 우선
+            )
+
+            if result and result.get("keywords"):
+                keywords = result["keywords"]
+                extracted_ingredients.update(keywords)
+                logger.info(f"상품 '{product_name}'에서 추출된 키워드: {keywords}")
+            else:
+                logger.info(f"상품 '{product_name}'에서 키워드 추출 실패")
+
+        except Exception as e:
+            logger.error(f"상품 '{product_name}' 키워드 추출 중 오류: {str(e)}")
+            continue
+
+    # 중복 제거 및 정렬
+    final_ingredients = sorted(list(extracted_ingredients))
+    logger.info(f"최종 추출된 재료: {final_ingredients}")
+    return final_ingredients
+
+
+async def get_ingredients_from_cart_product_ids(
+    db: AsyncSession,
+    kok_product_ids: List[int]
+) -> List[str]:
+    """
+    장바구니에서 선택한 상품들의 kok_product_id를 받아서 KOK_CLASSIFY 테이블에서 cls_ing이 1인 상품만 사용하여 키워드를 추출
+    - kok_product_id로 KOK_CLASSIFY 테이블에서 cls_ing이 1인 상품만 필터링
+    - 해당 상품들의 product_name에서 키워드 추출
+    """
+    logger.info(f"장바구니 상품 ID에서 재료 추출 시작: kok_product_ids={kok_product_ids}")
+
+    if not kok_product_ids:
+        logger.warning("선택된 상품 ID가 없음")
+        return []
+
+    # KOK_CLASSIFY 테이블에서 cls_ing이 1인 상품만 조회
+    from services.kok.models.kok_model import KokClassify
+    
+    stmt = (
+        select(KokClassify)
+        .where(KokClassify.product_id.in_(kok_product_ids))
+        .where(KokClassify.cls_ing == 1)
+    )
+
+    result = await db.execute(stmt)
+    classified_products = result.scalars().all()
+
+    if not classified_products:
+        logger.warning(f"cls_ing이 1인 상품을 찾을 수 없음: kok_product_ids={kok_product_ids}")
+        return []
+
+    logger.info(f"cls_ing이 1인 상품 {len(classified_products)}개 발견")
+
+    # 표준 재료 어휘 로드 (TEST_MTRL.MATERIAL_NAME)
+    from services.kok.utils.keyword_extraction import load_ing_vocab
+
+    ing_vocab = set()
+    try:
+        # 환경변수에서 자동으로 DB 설정을 가져와서 표준 재료 어휘 로드
+        ing_vocab = load_ing_vocab()
+        logger.info(f"표준 재료 어휘 로드 완료: {len(ing_vocab)}개")
+    except Exception as e:
+        logger.error(f"표준 재료 어휘 로드 실패: {str(e)}")
+        logger.info("기본 키워드로 폴백하여 진행")
+        # 실패 시 기본 키워드로 폴백
+        ing_vocab = {
+            "감자", "양파", "당근", "양배추", "상추", "시금치", "깻잎", "청경채", "브로콜리", "콜리플라워",
+            "피망", "파프리카", "오이", "가지", "애호박", "고구마", "마늘", "생강", "대파", "쪽파",
+            "돼지고기", "소고기", "닭고기", "양고기", "오리고기", "삼겹살", "목살", "등심", "안심",
+            "새우", "고등어", "연어", "참치", "조기", "갈치", "꽁치", "고등어", "삼치", "전복",
+            "홍합", "굴", "바지락", "조개", "새우", "게", "랍스터", "문어", "오징어", "낙지",
+            "계란", "달걀", "우유", "치즈", "버터", "생크림", "요거트", "두부", "순두부", "콩나물",
+            "숙주나물", "미나리", "깻잎", "상추", "치커리", "로메인", "아이스버그", "양상추", "적상추",
+            "청상추", "배추", "무", "순무", "우엉", "연근", "토란", "토마토", "가지", "애호박",
+            "호박", "단호박", "단감", "사과", "배", "복숭아", "자두", "포도", "딸기", "블루베리",
+            "라즈베리", "블랙베리", "크랜베리", "오렌지", "레몬", "라임", "자몽", "귤", "한라봉",
+            "천혜향", "레드향", "금귤", "유자", "석류", "무화과", "대추", "밤", "호두", "아몬드",
+            "땅콩", "해바라기씨", "호박씨", "참깨", "들깨", "깨", "소금", "설탕", "간장", "된장",
+            "고추장", "쌈장", "초고추장", "마요네즈", "케찹", "머스타드", "와사비", "겨자", "식초",
+            "레몬즙", "라임즙", "올리브오일", "식용유", "참기름", "들기름", "고추기름", "마늘기름"
+        }
+
+    # 키워드 추출 로직 import
+    from services.kok.utils.keyword_extraction import extract_ingredient_keywords
+
+    extracted_ingredients = set()
+
+    # 각 상품명에서 재료 키워드 추출
+    for classified_product in classified_products:
+        product_name = classified_product.product_name
+        if not product_name:
+            continue
+
+        logger.info(f"상품명 분석 중: {product_name}")
+
+        try:
+            # keyword_extraction.py의 고급 로직으로 재료 추출
+            result = extract_ingredient_keywords(
+                product_name=product_name,
+                ing_vocab=ing_vocab,
+                use_bigrams=True,      # 다단어 재료 매칭
+                drop_first_token=True, # 브랜드명 제거
+                strip_digits=True,     # 숫자/프로모션 제거
+                keep_longest_only=True # 가장 긴 키워드 우선
+            )
+
+            if result and result.get("keywords"):
+                keywords = result["keywords"]
+                extracted_ingredients.update(keywords)
+                logger.info(f"상품 '{product_name}'에서 추출된 키워드: {keywords}")
+            else:
+                logger.info(f"상품 '{product_name}'에서 키워드 추출 실패")
+
+        except Exception as e:
+            logger.error(f"상품 '{product_name}' 키워드 추출 중 오류: {str(e)}")
+            continue
+
+    # 중복 제거 및 정렬
+    final_ingredients = sorted(list(extracted_ingredients))
+    logger.info(f"최종 추출된 재료: {final_ingredients}")
+    return final_ingredients
+
+
+async def get_cart_product_names_by_ids(
+    db: AsyncSession,
+    kok_product_ids: List[int]
+) -> List[str]:
+    """
+    kok_product_id 목록으로 상품명 목록을 조회
+    """
+    if not kok_product_ids:
+        return []
+
+    stmt = (
+        select(KokProductInfo.kok_product_name)
+        .where(KokProductInfo.kok_product_id.in_(kok_product_ids))
+        .where(KokProductInfo.kok_product_name.isnot(None))
+    )
     
     result = await db.execute(stmt)
-    cart_items = result.all()
+    product_names = [row[0] for row in result.fetchall() if row[0]]
     
-    if not cart_items:
-        return []
-    
-    # 상품명에서 식재료 키워드 추출
-    ingredients = []
-    ingredient_keywords = [
-        # 채소류
-        "감자", "양파", "당근", "양배추", "상추", "시금치", "깻잎", "청경채", "브로콜리", "콜리플라워",
-        "피망", "파프리카", "오이", "가지", "애호박", "고구마", "마늘", "생강", "대파", "쪽파",
-        # 육류
-        "돼지고기", "소고기", "닭고기", "양고기", "오리고기", "삼겹살", "목살", "등심", "안심",
-        # 해산물
-        "새우", "고등어", "연어", "참치", "문어", "오징어", "조개", "홍합", "굴", "전복",
-        # 곡물/견과류
-        "쌀", "보리", "밀", "콩", "팥", "녹두", "땅콩", "호두", "아몬드", "잣",
-        # 계란/유제품
-        "계란", "달걀", "우유", "치즈", "버터", "요거트", "크림",
-        # 기타
-        "고추", "고춧가루", "들기름", "참기름", "식용유", "올리브유", "소금", "설탕", "간장", "된장"
-    ]
-    
-    for cart_item, product in cart_items:
-        product_name = product.kok_product_name.lower() if product.kok_product_name else ""
-        
-        # 상품명에서 식재료 키워드 매칭
-        for keyword in ingredient_keywords:
-            if keyword in product_name:
-                ingredients.append(keyword)
-                break
-        
-        # 키워드 매칭이 안 된 경우 상품명 자체를 재료로 추가 (길이가 적당한 경우)
-        if not any(keyword in product_name for keyword in ingredient_keywords):
-            if 2 <= len(product_name) <= 10:  # 너무 짧거나 긴 이름은 제외
-                ingredients.append(product_name)
-    
-    # 중복 제거 및 반환
-    unique_ingredients = list(set(ingredients))
-    logger.info(f"재료 추출 완료: user_id={user_id}, 추출된 재료 수={len(unique_ingredients)}, 재료 목록={unique_ingredients}")
-    return unique_ingredients
+    return product_names

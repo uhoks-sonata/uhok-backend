@@ -28,7 +28,7 @@ from services.homeshopping.models.homeshopping_model import (
 from ..utils.ports import VectorSearcherPort
 
 # ⬇️ 추가: 추천 관련 유틸리티 함수들
-from ..utils.recommendation_utils import (
+from ..utils.inventory_recipe import (
     get_recipe_url,
     recommend_sequentially_for_inventory
 )
@@ -305,7 +305,7 @@ async def execute_standard_inventory_algorithm(
         return paginated_recommended, total
 
 
-# recommend_sequentially_for_inventory 함수는 utils/recommendation_utils.py로 이동됨
+# recommend_sequentially_for_inventory 함수는 utils/inventory_recipe.py로 이동됨
 
 
 async def recommend_by_recipe_pgvector(
@@ -865,3 +865,6 @@ async def get_homeshopping_products_by_ingredient(
     except Exception as e:
         logger.error(f"홈쇼핑 상품 검색 실패: ingredient={ingredient}, error={e}")
         return []
+
+
+
