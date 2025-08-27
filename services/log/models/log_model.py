@@ -9,9 +9,9 @@ class UserLog(PostgresBase):
     """
     USER_LOG 테이블의 ORM 모델 (PostgreSQL)
     """
-    __tablename__ = "USER_LOG"  # 테이블명 대문자
+    __tablename__ = "USER_LOG"
 
-    log_id = Column("LOG_ID", Integer, primary_key=True, autoincrement=True, comment="로그 ID")                   # 컬럼명 대문자
+    log_id = Column("LOG_ID", Integer, primary_key=True, autoincrement=True, comment="로그 ID")
     user_id = Column("USER_ID", Integer, nullable=True, index=True, comment="사용자 ID")
     event_type = Column("EVENT_TYPE", String(50), nullable=False, comment="이벤트 유형")
     event_data = Column("EVENT_DATA", JSON, nullable=True, comment="이벤트 상세 데이터(JSON)")
