@@ -46,7 +46,7 @@ from common.dependencies import get_current_user
 from services.user.schemas.user_schema import UserOut
 from common.log_utils import send_user_log
 from common.logger import get_logger
-from services.recipe.combination_tracker import combination_tracker
+from services.recipe.utils.combination_tracker import combination_tracker
 
 # 로거 초기화
 logger = get_logger("recipe_router")
