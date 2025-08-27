@@ -21,9 +21,8 @@ from services.order.crud.order_common import (
 
 from common.database.mariadb_service import get_maria_service_db
 from common.logger import get_logger
-logger = get_logger(__name__)
-from common.logging_config import disable_sqlalchemy_logging
-disable_sqlalchemy_logging()
+logger = get_logger("kok_order_crud")
+
 
 async def calculate_kok_order_price(
     db: AsyncSession,
@@ -113,7 +112,10 @@ async def create_orders_from_selected_carts(
         raise ValueError("주문접수 상태 코드를 찾을 수 없습니다.")
 
     total_created = 0
+    total_amount = 0
+    order_details: List[dict] = []
     created_kok_order_ids: List[int] = []
+    
     for cart, product, price in rows:
         # 선택 항목의 수량 찾기
         quantity = next((i["quantity"] for i in selected_items if i["cart_id"] == cart.kok_cart_id), None)
@@ -125,6 +127,7 @@ async def create_orders_from_selected_carts(
         # 주문 금액 계산 (별도 함수 사용)
         price_info = await calculate_kok_order_price(db, price.kok_price_id, product.kok_product_id, quantity)
         order_price = price_info["order_price"]
+        unit_price = price_info["unit_price"]
 
         # 주문 항목 생성
         new_kok_order = KokOrder(
@@ -139,6 +142,17 @@ async def create_orders_from_selected_carts(
         # kok_order_id 확보
         await db.flush()
         total_created += 1
+        total_amount += order_price
+
+        # 주문 상세 정보 저장
+        order_details.append({
+            "kok_order_id": new_kok_order.kok_order_id,
+            "kok_product_id": product.kok_product_id,
+            "kok_product_name": product.kok_product_name,
+            "quantity": quantity,
+            "unit_price": unit_price,
+            "total_price": order_price
+        })
 
         # 상태 이력 기록 (주문접수)
         status_history = KokOrderStatusHistory(
@@ -166,8 +180,11 @@ async def create_orders_from_selected_carts(
 
     return {
         "order_id": main_order.order_id,
+        "total_amount": total_amount,
         "order_count": total_created,
+        "order_details": order_details,
         "message": f"{total_created}개의 상품이 주문되었습니다.",
+        "order_time": main_order.order_time,
         "kok_order_ids": created_kok_order_ids,
     }
 

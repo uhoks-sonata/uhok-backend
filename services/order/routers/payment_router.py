@@ -14,8 +14,6 @@ from common.dependencies import get_current_user
 
 from common.logger import get_logger
 logger = get_logger("payment_router")
-from common.logging_config import disable_sqlalchemy_logging
-disable_sqlalchemy_logging()
 
 
 router = APIRouter(prefix="/api/orders/payment", tags=["Orders/Payment"])

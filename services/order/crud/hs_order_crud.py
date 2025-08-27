@@ -20,9 +20,7 @@ from services.order.crud.order_common import (
 
 from common.database.mariadb_service import get_maria_service_db
 from common.logger import get_logger
-logger = get_logger(__name__)
-from common.logging_config import disable_sqlalchemy_logging
-disable_sqlalchemy_logging()
+logger = get_logger("hs_order_crud")
 
 
 async def get_hs_current_status(db: AsyncSession, homeshopping_order_id: int) -> HomeShoppingOrderStatusHistory:

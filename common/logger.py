@@ -16,8 +16,6 @@ import json
 from datetime import datetime
 from typing import Optional, Dict, Any
 
-
-
 class ColoredFormatter(logging.Formatter):
     """컬러 로그 포맷터"""
     
