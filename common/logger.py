@@ -16,6 +16,8 @@ import json
 from datetime import datetime
 from typing import Optional, Dict, Any
 
+
+
 class ColoredFormatter(logging.Formatter):
     """컬러 로그 포맷터"""
     
@@ -81,6 +83,7 @@ def configure_sqlalchemy_logging(
         # SQLAlchemy 로깅 완전 비활성화
         logging.getLogger('sqlalchemy').setLevel(logging.ERROR)
         logging.getLogger('sqlalchemy.engine').setLevel(logging.ERROR)
+        logging.getLogger('sqlalchemy.engine.Engine').setLevel(logging.CRITICAL)  # Engine 로그만 CRITICAL로 차단
         logging.getLogger('sqlalchemy.pool').setLevel(logging.ERROR)
         logging.getLogger('sqlalchemy.dialects').setLevel(logging.ERROR)
         logging.getLogger('sqlalchemy.orm').setLevel(logging.ERROR)
@@ -163,12 +166,24 @@ def get_logger(
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
     
-    # SQLAlchemy 로깅 설정
-    if sqlalchemy_logging:
+    # SQLAlchemy 로깅 설정 - 기본적으로 완전 비활성화
+    if sqlalchemy_logging and sqlalchemy_logging.get('enable', False):
         configure_sqlalchemy_logging(**sqlalchemy_logging)
     else:
-        # 기본적으로 SQLAlchemy 로깅 비활성화
+        # SQLAlchemy 로깅 완전 비활성화
         configure_sqlalchemy_logging(enable=False)
+    
+    # SQLAlchemy 로깅을 강제로 차단 (설정과 관계없이)
+    sqlalchemy_loggers = [
+        'sqlalchemy.engine.Engine',
+        'sqlalchemy.engine',
+        'sqlalchemy.pool',
+        'sqlalchemy.dialects',
+        'sqlalchemy.orm'
+    ]
+    
+    for logger_name in sqlalchemy_loggers:
+        logging.getLogger(logger_name).setLevel(logging.CRITICAL)
     
     # 파일 핸들러 (현재 비활성화됨)
     # if enable_file_logging:
@@ -200,6 +215,8 @@ def log_with_context(logger: logging.Logger, level: str, message: str, **kwargs)
     elif level.upper() == 'CRITICAL':
         logger.critical(message, extra={'extra_fields': extra_fields})
 
+
+
 # 기본 로거 생성
 logger = get_logger()
 
@@ -211,9 +228,9 @@ def get_logger_from_env(name: str = "app") -> logging.Logger:
     log_level = os.getenv("LOG_LEVEL", "INFO")
     json_format = os.getenv("LOG_JSON_FORMAT", "false").lower() == "true"
     
-    # SQLAlchemy 로깅 설정
+    # SQLAlchemy 로깅 설정 - 기본적으로 완전 비활성화
     sqlalchemy_enable = os.getenv("SQLALCHEMY_LOGGING", "false").lower() == "true"
-    sqlalchemy_level = os.getenv("SQLALCHEMY_LOG_LEVEL", "WARNING")
+    sqlalchemy_level = os.getenv("SQLALCHEMY_LOG_LEVEL", "ERROR")
     sqlalchemy_show_sql = os.getenv("SQLALCHEMY_SHOW_SQL", "false").lower() == "true"
     
     sqlalchemy_config = {

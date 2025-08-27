@@ -7,7 +7,7 @@ from functools import lru_cache
 from common.logger import get_logger
 from typing import Optional
 
-logger = get_logger("config")
+logger = get_logger("config", sqlalchemy_logging={'enable': False})
 
 class Settings(BaseSettings):
     jwt_secret: str = Field(..., env="JWT_SECRET")

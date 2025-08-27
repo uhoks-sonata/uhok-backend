@@ -35,7 +35,7 @@ from common.dependencies import get_current_user
 from common.log_utils import send_user_log
 
 from common.logger import get_logger
-logger = get_logger("kok_order_router")
+logger = get_logger("kok_order_router", sqlalchemy_logging={'enable': False})
 from common.logging_config import disable_sqlalchemy_logging
 disable_sqlalchemy_logging()
 

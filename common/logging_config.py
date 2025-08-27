@@ -9,22 +9,22 @@ from typing import Dict, Any
 # 환경별 SQLAlchemy 로깅 설정
 SQLALCHEMY_LOGGING_CONFIGS = {
     'development': {
-        'enable': True,
-        'level': 'INFO',
-        'show_sql': True,
+        'enable': False,
+        'level': 'ERROR',
+        'show_sql': False,
         'show_parameters': False,
         'show_echo': False
     },
     'testing': {
-        'enable': True,
-        'level': 'WARNING',
+        'enable': False,
+        'level': 'ERROR',
         'show_sql': False,
         'show_parameters': False,
         'show_echo': False
     },
     'staging': {
         'enable': False,
-        'level': 'WARNING',
+        'level': 'ERROR',
         'show_sql': False,
         'show_parameters': False,
         'show_echo': False

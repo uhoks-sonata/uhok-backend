@@ -5,7 +5,6 @@ API Gateway 서비스 진입점.
 각 서비스의 FastAPI router를 통합해서 전체 API 엔드포인트로 제공한다.
 - CORS, 공통 예외처리, 로깅 등 공통 설정도 이곳에서 적용
 """
-import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -21,7 +20,7 @@ from services.kok.routers.kok_router import router as kok_router
 from services.order.routers.kok_order_router import router as kok_order_router
 from services.recipe.routers.recipe_router import router as recipe_router
 
-logger = get_logger("gateway")
+logger = get_logger("gateway", sqlalchemy_logging={'enable': False})
 logger.info("API Gateway 초기화 시작...")
 
 try:
