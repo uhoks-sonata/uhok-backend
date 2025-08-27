@@ -290,28 +290,20 @@ async def confirm_payment(
 async def start_auto_status_update_api(
     homeshopping_order_id: int,
     background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_maria_service_db),
-    user=Depends(get_current_user)
+    db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
     특정 주문의 자동 상태 업데이트 시작 (테스트용)
     - 결제 완료 상태인 경우에만 자동 업데이트 시작
     """
     try:
-        # 사용자 권한 확인
+        # 주문 존재 확인
         hs_order_result = await db.execute(
             select(HomeShoppingOrder).where(HomeShoppingOrder.homeshopping_order_id == homeshopping_order_id)
         )
         hs_order = hs_order_result.scalars().first()
         if not hs_order:
             raise HTTPException(status_code=404, detail="해당 홈쇼핑 주문을 찾을 수 없습니다.")
-        
-        order_result = await db.execute(
-            select(Order).where(Order.order_id == hs_order.order_id)
-        )
-        order = order_result.scalars().first()
-        if not order or order.user_id != user.user_id:
-            raise HTTPException(status_code=403, detail="해당 주문에 대한 권한이 없습니다.")
         
         # 디버깅: 직접 상태 이력 조회
         
