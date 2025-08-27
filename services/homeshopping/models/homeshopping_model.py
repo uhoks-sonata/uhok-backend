@@ -102,8 +102,8 @@ class HomeshoppingImgUrl(MariaBase):
     
     img_id = Column("IMG_ID", Integer, primary_key=True, autoincrement=True, comment="이미지 인덱스")
     product_id = Column("PRODUCT_ID", BigInteger, ForeignKey("FCT_HOMESHOPPING_PRODUCT_INFO.PRODUCT_ID"), comment="제품 코드")
+    sort_order = Column("SORT_ORDER", SMALLINT, default=0, comment="이미지 순서")
     img_url = Column("IMG_URL", Text, comment="이미지 URL")
-    img_type = Column("IMG_TYPE", String(20), comment="이미지 타입 (예: thumbnail, detail)")
     
     # 제품 정보와 N:1 관계 설정
     product_info = relationship(
