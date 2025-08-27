@@ -11,10 +11,11 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime
 import pandas as pd
 
 from common.dependencies import get_current_user, debug_optional_auth, get_current_user_optional
+
+from services.kok.models.kok_model import KokCart
 from services.user.schemas.user_schema import UserOut
 from services.kok.schemas.kok_schema import (
     # 제품 관련 스키마
@@ -89,7 +90,6 @@ from services.kok.crud.kok_crud import (
     add_kok_search_history,
     delete_kok_search_history
 )
-
 from services.recipe.crud.recipe_crud import recommend_by_recipe_pgvector
 
 from common.database.mariadb_service import get_maria_service_db
