@@ -38,8 +38,22 @@ async def list_orders(
 ):
     """
     내 주문 리스트 (order_id로 그룹화하여 표시)
-    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
-    비즈니스 로직은 CRUD 계층에 위임
+    
+    Args:
+        limit: 조회할 주문 개수 (기본값: 10)
+        background_tasks: 백그라운드 작업 관리자
+        db: 데이터베이스 세션 (의존성 주입)
+        user: 현재 인증된 사용자 (의존성 주입)
+    
+    Returns:
+        OrdersListResponse: 주문 목록 (order_id별로 그룹화)
+        
+    Note:
+        - Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+        - 비즈니스 로직은 CRUD 계층에 위임
+        - 콕 주문과 홈쇼핑 주문을 모두 포함하여 그룹화
+        - 각 주문에 배송 정보, 레시피 정보, 재료 보유 현황 포함
+        - 사용자 행동 로그 기록
     """
     # CRUD 계층에 주문 조회 위임
     order_list = await get_user_orders(db, user.user_id, limit, 0)
@@ -159,8 +173,20 @@ async def get_order_count(
 ):
     """
     내 주문 개수 조회 (전체)
-    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
-    비즈니스 로직은 CRUD 계층에 위임
+    
+    Args:
+        background_tasks: 백그라운드 작업 관리자
+        db: 데이터베이스 세션 (의존성 주입)
+        user: 현재 인증된 사용자 (의존성 주입)
+    
+    Returns:
+        OrderCountResponse: 전체 주문 개수
+        
+    Note:
+        - Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+        - 비즈니스 로직은 CRUD 계층에 위임
+        - 최대 1000개 주문을 조회하여 개수 계산
+        - 사용자 행동 로그 기록
     """
     # CRUD 계층에 주문 조회 위임
     order_list = await get_user_orders(db, user.user_id, limit=1000, offset=0)
@@ -188,8 +214,23 @@ async def get_recent_orders(
 ):
     """
     최근 주문 조회 (최근 N일)
-    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
-    비즈니스 로직은 CRUD 계층에 위임
+    
+    Args:
+        days: 조회 기간 (일, 기본값: 7)
+        background_tasks: 백그라운드 작업 관리자
+        db: 데이터베이스 세션 (의존성 주입)
+        user: 현재 인증된 사용자 (의존성 주입)
+    
+    Returns:
+        RecentOrdersResponse: 최근 주문 목록
+        
+    Note:
+        - Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+        - 비즈니스 로직은 CRUD 계층에 위임
+        - 최근 N일 내의 주문만 필터링하여 반환
+        - 콕 주문과 홈쇼핑 주문을 모두 포함
+        - 각 주문에 배송 정보, 레시피 정보 포함
+        - 사용자 행동 로그 기록
     """
     # CRUD 계층에 주문 조회 위임
     order_list = await get_user_orders(db, user.user_id, limit=1000, offset=0)
@@ -305,8 +346,22 @@ async def read_order(
 ):
     """
     단일 주문 조회 (공통+콕+HomeShopping 상세 포함)
-    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
-    비즈니스 로직은 CRUD 계층에 위임
+    
+    Args:
+        order_id: 조회할 주문 ID
+        background_tasks: 백그라운드 작업 관리자
+        db: 데이터베이스 세션 (의존성 주입)
+        user: 현재 인증된 사용자 (의존성 주입)
+    
+    Returns:
+        OrderRead: 주문 상세 정보
+        
+    Note:
+        - Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+        - 비즈니스 로직은 CRUD 계층에 위임
+        - 주문자 본인만 조회 가능 (권한 검증)
+        - 공통 주문 정보 + 콕 주문 상세 + 홈쇼핑 주문 상세 포함
+        - 사용자 행동 로그 기록
     """
     # CRUD 계층에 주문 조회 위임
     order_data = await get_order_by_id(db, order_id)

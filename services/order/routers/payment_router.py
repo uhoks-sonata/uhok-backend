@@ -28,11 +28,23 @@ async def confirm_payment_v1(
 ):
     """
     주문 결제 확인 v1 (외부 결제 API 응답을 기다리는 방식)
-    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
-    비즈니스 로직은 CRUD 계층에 위임
-    - 외부 결제 생성 → payment_id 수신 → 결제 상태 폴링(PENDING→완료/실패)
-    - 완료 시: 해당 order_id 하위 주문들을 PAYMENT_COMPLETED로 갱신(트랜잭션)
-    - 실패/타임아웃 시: 적절한 HTTPException 반환
+    
+    Args:
+        order_id: 결제 확인할 주문 ID
+        payment_data: 결제 확인 요청 데이터
+        background_tasks: 백그라운드 작업 관리자
+        db: 데이터베이스 세션 (의존성 주입)
+        current_user: 현재 인증된 사용자 (의존성 주입)
+    
+    Returns:
+        PaymentConfirmV1Response: 결제 확인 결과
+        
+    Note:
+        - Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+        - 비즈니스 로직은 CRUD 계층에 위임
+        - 외부 결제 생성 → payment_id 수신 → 결제 상태 폴링(PENDING→완료/실패)
+        - 완료 시: 해당 order_id 하위 주문들을 PAYMENT_COMPLETED로 갱신(트랜잭션)
+        - 실패/타임아웃 시: 적절한 HTTPException 반환
     """
     # CRUD 계층에 결제 확인 및 상태 업데이트 위임
     return await confirm_payment_and_update_status_v1(

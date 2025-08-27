@@ -55,8 +55,22 @@ async def order_from_selected_carts(
 ):
     """
     장바구니에서 선택된 항목들로 주문 생성
-    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
-    비즈니스 로직은 CRUD 계층에 위임
+    
+    Args:
+        request: 장바구니 주문 요청 데이터 (선택된 항목들)
+        current_user: 현재 인증된 사용자 (의존성 주입)
+        background_tasks: 백그라운드 작업 관리자
+        db: 데이터베이스 세션 (의존성 주입)
+    
+    Returns:
+        KokCartOrderResponse: 주문 생성 결과
+        
+    Note:
+        - Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+        - 비즈니스 로직은 CRUD 계층에 위임
+        - 선택된 장바구니 항목들을 기반으로 주문 생성
+        - 주문 생성 후 사용자 행동 로그 기록
+        - 단일 상품 주문 대신 멀티 카트 주문 방식 사용
     """
     logger.info(f"장바구니 주문 시작: user_id={current_user.user_id}, selected_items_count={len(request.selected_items)}")
     
@@ -103,8 +117,23 @@ async def update_kok_order_status_api(
 ):
     """
     콕 주문 상태 업데이트
-    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
-    비즈니스 로직은 CRUD 계층에 위임
+    
+    Args:
+        kok_order_id: 콕 주문 ID
+        status_update: 상태 업데이트 요청 데이터
+        background_tasks: 백그라운드 작업 관리자
+        db: 데이터베이스 세션 (의존성 주입)
+        user: 현재 인증된 사용자 (의존성 주입)
+    
+    Returns:
+        KokOrderStatusResponse: 상태 업데이트 결과 (현재 상태 + 변경 이력)
+        
+    Note:
+        - Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+        - 비즈니스 로직은 CRUD 계층에 위임
+        - 주문자 본인만 상태 변경 가능 (권한 검증)
+        - 상태 변경 시 자동으로 알림 생성
+        - 상태 변경 이력 기록 및 사용자 행동 로그 기록
     """
     try:
         # 사용자 권한 확인 - order 정보 명시적으로 로드
@@ -173,6 +202,22 @@ async def get_kok_order_status(
 ):
     """
     콕 주문 현재 상태 및 변경 이력 조회 (가장 최근 이력 사용)
+    
+    Args:
+        kok_order_id: 콕 주문 ID
+        background_tasks: 백그라운드 작업 관리자
+        db: 데이터베이스 세션 (의존성 주입)
+        user: 현재 인증된 사용자 (의존성 주입)
+    
+    Returns:
+        KokOrderStatusResponse: 주문 상태 정보 (현재 상태 + 변경 이력)
+        
+    Note:
+        - Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+        - 비즈니스 로직은 CRUD 계층에 위임
+        - 주문자 본인만 조회 가능 (권한 검증)
+        - 가장 최근 상태 이력을 기준으로 현재 상태 판단
+        - 상태 변경 이력 전체 조회
     """
     # 1. 주문 존재 여부 확인
     kok_order_result = await db.execute(

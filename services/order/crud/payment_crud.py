@@ -42,10 +42,22 @@ async def _poll_payment_status(
 ) -> Tuple[str, Dict[str, Any]]:
     """
     외부 결제 상태를 폴링하는 비동기 함수
-    CRUD 계층: 외부 API 호출만 담당, DB 트랜잭션 변경 없음
-    - 5초 고정 간격으로 상태 확인
-    - 반환: (최종상태 문자열, 상태 응답 JSON)
-      * 최종상태: "PAYMENT_COMPLETED" | "PAYMENT_FAILED" | "TIMEOUT"
+    
+    Args:
+        payment_id: 결제 ID
+        max_attempts: 최대 시도 횟수 (기본값: 5)
+        initial_sleep: 초기 대기 시간 (기본값: 5.0초)
+        step: 대기 시간 증가량 (기본값: 0.0초, 고정 간격)
+        max_sleep: 최대 대기 시간 (기본값: 5.0초)
+    
+    Returns:
+        Tuple[str, Dict[str, Any]]: (최종상태 문자열, 상태 응답 JSON)
+        
+    Note:
+        - CRUD 계층: 외부 API 호출만 담당, DB 트랜잭션 변경 없음
+        - 5초 고정 간격으로 상태 확인
+        - 최종상태: "PAYMENT_COMPLETED" | "PAYMENT_FAILED" | "TIMEOUT"
+        - 최대 시도 횟수 초과 시 TIMEOUT 반환
     """
     logger.info(f"결제 상태 폴링 시작: payment_id={payment_id}, max_attempts={max_attempts}, interval=5초")
     sleep = initial_sleep
@@ -98,7 +110,20 @@ async def _update_kok_order_to_payment_requested(
 ):
     """
     콕 주문을 PAYMENT_REQUESTED 상태로 업데이트
-    CRUD 계층: DB 상태 변경 담당
+    
+    Args:
+        db: 데이터베이스 세션
+        kok_order_id: 콕 주문 ID
+        user_id: 상태 변경을 수행하는 사용자 ID
+    
+    Returns:
+        None
+        
+    Note:
+        - CRUD 계층: DB 상태 변경 담당
+        - 결제 요청 상태로 주문 상태 변경
+        - 상태 변경 이력 기록 및 알림 생성
+        - 실패 시 예외 발생
     """
     try:
         await update_kok_order_status(
@@ -119,7 +144,20 @@ async def _update_hs_order_to_payment_requested(
 ):
     """
     홈쇼핑 주문을 PAYMENT_REQUESTED 상태로 업데이트
-    CRUD 계층: DB 상태 변경 담당
+    
+    Args:
+        db: 데이터베이스 세션
+        homeshopping_order_id: 홈쇼핑 주문 ID
+        user_id: 상태 변경을 수행하는 사용자 ID
+    
+    Returns:
+        None
+        
+    Note:
+        - CRUD 계층: DB 상태 변경 담당
+        - 결제 요청 상태로 주문 상태 변경
+        - 상태 변경 이력 기록 및 알림 생성
+        - 실패 시 예외 발생
     """
     try:
         await update_hs_order_status(
@@ -144,14 +182,27 @@ async def confirm_payment_and_update_status_v1(
 ) -> PaymentConfirmV1Response:
     """
     결제 확인 v1 메인 로직 (CRUD 계층)
-    CRUD 계층: DB 트랜잭션 처리 담당
-    1) 주문 확인/권한 확인
-    2) 총액 계산
-    3) 외부 결제 생성 호출 (idempotency key 포함 권장)
-    4) payment_id로 상태 폴링
-    5) 완료 시 하위 주문 일괄 상태 갱신 (트랜잭션)
-    6) 백그라운드 로그 적재
-    7) 응답 스키마 구성 후 반환
+    
+    Args:
+        db: 데이터베이스 세션
+        order_id: 결제 확인할 주문 ID
+        user_id: 결제 확인을 요청한 사용자 ID
+        payment_data: 결제 확인 요청 데이터
+        background_tasks: 백그라운드 작업 관리자
+    
+    Returns:
+        PaymentConfirmV1Response: 결제 확인 결과
+        
+    Note:
+        - CRUD 계층: DB 트랜잭션 처리 담당
+        - 1) 주문 확인/권한 확인
+        - 2) 총액 계산
+        - 3) 외부 결제 생성 호출 (idempotency key 포함 권장)
+        - 4) payment_id로 상태 폴링
+        - 5) 완료 시 하위 주문 일괄 상태 갱신 (트랜잭션)
+        - 6) 백그라운드 로그 적재
+        - 7) 응답 스키마 구성 후 반환
+        - 결제 실패/타임아웃 시 주문 자동 취소
     """
     logger.info(f"결제 확인 v1 시작: order_id={order_id}, user_id={user_id}")
     

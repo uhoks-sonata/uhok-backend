@@ -51,8 +51,22 @@ async def create_order(
 ):
     """
     홈쇼핑 주문 생성 (단건 주문)
-    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
-    비즈니스 로직은 CRUD 계층에 위임
+    
+    Args:
+        order_data: 홈쇼핑 주문 요청 데이터 (상품 ID, 수량)
+        current_user: 현재 인증된 사용자 (의존성 주입)
+        background_tasks: 백그라운드 작업 관리자
+        db: 데이터베이스 세션 (의존성 주입)
+    
+    Returns:
+        HomeshoppingOrderResponse: 주문 생성 결과
+        
+    Note:
+        - Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+        - 비즈니스 로직은 CRUD 계층에 위임
+        - 단건 주문만 지원 (장바구니 방식 아님)
+        - 주문 생성 후 사용자 행동 로그 기록
+        - 주문 접수 상태로 초기화 및 알림 생성
     """
     logger.info(f"홈쇼핑 주문 생성 요청: user_id={current_user.user_id}, product_id={order_data.product_id}, quantity={order_data.quantity}")
     
@@ -99,9 +113,22 @@ async def get_order_status(
 ):
     """
     홈쇼핑 주문 상태 조회
-    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
-    비즈니스 로직은 CRUD 계층에 위임
-    특정 홈쇼핑 주문의 현재 상태와 모든 상태 변경 이력을 조회합니다.
+    
+    Args:
+        homeshopping_order_id: 홈쇼핑 주문 ID
+        current_user: 현재 인증된 사용자 (의존성 주입)
+        background_tasks: 백그라운드 작업 관리자
+        db: 데이터베이스 세션 (의존성 주입)
+    
+    Returns:
+        HomeshoppingOrderStatusResponse: 주문 상태 정보 (현재 상태 + 변경 이력)
+        
+    Note:
+        - Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+        - 비즈니스 로직은 CRUD 계층에 위임
+        - 특정 홈쇼핑 주문의 현재 상태와 모든 상태 변경 이력을 조회
+        - 상태 이력이 없는 경우 기본 상태(ORDER_RECEIVED) 사용
+        - 사용자 행동 로그 기록
     """
     logger.info(f"홈쇼핑 주문 상태 조회 요청: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
     
@@ -196,7 +223,22 @@ async def get_order_with_status(
 ):
     """
     홈쇼핑 주문과 상태 함께 조회
-    주문 상세 정보와 현재 상태를 한 번에 조회합니다.
+    
+    Args:
+        homeshopping_order_id: 홈쇼핑 주문 ID
+        current_user: 현재 인증된 사용자 (의존성 주입)
+        background_tasks: 백그라운드 작업 관리자
+        db: 데이터베이스 세션 (의존성 주입)
+    
+    Returns:
+        HomeshoppingOrderWithStatusResponse: 주문 상세 정보와 상태 정보
+        
+    Note:
+        - Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+        - 비즈니스 로직은 CRUD 계층에 위임
+        - 주문 상세 정보와 현재 상태를 한 번에 조회
+        - 상품 정보, 주문 정보, 상태 정보를 모두 포함
+        - 사용자 행동 로그 기록
     """
     logger.info(f"홈쇼핑 주문과 상태 함께 조회 요청: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
     
