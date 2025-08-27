@@ -91,7 +91,11 @@ async def _poll_payment_status(
     logger.error(f"결제 상태 확인 시간 초과: payment_id={payment_id}, max_attempts={max_attempts}")
     return "TIMEOUT", last_payload
 
-async def _update_kok_order_to_payment_requested(db: AsyncSession, kok_order_id: int, user_id: int):
+async def _update_kok_order_to_payment_requested(
+    db: AsyncSession, 
+    kok_order_id: int,
+     user_id: int
+):
     """
     콕 주문을 PAYMENT_REQUESTED 상태로 업데이트
     CRUD 계층: DB 상태 변경 담당
@@ -108,7 +112,11 @@ async def _update_kok_order_to_payment_requested(db: AsyncSession, kok_order_id:
         logger.error(f"콕 주문 결제 요청 상태 업데이트 실패: kok_order_id={kok_order_id}, error={str(e)}")
         raise
 
-async def _update_hs_order_to_payment_requested(db: AsyncSession, homeshopping_order_id: int, user_id: int):
+async def _update_hs_order_to_payment_requested(
+    db: AsyncSession, 
+    homeshopping_order_id: int, 
+    user_id: int
+):
     """
     홈쇼핑 주문을 PAYMENT_REQUESTED 상태로 업데이트
     CRUD 계층: DB 상태 변경 담당
@@ -180,7 +188,7 @@ async def confirm_payment_and_update_status_v1(
         "order_id": order_id,  # 숫자 그대로 사용
         "payment_amount": total_order_price,
         "idempotency_key": f"order-{order_id}",  # 외부서버가 지원한다는 가정
-        "method": getattr(payment_data, "method", "EXTERNAL_API"),
+        "method": payment_data.method,
     }
     logger.info(f"결제 요청 데이터: {pay_req}")
     
@@ -274,9 +282,16 @@ async def confirm_payment_and_update_status_v1(
         logger.info(f"백그라운드 로그 적재 예약: order_id={order_id}")
 
     # (7) 응답 구성
+    # 콕 주문 ID와 홈쇼핑 주문 ID 추출
+    kok_order_ids = [kok_order.kok_order_id for kok_order in kok_orders]
+    # 홈쇼핑 주문은 단개 주문이므로 첫 번째 것만 사용
+    hs_order_id = hs_orders[0].homeshopping_order_id if hs_orders else None
+    
     response = PaymentConfirmV1Response(
         payment_id=payment_id,
         order_id=order_id,  # 숫자 그대로 사용
+        kok_order_ids=kok_order_ids,
+        hs_order_id=hs_order_id,  # 단일 홈쇼핑 주문 ID
         status="PAYMENT_COMPLETED",
         payment_amount=total_order_price,
         method=create_payload.get("method", "EXTERNAL_API"),
