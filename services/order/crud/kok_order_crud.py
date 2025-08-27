@@ -26,6 +26,7 @@ logger = get_logger("kok_order_crud")
 
 async def calculate_kok_order_price(
     db: AsyncSession,
+    kok_price_id: int,
     kok_product_id: int,
     quantity: int = 1
 ) -> dict:
@@ -33,22 +34,20 @@ async def calculate_kok_order_price(
     콕 주문 금액 계산
     CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
     """
-    logger.info(f"콕 주문 금액 계산 시작: kok_product_id={kok_product_id}, quantity={quantity}")
+    logger.info(f"콕 주문 금액 계산 시작: kok_price_id={kok_price_id}, kok_product_id={kok_product_id}, quantity={quantity}")
     
     try:
-        # 1. 할인 가격 정보 조회 (최신 가격 정보 사용)
+        # 1. 할인 가격 정보 조회
         price_stmt = (
             select(KokPriceInfo, KokProductInfo)
-            .join(KokProductInfo, KokPriceInfo.kok_product_id == KokProductInfo.kok_product_id)
-            .where(KokPriceInfo.kok_product_id == kok_product_id)
-            .order_by(KokPriceInfo.kok_price_id.desc())
-            .limit(1)
+            .join(KokPriceInfo, KokPriceInfo.kok_product_id == KokProductInfo.kok_product_id)
+            .where(KokPriceInfo.kok_price_id == kok_price_id)
         )
         price_result = await db.execute(price_stmt)
         price_data = price_result.first()
         
         if not price_data:
-            logger.error(f"할인 가격 정보를 찾을 수 없음: kok_product_id={kok_product_id}")
+            logger.error(f"할인 가격 정보를 찾을 수 없음: kok_price_id={kok_price_id}")
             raise ValueError("할인 가격 정보를 찾을 수 없습니다.")
         
         price_info, product_info = price_data
@@ -58,9 +57,10 @@ async def calculate_kok_order_price(
         unit_price = price_info.kok_discounted_price or product_info.kok_product_price or 0
         order_price = unit_price * quantity
         
-        logger.info(f"콕 주문 금액 계산 완료: kok_price_id={price_info.kok_price_id}, unit_price={unit_price}, quantity={quantity}, order_price={order_price}")
+        logger.info(f"콕 주문 금액 계산 완료: kok_price_id={kok_price_id}, unit_price={unit_price}, quantity={quantity}, order_price={order_price}")
         
         return {
+            "kok_price_id": kok_price_id,
             "kok_product_id": kok_product_id,
             "unit_price": unit_price,
             "quantity": quantity,
@@ -69,7 +69,7 @@ async def calculate_kok_order_price(
         }
         
     except Exception as e:
-        logger.error(f"콕 주문 금액 계산 실패: kok_product_id={kok_product_id}, error={str(e)}")
+        logger.error(f"콕 주문 금액 계산 실패: kok_price_id={kok_price_id}, error={str(e)}")
         raise
 
 
@@ -95,27 +95,19 @@ async def create_orders_from_selected_carts(
     # 필요한 데이터 일괄 조회
     cart_ids = [item["cart_id"] for item in selected_items]
 
-    # 1단계: 장바구니 항목과 상품 정보 조회
-    cart_product_stmt = (
-        select(KokCart, KokProductInfo)
+    # 필요한 데이터 일괄 조회
+    cart_ids = [item["cart_id"] for item in selected_items]
+
+    stmt = (
+        select(KokCart, KokProductInfo, KokPriceInfo)
         .join(KokProductInfo, KokCart.kok_product_id == KokProductInfo.kok_product_id)
+        .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
         .where(KokCart.kok_cart_id.in_(cart_ids))
         .where(KokCart.user_id == user_id)
     )
-    cart_product_rows = (await db.execute(cart_product_stmt)).all()
-    
-    if not cart_product_rows:
-        logger.error(f"장바구니 항목을 찾을 수 없음: cart_ids={cart_ids}, user_id={user_id}")
+    rows = (await db.execute(stmt)).all()
+    if not rows:
         raise ValueError("선택된 장바구니 항목을 찾을 수 없습니다.")
-    
-    logger.info(f"장바구니 항목 조회 성공: {len(cart_product_rows)}개 항목")
-    
-    # 2단계: 장바구니 항목과 상품 정보만 사용
-    rows = []
-    for cart, product in cart_product_rows:
-        rows.append((cart, product))
-    
-    logger.info(f"상품 정보 조회 성공: {len(rows)}개 상품")
 
     # 초기 상태: 주문접수
     order_received_status = await get_status_by_code(db, "ORDER_RECEIVED")
@@ -127,21 +119,23 @@ async def create_orders_from_selected_carts(
     order_details: List[dict] = []
     created_kok_order_ids: List[int] = []
     
-    for cart, product in rows:
+    for cart, product, price in rows:
         # 선택 항목의 수량 찾기
         quantity = next((i["quantity"] for i in selected_items if i["cart_id"] == cart.kok_cart_id), None)
         if quantity is None:
             continue
+        if not price:
+            continue
 
         # 주문 금액 계산 (별도 함수 사용)
-        price_info = await calculate_kok_order_price(db, product.kok_product_id, quantity)
+        price_info = await calculate_kok_order_price(db, price.kok_price_id, product.kok_product_id, quantity)
         order_price = price_info["order_price"]
         unit_price = price_info["unit_price"]
 
-        # 주문 항목 생성 (kok_price_id는 NULL로 설정)
+        # 주문 항목 생성
         new_kok_order = KokOrder(
             order_id=main_order.order_id,
-            kok_price_id=None,  # kok_price_id를 사용하지 않음
+            kok_price_id=price.kok_price_id,
             kok_product_id=product.kok_product_id,
             quantity=quantity,
             order_price=order_price,
