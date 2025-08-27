@@ -82,7 +82,6 @@ from services.homeshopping.crud.homeshopping_crud import (
     get_homeshopping_liked_products,
     
     # 통합 알림 관련 CRUD (기존 테이블 활용)
-    get_notifications_with_filter,
     mark_notification_as_read,
     
     # KOK 상품 기반 홈쇼핑 추천 관련 CRUD
@@ -95,12 +94,12 @@ from services.homeshopping.crud.homeshopping_crud import (
 from services.recipe.crud.recipe_crud import recommend_by_recipe_pgvector
 from services.homeshopping.utils.keyword_extraction import extract_homeshopping_keywords
 
-from common.database.mariadb_service import get_maria_service_db
 from common.log_utils import send_user_log
 from common.logger import get_logger
+from common.database.mariadb_service import get_maria_service_db
 
 router = APIRouter(prefix="/api/homeshopping", tags=["HomeShopping"])
-logger = get_logger("homeshopping_router", sqlalchemy_logging={'enable': False})
+logger = get_logger("homeshopping_router")
 
 
 # ================================

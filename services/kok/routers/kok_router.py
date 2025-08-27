@@ -96,11 +96,10 @@ from common.database.mariadb_service import get_maria_service_db
 from common.log_utils import send_user_log
 from common.logger import get_logger
 
-from services.kok.models.kok_model import KokProductInfo, KokCart
 from sqlalchemy import select
 
 router = APIRouter(prefix="/api/kok", tags=["Kok"])
-logger = get_logger("kok_router", sqlalchemy_logging={'enable': False})
+logger = get_logger("kok_router")
 
 
 # ================================

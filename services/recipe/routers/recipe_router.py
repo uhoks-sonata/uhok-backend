@@ -49,7 +49,7 @@ from common.logger import get_logger
 from services.recipe.utils.combination_tracker import combination_tracker
 
 # 로거 초기화
-logger = get_logger("recipe_router", sqlalchemy_logging={'enable': False})
+logger = get_logger("recipe_router")
 
 router = APIRouter(prefix="/api/recipes", tags=["Recipe"])
 
