@@ -220,6 +220,10 @@ class KokCart(MariaBase):
     kok_quantity = Column("KOK_QUANTITY", Integer, nullable=False)  # 수량
     kok_created_at = Column("KOK_CREATED_AT", DateTime, nullable=True)  # 추가 시간
     recipe_id = Column("RECIPE_ID", Integer, ForeignKey("FCT_RECIPE.RECIPE_ID", onupdate="RESTRICT", ondelete="RESTRICT"), nullable=True)
+    
+    # 추가 필드: 상품명과 이미지 (런타임에 설정)
+    product_name = None
+    product_image = None
 
     __table_args__ = (
         UniqueConstraint("USER_ID", "KOK_PRODUCT_ID", name="UK_KOK_CART_USER_PRODUCT"),

@@ -185,6 +185,7 @@ class RecipeRecommendationsResponse(BaseModel):
 
 class HomeshoppingStreamResponse(BaseModel):
     """홈쇼핑 라이브 스트리밍 응답"""
+    live_id: int
     product_id: int
     stream_url: str
     is_live: bool

@@ -76,6 +76,10 @@ class HomeShoppingOrder(MariaBase):
     dc_price = Column("DC_PRICE", BigInteger, nullable=False, comment="할인가(당시 기준 금액 스냅샷)")
     quantity = Column("QUANTITY", Integer, nullable=False, comment="주문 수량")
     order_price = Column("ORDER_PRICE", BigInteger, nullable=True, comment="주문 금액(합계 또는 개별 기준, 비즈니스 룰에 따름)")
+    
+    # 추가 필드: 상품명 (런타임에 설정)
+    product_name = None
+    product_image = None
 
     order = relationship("Order", back_populates="homeshopping_orders", lazy="noload")
     status_history = relationship("HomeShoppingOrderStatusHistory", back_populates="homeshopping_order", lazy="noload")

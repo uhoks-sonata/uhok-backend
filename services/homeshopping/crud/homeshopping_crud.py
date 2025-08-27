@@ -24,7 +24,8 @@ from services.homeshopping.models.homeshopping_model import (
     HomeshoppingSearchHistory,
     HomeshoppingLikes,
     HomeshoppingNotification,
-    HomeshoppingClassify
+    HomeshoppingClassify,
+    HomeshoppingCart
 )
 from services.kok.models.kok_model import KokProductInfo
 from services.order.models.order_model import (
@@ -270,26 +271,26 @@ async def delete_homeshopping_search_history(
 
 async def get_homeshopping_product_detail(
     db: AsyncSession,
-    product_id: int,
+    live_id: int,
     user_id: Optional[int] = None
 ) -> Optional[dict]:
     """
     홈쇼핑 상품 상세 정보 조회
     """
-    logger.info(f"홈쇼핑 상품 상세 조회 시작: product_id={product_id}, user_id={user_id}")
+    logger.info(f"홈쇼핑 상품 상세 조회 시작: live_id={live_id}, user_id={user_id}")
     
-    # 상품 기본 정보 조회
+    # live_id로 방송 정보 조회
     stmt = (
         select(HomeshoppingList, HomeshoppingProductInfo)
         .join(HomeshoppingProductInfo, HomeshoppingList.product_id == HomeshoppingProductInfo.product_id)
-        .where(HomeshoppingList.product_id == product_id)
+        .where(HomeshoppingList.live_id == live_id)
     )
     
     result = await db.execute(stmt)
     product_data = result.first()
     
     if not product_data:
-        logger.warning(f"상품을 찾을 수 없음: product_id={product_id}")
+        logger.warning(f"상품을 찾을 수 없음: live_id={live_id}")
         return None
     
     live, product = product_data
@@ -299,7 +300,7 @@ async def get_homeshopping_product_detail(
     if user_id:
         like_stmt = select(HomeshoppingLikes).where(
             HomeshoppingLikes.user_id == user_id,
-            HomeshoppingLikes.product_id == product_id
+            HomeshoppingLikes.product_id == live.product_id
         )
         like_result = await db.execute(like_stmt)
         is_liked = like_result.scalars().first() is not None
@@ -307,7 +308,7 @@ async def get_homeshopping_product_detail(
     # 상세 정보 조회
     detail_stmt = (
         select(HomeshoppingDetailInfo)
-        .where(HomeshoppingDetailInfo.product_id == product_id)
+        .where(HomeshoppingDetailInfo.product_id == live.product_id)
         .order_by(HomeshoppingDetailInfo.detail_id)
     )
     detail_result = await db.execute(detail_stmt)
@@ -316,7 +317,7 @@ async def get_homeshopping_product_detail(
     # 이미지 조회
     img_stmt = (
         select(HomeshoppingImgUrl)
-        .where(HomeshoppingImgUrl.product_id == product_id)
+        .where(HomeshoppingImgUrl.product_id == live.product_id)
         .order_by(HomeshoppingImgUrl.sort_order)
     )
     img_result = await db.execute(img_stmt)
@@ -353,7 +354,7 @@ async def get_homeshopping_product_detail(
         ]
     }
     
-    logger.info(f"홈쇼핑 상품 상세 조회 완료: product_id={product_id}, user_id={user_id}")
+    logger.info(f"홈쇼핑 상품 상세 조회 완료: live_id={live_id}, user_id={user_id}")
     return product_detail
 
 
@@ -593,32 +594,29 @@ async def get_homeshopping_liked_products(
 
 async def get_homeshopping_stream_info(
     db: AsyncSession,
-    product_id: int
+    live_id: int
 ) -> Optional[dict]:
     """
-    홈쇼핑 라이브 스트리밍 정보 조회 (기본 구조)
+    홈쇼핑 라이브 스트리밍 정보 조회
     """
-    logger.info(f"홈쇼핑 스트리밍 정보 조회 시작: product_id={product_id}")
+    logger.info(f"홈쇼핑 스트리밍 정보 조회 시작: live_id={live_id}")
     
     try:
-        # 상품 정보 조회 (가장 최근 방송 정보 선택)
-        # LIMIT 1을 사용하여 중복 데이터 문제 해결
+        # live_id로 방송 정보 조회
         stmt = (
             select(HomeshoppingList)
-            .where(HomeshoppingList.product_id == product_id)
-            .order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
-            .limit(1)
+            .where(HomeshoppingList.live_id == live_id)
         )
         result = await db.execute(stmt)
-        product = result.scalar_one_or_none()
+        live = result.scalar_one_or_none()
         
-        if not product:
-            logger.warning(f"상품을 찾을 수 없음: product_id={product_id}")
+        if not live:
+            logger.warning(f"방송을 찾을 수 없음: live_id={live_id}")
             return None
         
         # 현재 시간 기준으로 라이브 여부 판단
         now = datetime.now()
-        live_date = product.live_date
+        live_date = live.live_date
         is_live = False
         
         if live_date:
@@ -628,14 +626,15 @@ async def get_homeshopping_stream_info(
             is_live = time_diff < 3600  # 1시간 이내면 라이브로 간주
         
         stream_info = {
-            "product_id": product_id,
-            "stream_url": f"https://stream.example.com/live/{product_id}",  # 임시 URL
+            "live_id": live_id,
+            "product_id": live.product_id,
+            "stream_url": f"https://stream.example.com/live/{live_id}",  # 임시 URL
             "is_live": is_live,
-            "live_start_time": product.live_start_time,
-            "live_end_time": product.live_end_time
+            "live_start_time": live.live_start_time,
+            "live_end_time": live.live_end_time
         }
         
-        logger.info(f"홈쇼핑 스트리밍 정보 조회 완료: product_id={product_id}, is_live={is_live}")
+        logger.info(f"홈쇼핑 스트리밍 정보 조회 완료: live_id={live_id}, is_live={is_live}")
         return stream_info
         
     except Exception as e:
@@ -1662,4 +1661,54 @@ async def get_homeshopping_recommendations_fallback(
         
     except Exception as e:
         logger.error(f"홈쇼핑 폴백 추천 조회 실패: kok_product_name='{kok_product_name}', error={str(e)}")
+        return []
+
+async def get_homeshopping_cart_items(
+    db: AsyncSession, 
+    user_id: int
+) -> List:
+    """
+    사용자의 홈쇼핑 장바구니 아이템 조회
+    
+    Args:
+        db: 데이터베이스 세션
+        user_id: 사용자 ID
+        
+    Returns:
+        홈쇼핑 장바구니 아이템 리스트
+    """
+    logger.info(f"홈쇼핑 장바구니 조회 시작: user_id={user_id}")
+    
+    try:
+        # 장바구니 테이블과 상품 정보를 조인하여 조회
+        stmt = (
+            select(
+                HomeshoppingCart,
+                HomeshoppingList.product_name,
+                HomeshoppingList.thumb_img_url
+            )
+            .outerjoin(
+                HomeshoppingList, 
+                HomeshoppingCart.product_id == HomeshoppingList.product_id
+            )
+            .where(HomeshoppingCart.user_id == user_id)
+            .order_by(HomeshoppingCart.created_at.desc())
+        )
+        
+        result = await db.execute(stmt)
+        cart_items = result.all()
+        
+        # 결과를 객체 리스트로 변환
+        cart_list = []
+        for cart, product_name, thumb_img_url in cart_items:
+            # cart 객체에 product_name과 thumb_img_url 추가
+            cart.product_name = product_name
+            cart.thumb_img_url = thumb_img_url
+            cart_list.append(cart)
+        
+        logger.info(f"홈쇼핑 장바구니 조회 완료: user_id={user_id}, 아이템 수={len(cart_list)}")
+        return cart_list
+        
+    except Exception as e:
+        logger.error(f"홈쇼핑 장바구니 조회 실패: user_id={user_id}, error={str(e)}")
         return []

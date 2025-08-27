@@ -139,9 +139,9 @@ async def get_schedule(
 # 상품 상세 관련 API
 # ================================
 
-@router.get("/product/{product_id}", response_model=HomeshoppingProductDetailResponse)
+@router.get("/product/{live_id}", response_model=HomeshoppingProductDetailResponse)
 async def get_product_detail(
-        product_id: int,
+        live_id: int,
         current_user: UserOut = Depends(get_current_user_optional),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
@@ -150,9 +150,9 @@ async def get_product_detail(
     홈쇼핑 상품 상세 조회
     """
     user_id = current_user.user_id if current_user else None
-    logger.info(f"홈쇼핑 상품 상세 조회 요청: user_id={user_id}, product_id={product_id}")
+    logger.info(f"홈쇼핑 상품 상세 조회 요청: user_id={user_id}, live_id={live_id}")
     
-    product_detail = await get_homeshopping_product_detail(db, product_id, user_id)
+    product_detail = await get_homeshopping_product_detail(db, live_id, user_id)
     if not product_detail:
         raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
     
@@ -162,10 +162,10 @@ async def get_product_detail(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="homeshopping_product_detail_view", 
-            event_data={"product_id": product_id}
+            event_data={"live_id": live_id}
         )
     
-    logger.info(f"홈쇼핑 상품 상세 조회 완료: user_id={user_id}, product_id={product_id}")
+    logger.info(f"홈쇼핑 상품 상세 조회 완료: user_id={user_id}, live_id={live_id}")
     return product_detail
 
 
@@ -254,9 +254,9 @@ async def check_product_ingredient(
 # 스트리밍 관련 API
 # ================================
 
-@router.get("/product/{product_id}/stream", response_model=HomeshoppingStreamResponse)
+@router.get("/product/{live_id}/stream", response_model=HomeshoppingStreamResponse)
 async def get_stream_info(
-        product_id: int,
+        live_id: int,
         current_user: UserOut = Depends(get_current_user_optional),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
@@ -265,12 +265,12 @@ async def get_stream_info(
     홈쇼핑 라이브 영상 URL 조회
     """
     user_id = current_user.user_id if current_user else None
-    logger.info(f"홈쇼핑 스트리밍 정보 조회 요청: user_id={user_id}, product_id={product_id}")
+    logger.info(f"홈쇼핑 스트리밍 정보 조회 요청: user_id={user_id}, live_id={live_id}")
     
     try:
-        stream_info = await get_homeshopping_stream_info(db, product_id)
+        stream_info = await get_homeshopping_stream_info(db, live_id)
         if not stream_info:
-            raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
+            raise HTTPException(status_code=404, detail="방송을 찾을 수 없습니다.")
         
         # 스트리밍 정보 조회 로그 기록 (인증된 사용자인 경우에만)
         if current_user and background_tasks:
@@ -278,23 +278,17 @@ async def get_stream_info(
                 send_user_log, 
                 user_id=current_user.user_id, 
                 event_type="homeshopping_stream_info_view", 
-                event_data={"product_id": product_id, "is_live": stream_info["is_live"]}
+                event_data={"live_id": live_id, "is_live": stream_info["is_live"]}
             )
         
-        logger.info(f"홈쇼핑 스트리밍 정보 조회 완료: user_id={user_id}, product_id={product_id}")
+        logger.info(f"홈쇼핑 스트리밍 정보 조회 완료: user_id={user_id}, live_id={live_id}")
         return stream_info
         
     except HTTPException:
         # 404 에러는 그대로 전달
         raise
     except Exception as e:
-        logger.error(f"홈쇼핑 스트리밍 정보 조회 실패: product_id={product_id}, error={str(e)}")
-        # 중복 데이터 에러인 경우 구체적인 메시지 제공
-        if "Multiple rows were found" in str(e):
-            raise HTTPException(
-                status_code=500, 
-                detail="데이터베이스에 중복된 상품 정보가 존재합니다. 관리자에게 문의해주세요."
-            )
+        logger.error(f"홈쇼핑 스트리밍 정보 조회 실패: live_id={live_id}, error={str(e)}")
         # 기타 에러는 일반적인 500 에러로 처리
         raise HTTPException(
             status_code=500, 
@@ -332,6 +326,9 @@ async def search_products(
     
     logger.info(f"홈쇼핑 상품 검색 완료: user_id={user_id}, keyword='{keyword}', 결과 수={len(products)}")
     return {
+        "total": len(products),
+        "page": 1,
+        "size": len(products),
         "products": products
     }
 

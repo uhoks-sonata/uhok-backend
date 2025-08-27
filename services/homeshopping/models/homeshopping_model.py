@@ -124,6 +124,10 @@ class HomeshoppingCart(MariaBase):
     created_at = Column("CREATED_AT", DateTime, nullable=True, comment="추가 시간")
     recipe_id = Column("RECIPE_ID", Integer, ForeignKey("FCT_RECIPE.RECIPE_ID", onupdate="RESTRICT", ondelete="RESTRICT"), nullable=True, comment="레시피 ID")
     
+    # 추가 필드: 상품명과 이미지 (런타임에 설정)
+    product_name = None
+    thumb_img_url = None
+    
     __table_args__ = (
         UniqueConstraint("USER_ID", "PRODUCT_ID", name="UK_HOMESHOPPING_CART_USER_PRODUCT"),
     )

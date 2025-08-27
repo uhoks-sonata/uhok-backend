@@ -540,3 +540,175 @@ async def _get_status_id_by_code(db: AsyncSession, status_code: str) -> int:
     if not status_id:
         raise ValueError(f"상태 코드를 찾을 수 없습니다: {status_code}")
     return status_id
+
+async def get_recent_orders_with_ingredients(
+    db: AsyncSession, 
+    user_id: int, 
+    days: int = 7
+) -> dict:
+    """
+    7일 내 주문 내역에서 모든 상품의 product_name을 가져와서 키워드를 추출
+    
+    Args:
+        db: 데이터베이스 세션
+        user_id: 사용자 ID
+        days: 조회 기간 (일), 기본값 7일
+        
+    Returns:
+        키워드 추출 결과 딕셔너리
+    """
+    logger.info(f"최근 {days}일 주문 내역 키워드 추출 시작: user_id={user_id}")
+    
+    # 7일 전 날짜 계산
+    from datetime import datetime, timedelta
+    cutoff_date = datetime.now() - timedelta(days=days)
+    
+    # 주문 기본 정보 조회 (7일 내)
+    result = await db.execute(
+        select(Order)
+        .where(Order.user_id == user_id)
+        .where(Order.order_time >= cutoff_date)
+        .where(Order.cancel_time.is_(None))  # 취소되지 않은 주문만
+        .order_by(Order.order_time.desc())
+    )
+    orders = result.scalars().all()
+    
+    # ingredient_matcher 초기화
+    from services.recipe.utils.ingredient_matcher import IngredientKeywordExtractor
+    ingredient_extractor = IngredientKeywordExtractor()
+    
+    all_products = []
+    all_keywords = set()
+    keyword_products = {}  # 키워드별로 어떤 상품에서 추출되었는지 추적
+    
+    for order in orders:
+        # 콕 주문 처리
+        kok_result = await db.execute(
+            select(KokOrder).where(KokOrder.order_id == order.order_id)
+        )
+        kok_orders = kok_result.scalars().all()
+        
+        for kok_order in kok_orders:
+            try:
+                # 상품 기본 정보 조회
+                product_stmt = select(KokProductInfo).where(KokProductInfo.kok_product_id == kok_order.kok_product_id)
+                product_result = await db.execute(product_stmt)
+                product = product_result.scalar_one_or_none()
+                
+                if product and product.kok_product_name:
+                    product_name = product.kok_product_name
+                    
+                    # 키워드 추출
+                    extracted_keywords = ingredient_extractor.extract_keywords(product_name)
+                    
+                    # 결과 저장
+                    product_info = {
+                        "order_id": order.order_id,
+                        "order_time": order.order_time,
+                        "product_id": kok_order.kok_product_id,
+                        "product_name": product_name,
+                        "product_type": "kok",
+                        "quantity": kok_order.quantity,
+                        "price": kok_order.order_price,
+                        "extracted_keywords": extracted_keywords,
+                        "keyword_count": len(extracted_keywords)
+                    }
+                    
+                    all_products.append(product_info)
+                    
+                    # 키워드별 상품 추적
+                    for keyword in extracted_keywords:
+                        all_keywords.add(keyword)
+                        if keyword not in keyword_products:
+                            keyword_products[keyword] = []
+                        keyword_products[keyword].append({
+                            "product_name": product_name,
+                            "product_type": "kok",
+                            "order_time": order.order_time
+                        })
+                        
+            except Exception as e:
+                logger.warning(f"콕 주문 처리 실패: kok_order_id={kok_order.kok_order_id}, error={str(e)}")
+        
+        # 홈쇼핑 주문 처리
+        homeshopping_result = await db.execute(
+            select(HomeShoppingOrder).where(HomeShoppingOrder.order_id == order.order_id)
+        )
+        homeshopping_orders = homeshopping_result.scalars().all()
+        
+        for hs_order in homeshopping_orders:
+            try:
+                # 상품 기본 정보 조회
+                product_stmt = select(HomeshoppingList).where(HomeshoppingList.product_id == hs_order.product_id)
+                product_result = await db.execute(product_stmt)
+                product = product_result.scalar_one_or_none()
+                
+                if product and product.product_name:
+                    product_name = product.product_name
+                    
+                    # 키워드 추출
+                    extracted_keywords = ingredient_extractor.extract_keywords(product_name)
+                    
+                    # 결과 저장
+                    product_info = {
+                        "order_id": order.order_id,
+                        "order_time": order.order_time,
+                        "product_id": hs_order.product_id,
+                        "product_name": product_name,
+                        "product_type": "homeshopping",
+                        "quantity": hs_order.quantity,
+                        "price": hs_order.order_price,
+                        "extracted_keywords": extracted_keywords,
+                        "keyword_count": len(extracted_keywords)
+                    }
+                    
+                    all_products.append(product_info)
+                    
+                    # 키워드별 상품 추적
+                    for keyword in extracted_keywords:
+                        all_keywords.add(keyword)
+                        if keyword not in keyword_products:
+                            keyword_products[keyword] = []
+                        keyword_products[keyword].append({
+                            "product_name": product_name,
+                            "product_type": "homeshopping",
+                            "order_time": order.order_time
+                        })
+                        
+            except Exception as e:
+                logger.warning(f"홈쇼핑 주문 처리 실패: homeshopping_order_id={hs_order.homeshopping_order_id}, error={str(e)}")
+    
+    # 키워드 통계 계산
+    keyword_stats = {}
+    for keyword in all_keywords:
+        products = keyword_products[keyword]
+        kok_count = len([p for p in products if p["product_type"] == "kok"])
+        homeshopping_count = len([p for p in products if p["product_type"] == "homeshopping"])
+        
+        keyword_stats[keyword] = {
+            "total_products": len(products),
+            "kok_products": kok_count,
+            "homeshopping_products": homeshopping_count,
+            "products": products
+        }
+    
+    # 결과 구성
+    result = {
+        "user_id": user_id,
+        "days": days,
+        "total_orders": len(orders),
+        "total_products": len(all_products),
+        "total_keywords": len(all_keywords),
+        "products": all_products,
+        "keywords": list(all_keywords),
+        "keyword_stats": keyword_stats,
+        "summary": {
+            "kok_products": len([p for p in all_products if p["product_type"] == "kok"]),
+            "homeshopping_products": len([p for p in all_products if p["product_type"] == "homeshopping"]),
+            "products_with_keywords": len([p for p in all_products if p["keyword_count"] > 0]),
+            "products_without_keywords": len([p for p in all_products if p["keyword_count"] == 0])
+        }
+    }
+    
+    logger.info(f"최근 {days}일 주문 내역 키워드 추출 완료: 총 {len(all_products)}개 상품, {len(all_keywords)}개 키워드")
+    return result
