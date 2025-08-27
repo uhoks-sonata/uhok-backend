@@ -82,8 +82,11 @@ async def order_from_selected_carts(
 
     return KokCartOrderResponse(
         order_id=result["order_id"],
+        total_amount=result["total_amount"],
         order_count=result["order_count"],
+        order_details=result["order_details"],
         message=result["message"],
+        order_time=result["order_time"],
     )
 
 
