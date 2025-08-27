@@ -7,7 +7,6 @@ API Gateway 서비스 진입점.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
 from common.config import get_settings
 from common.logger import get_logger
 from services.user.routers.user_router import router as user_router
@@ -41,8 +40,22 @@ app = FastAPI(
 logger.info("CORS 미들웨어 설정 중...")
 app.add_middleware(            
     CORSMiddleware,
-    allow_origins=["*"],   # 전체 허용
-    allow_credentials=False,
+    allow_origins=[
+        # 로컬 개발 환경
+        "http://localhost:3001",      # React 포트
+        "http://localhost:9001",      # FastAPI 포트
+        "http://localhost:8501",      # Streamlit 포트
+        
+        # hosts 파일에 등록한 alias (팀원별)
+        "http://webapp.uhok.com:3001", # 프론트엔드 1
+        "http://webapp2.uhok.com:3001", # 프론트엔드 2
+
+        "http://api.uhok.com:9000", # 백엔드 1
+        "http://api2.uhok.com:9000", # 백엔드 2
+
+        "http://payment.uhok.com:9001", # 결제서버
+    ],
+    allow_credentials=True,  # 쿠키/인증 헤더 허용
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -87,10 +100,7 @@ app.include_router(recipe_router)
 logger.info("레시피 라우터 포함 완료")
 
 logger.info("모든 서비스 라우터 등록 완료")
-
 logger.info("API Gateway 시작 완료")    
-logger.info(f"앱 제목: {settings.app_name}")
-logger.info(f"디버그 모드: {settings.debug}")
 
 
 # TODO: 다른 서비스 라우터도 아래와 같이 추가
