@@ -9,7 +9,7 @@
 - 트랜잭션 관리(commit/rollback)를 담당하여 데이터 일관성 보장
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from datetime import date
@@ -46,14 +46,7 @@ from services.homeshopping.schemas.homeshopping_schema import (
     HomeshoppingLikesResponse,
     
     # 통합 알림 관련 스키마 (기존 테이블 활용)
-    HomeshoppingNotificationListResponse,
-    HomeshoppingNotificationFilter,
-    HomeshoppingNotificationUpdate,
-    
-    # KOK 상품 기반 홈쇼핑 추천 관련 스키마
-    KokHomeshoppingRecommendationRequest,
-    KokHomeshoppingRecommendationResponse,
-    KokHomeshoppingRecommendationProduct
+    HomeshoppingNotificationListResponse
 )
 
 from services.homeshopping.crud.homeshopping_crud import (
@@ -83,23 +76,24 @@ from services.homeshopping.crud.homeshopping_crud import (
     
     # 통합 알림 관련 CRUD (기존 테이블 활용)
     mark_notification_as_read,
+    get_notifications_with_filter,
     
     # KOK 상품 기반 홈쇼핑 추천 관련 CRUD
-    get_kok_product_name_by_id,
-    get_homeshopping_recommendations_by_kok,
-    get_homeshopping_recommendations_fallback,
-    get_homeshopping_product_name
+    recommend_homeshopping_to_kok,
+    get_homeshopping_product_name,
+    simple_recommend_homeshopping_to_kok
 )
-
-from services.recipe.crud.recipe_crud import recommend_by_recipe_pgvector
 from services.homeshopping.utils.keyword_extraction import extract_homeshopping_keywords
 
-from common.log_utils import send_user_log
-from common.logger import get_logger
+from services.recipe.crud.recipe_crud import recommend_by_recipe_pgvector
+
 from common.database.mariadb_service import get_maria_service_db
+from common.log_utils import send_user_log
+
+from common.logger import get_logger
+logger = get_logger("homeshopping_router")
 
 router = APIRouter(prefix="/api/homeshopping", tags=["HomeShopping"])
-logger = get_logger("homeshopping_router")
 
 
 # ================================
@@ -175,7 +169,7 @@ async def get_product_detail(
 
 @router.get("/product/{product_id}/kok-recommendations")
 async def get_kok_recommendations(
-    product_id: int,
+    homeshopping_product_id: int,
     current_user: UserOut = Depends(get_current_user_optional),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
@@ -184,30 +178,27 @@ async def get_kok_recommendations(
     홈쇼핑 상품에 대한 콕 유사 상품 추천 조회
     """
     user_id = current_user.user_id if current_user else None
-    logger.info(f"홈쇼핑 콕 유사 상품 추천 조회 요청: user_id={user_id}, product_id={product_id}")
+    logger.info(f"홈쇼핑 콕 유사 상품 추천 조회 요청: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}")
     
     try:
-        # 추천 오케스트레이터 호출 (통합된 CRUD에서)
-        from services.homeshopping.crud.homeshopping_crud import recommend_homeshopping_to_kok
-        
+        # 추천 오케스트레이터 호출 (통합된 CRUD에서)        
         recommendations = await recommend_homeshopping_to_kok(
             db=db,
-            product_id=product_id,
+            homeshopping_product_id=homeshopping_product_id,
             k=5,  # 최대 5개
             use_rerank=False
         )
         
-        logger.info(f"홈쇼핑 콕 유사 상품 추천 조회 완료: user_id={user_id}, product_id={product_id}, 결과 수={len(recommendations)}")
+        logger.info(f"홈쇼핑 콕 유사 상품 추천 조회 완료: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}, 결과 수={len(recommendations)}")
         return {"products": recommendations}
         
     except Exception as e:
-        logger.error(f"홈쇼핑 콕 유사 상품 추천 조회 실패: product_id={product_id}, error={str(e)}")
+        logger.error(f"홈쇼핑 콕 유사 상품 추천 조회 실패: homeshopping_product_id={homeshopping_product_id}, error={str(e)}")
         
         # 폴백: 간단한 추천 시스템 사용 (통합된 CRUD에서)
         try:
-            from services.homeshopping.crud.homeshopping_crud import simple_recommend_homeshopping_to_kok
             fallback_recommendations = await simple_recommend_homeshopping_to_kok(
-                product_id=product_id,
+                homeshopping_product_id=homeshopping_product_id,
                 k=5,
                 db=db  # DB 전달하여 실제 DB 연동 시도
             )
@@ -221,7 +212,7 @@ async def get_kok_recommendations(
 
 @router.get("/product/{product_id}/check")
 async def check_product_ingredient(
-        product_id: int,
+        homeshopping_product_id: int,
         current_user: UserOut = Depends(get_current_user_optional),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
@@ -231,23 +222,23 @@ async def check_product_ingredient(
     CLS_ING가 1(식재료)인지 여부만 확인
     """
     user_id = current_user.user_id if current_user else None
-    logger.info(f"홈쇼핑 상품 식재료 여부 확인 요청: user_id={user_id}, product_id={product_id}")
+    logger.info(f"홈쇼핑 상품 식재료 여부 확인 요청: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}")
     
     try:
         # HOMESHOPPING_CLASSIFY 테이블에서 CLS_ING 값 확인
-        cls_ing = await get_homeshopping_classify_cls_ing(db, product_id)
+        cls_ing = await get_homeshopping_classify_cls_ing(db, homeshopping_product_id)
         
         if cls_ing == 1:
             # 식재료인 경우
-            logger.info(f"홈쇼핑 상품 식재료 확인 완료: product_id={product_id}, cls_ing={cls_ing}")
+            logger.info(f"홈쇼핑 상품 식재료 확인 완료: homeshopping_product_id={homeshopping_product_id}, cls_ing={cls_ing}")
             return {"is_ingredient": True}
         else:
             # 완제품인 경우
-            logger.info(f"홈쇼핑 완제품으로 식재료 아님: product_id={product_id}, cls_ing={cls_ing}")
+            logger.info(f"홈쇼핑 완제품으로 식재료 아님: homeshopping_product_id={homeshopping_product_id}, cls_ing={cls_ing}")
             return {"is_ingredient": False}
             
     except Exception as e:
-        logger.error(f"홈쇼핑 상품 식재료 여부 확인 실패: product_id={product_id}, error={str(e)}")
+        logger.error(f"홈쇼핑 상품 식재료 여부 확인 실패: homeshopping_product_id={homeshopping_product_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail="상품 식재료 여부 확인 중 오류가 발생했습니다.")
 
 # ================================
@@ -703,7 +694,7 @@ async def mark_notification_read_api(
 
 @router.get("/product/{product_id}/recipe-recommendations", response_model=RecipeRecommendationsResponse)
 async def get_recipe_recommendations_for_product(
-    product_id: int,
+    homeshopping_product_id: int,
     current_user: Optional[UserOut] = Depends(get_current_user_optional),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
@@ -715,22 +706,22 @@ async def get_recipe_recommendations_for_product(
     - recommend_by_recipe_pgvector를 method == "ingredient" 방식으로 사용
     """
     user_id = current_user.user_id if current_user else None
-    logger.info(f"홈쇼핑 상품 레시피 추천 요청: user_id={user_id}, product_id={product_id}")
+    logger.info(f"홈쇼핑 상품 레시피 추천 요청: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}")
     
     try:
         # 1. 홈쇼핑 상품명 조회
-        product_name = await get_homeshopping_product_name(db, product_id)
-        if not product_name:
+        homeshopping_product_name = await get_homeshopping_product_name(db, homeshopping_product_id)
+        if not homeshopping_product_name:
             raise HTTPException(status_code=404, detail="홈쇼핑 상품을 찾을 수 없습니다.")
         
-        logger.info(f"상품명 조회 완료: product_id={product_id}, name={product_name}")
+        logger.info(f"상품명 조회 완료: homeshopping_product_id={homeshopping_product_id}, name={homeshopping_product_name}")
         
         # 2. 상품이 식재료인지 확인
-        is_ingredient = await get_homeshopping_classify_cls_ing(db, product_id)
+        is_ingredient = await get_homeshopping_classify_cls_ing(db, homeshopping_product_id)
         
         # 3. 식재료가 아닌 경우 빈 응답 반환
         if not is_ingredient:
-            logger.info(f"상품이 식재료가 아님: product_id={product_id}")
+            logger.info(f"상품이 식재료가 아님: homeshopping_product_id={homeshopping_product_id}")
             return RecipeRecommendationsResponse(
                 recipes=[],
                 is_ingredient=False
@@ -741,7 +732,7 @@ async def get_recipe_recommendations_for_product(
         
         # 5. 상품명에서 키워드(식재료) 추출 (홈쇼핑 전용)
         keyword_result = extract_homeshopping_keywords(
-            product_name=product_name,
+            product_name=homeshopping_product_name,
             use_bigrams=True,
             drop_first_token=True,
             strip_digits=True,
@@ -749,11 +740,11 @@ async def get_recipe_recommendations_for_product(
         )
         
         extracted_keywords = keyword_result["keywords"]
-        logger.info(f"키워드 추출 완료: product_id={product_id}, keywords={extracted_keywords}")
+        logger.info(f"키워드 추출 완료: homeshopping_product_id={homeshopping_product_id}, keywords={extracted_keywords}")
         
         # 6. 추출된 키워드가 없으면 빈 응답 반환
         if not extracted_keywords:
-            logger.info(f"추출된 키워드가 없음: product_id={product_id}")
+            logger.info(f"추출된 키워드가 없음: homeshopping_product_id={homeshopping_product_id}")
             return RecipeRecommendationsResponse(
                 recipes=[],
                 is_ingredient=True
@@ -807,7 +798,7 @@ async def get_recipe_recommendations_for_product(
                 
                 recipes.append(recipe)
         
-        logger.info(f"레시피 추천 완료: product_id={product_id}, 레시피 수={len(recipes)}")
+        logger.info(f"레시피 추천 완료: homeshopping_product_id={homeshopping_product_id}, 레시피 수={len(recipes)}")
         
         # 10. 인증된 사용자의 경우에만 로그 기록
         if current_user and background_tasks:
@@ -816,8 +807,8 @@ async def get_recipe_recommendations_for_product(
                 user_id=current_user.user_id, 
                 event_type="homeshopping_recipe_recommendation", 
                 event_data={
-                    "product_id": product_id,
-                    "product_name": product_name,
+                    "homeshopping_product_id": homeshopping_product_id,
+                    "homeshopping_product_name": homeshopping_product_name,
                     "extracted_keywords": extracted_keywords,
                     "recipe_count": len(recipes),
                     "is_ingredient": True
@@ -832,7 +823,7 @@ async def get_recipe_recommendations_for_product(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"홈쇼핑 상품 레시피 추천 실패: product_id={product_id}, user_id={user_id}, error={str(e)}")
+        logger.error(f"홈쇼핑 상품 레시피 추천 실패: homeshopping_product_id={homeshopping_product_id}, user_id={user_id}, error={str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"레시피 추천 조회 중 오류가 발생했습니다: {str(e)}"

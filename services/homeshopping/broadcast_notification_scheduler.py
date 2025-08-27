@@ -6,14 +6,11 @@
 import asyncio
 import schedule
 import time
-from datetime import datetime, timedelta
-from typing import List, Dict, Any
-from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime
+from typing import Dict, Any
 
-from common.database.mariadb_service import get_maria_service_db
 from services.homeshopping.crud.homeshopping_crud import get_pending_broadcast_notifications
 from common.logger import get_logger
-
 logger = get_logger("broadcast_notification_scheduler")
 
 

@@ -7,7 +7,6 @@
 - db.add(), db.delete() 같은 DB 상태 변경은 여기서 수행
 - 트랜잭션 관리(commit/rollback)는 상위 계층(라우터)에서 담당
 """
-import asyncio
 import os
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, insert, delete, and_, update, or_, text
@@ -29,15 +28,10 @@ from services.homeshopping.models.homeshopping_model import (
 )
 from services.kok.models.kok_model import KokProductInfo
 from services.order.models.order_model import (
-    Order,
     HomeShoppingOrder,
-    HomeShoppingOrderStatusHistory,
-    StatusMaster
 )
-from services.order.crud.hs_order_crud import update_hs_order_status
 
 from common.logger import get_logger
-
 logger = get_logger("homeshopping_crud")
 
 # -----------------------------
@@ -86,11 +80,11 @@ async def get_homeshopping_schedule(
             "live_end_time": live.live_end_time,
             "promotion_type": live.promotion_type,
             "product_id": live.product_id,
-                          "product_name": live.product_name,
-              "thumb_img_url": live.thumb_img_url,
-              "sale_price": product.sale_price if product else None,
-              "dc_price": product.dc_price if product else None,
-              "dc_rate": product.dc_rate if product else None
+            "product_name": live.product_name,
+            "thumb_img_url": live.thumb_img_url,
+            "sale_price": product.sale_price if product else None,
+            "dc_price": product.dc_price if product else None,
+            "dc_rate": product.dc_rate if product else None
         })
     
     logger.info(f"홈쇼핑 편성표 조회 완료: live_date={live_date}, 결과 수={len(schedule_list)}")
@@ -364,53 +358,53 @@ async def get_homeshopping_product_detail(
 
 async def get_homeshopping_classify_cls_ing(
     db: AsyncSession,
-    product_id: int
+    homeshopping_product_id: int
 ) -> Optional[int]:
     """
     HOMESHOPPING_CLASSIFY 테이블에서 CLS_ING 값 조회
     """
-    logger.info(f"홈쇼핑 상품 분류 CLS_ING 조회 시작: product_id={product_id}")
+    logger.info(f"홈쇼핑 상품 분류 CLS_ING 조회 시작: homeshopping_product_id={homeshopping_product_id}")
     
     try:
         # HOMESHOPPING_CLASSIFY 테이블에서 CLS_ING 값 조회
-        stmt = select(HomeshoppingClassify.cls_ing).where(HomeshoppingClassify.product_id == product_id)
+        stmt = select(HomeshoppingClassify.cls_ing).where(HomeshoppingClassify.product_id == homeshopping_product_id)
         result = await db.execute(stmt)
         cls_ing = result.scalar_one_or_none()
         
         if cls_ing is None:
-            logger.warning(f"HOMESHOPPING_CLASSIFY 테이블에서 product_id={product_id}를 찾을 수 없음")
+            logger.warning(f"HOMESHOPPING_CLASSIFY 테이블에서 homeshopping_product_id={homeshopping_product_id}를 찾을 수 없음")
             # 해당 상품이 분류 테이블에 없는 경우 기본값 0(완제품) 반환
             return 0
         
-        logger.info(f"홈쇼핑 상품 분류 CLS_ING 조회 완료: product_id={product_id}, cls_ing={cls_ing}")
+        logger.info(f"홈쇼핑 상품 분류 CLS_ING 조회 완료: homeshopping_product_id={homeshopping_product_id}, cls_ing={cls_ing}")
         return cls_ing
         
     except Exception as e:
-        logger.error(f"홈쇼핑 상품 분류 CLS_ING 조회 실패: product_id={product_id}, error={str(e)}")
+        logger.error(f"홈쇼핑 상품 분류 CLS_ING 조회 실패: homeshopping_product_id={homeshopping_product_id}, error={str(e)}")
         # 에러 발생 시 기본값 0(완제품) 반환
         return 0
 
 
 async def get_recipe_recommendations_for_ingredient(
     db: AsyncSession,
-    product_id: int
+    homeshopping_product_id: int
 ) -> List[dict]:
     """
     식재료에 대한 레시피 추천 조회
     """
-    logger.info(f"식재료 레시피 추천 조회 시작: product_id={product_id}")
+    logger.info(f"식재료 레시피 추천 조회 시작: homeshopping_product_id={homeshopping_product_id}")
     
     try:
         # TODO: 레시피 서비스와 연동하여 실제 레시피 추천 로직 구현
         # 현재는 더미 데이터 반환
         
         # 상품명 조회 (가장 최근 방송 정보에서 선택)
-        stmt = select(HomeshoppingList.product_name).where(HomeshoppingList.product_id == product_id).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
+        stmt = select(HomeshoppingList.product_name).where(HomeshoppingList.product_id == homeshopping_product_id).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
         result = await db.execute(stmt)
         product_name = result.scalar_one_or_none()
         
         if not product_name:
-            logger.warning(f"상품명을 찾을 수 없음: product_id={product_id}")
+            logger.warning(f"상품명을 찾을 수 없음: homeshopping_product_id={homeshopping_product_id}")
             return []
         
         # 더미 레시피 추천 데이터
@@ -433,11 +427,11 @@ async def get_recipe_recommendations_for_ingredient(
             }
         ]
         
-        logger.info(f"식재료 레시피 추천 조회 완료: product_id={product_id}, 레시피 수={len(recipes)}")
+        logger.info(f"식재료 레시피 추천 조회 완료: homeshopping_product_id={homeshopping_product_id}, 레시피 수={len(recipes)}")
         return recipes
         
     except Exception as e:
-        logger.error(f"식재료 레시피 추천 조회 실패: product_id={product_id}, error={str(e)}")
+        logger.error(f"식재료 레시피 추천 조회 실패: homeshopping_product_id={homeshopping_product_id}, error={str(e)}")
         return []
 
 
@@ -448,26 +442,26 @@ async def get_recipe_recommendations_for_ingredient(
 async def toggle_homeshopping_likes(
     db: AsyncSession,
     user_id: int,
-    product_id: int
+    homeshopping_product_id: int
 ) -> bool:
     """
     홈쇼핑 상품 찜 등록/해제
     - product_id를 찜 목록에서 조회한 후 없을 경우 추가
     - product_id를 찜 목록에서 조회했을 때 있는 경우에는 삭제
     """
-    logger.info(f"홈쇼핑 찜 토글 시작: user_id={user_id}, product_id={product_id}")
+    logger.info(f"홈쇼핑 찜 토글 시작: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}")
     
     try:
         # 데이터베이스 연결 상태 확인
         logger.info(f"데이터베이스 세션 상태 확인: {db.is_active}")
         
         # 기존 찜 여부 확인
-        logger.info(f"기존 찜 조회 시작: user_id={user_id}, product_id={product_id}")
+        logger.info(f"기존 찜 조회 시작: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}")
         existing_like_result = await db.execute(
             select(HomeshoppingLikes).where(
                 and_(
                     HomeshoppingLikes.user_id == user_id,
-                    HomeshoppingLikes.product_id == product_id
+                    HomeshoppingLikes.product_id == homeshopping_product_id
                 )
             )
         )
@@ -489,17 +483,17 @@ async def toggle_homeshopping_likes(
             await db.delete(existing_like)
             logger.info("찜 레코드 삭제 완료")
             
-            logger.info(f"홈쇼핑 찜 해제 완료: user_id={user_id}, product_id={product_id}")
+            logger.info(f"홈쇼핑 찜 해제 완료: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}")
             return False
             
         else:
             # 기존 찜이 없으면 찜 등록
-            logger.info(f"새로운 찜 등록 처리: user_id={user_id}, product_id={product_id}")
+            logger.info(f"새로운 찜 등록 처리: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}")
             
             # 찜 레코드 생성
             new_like = HomeshoppingLikes(
                 user_id=user_id,
-                product_id=product_id,
+                product_id=homeshopping_product_id,
                 homeshopping_like_created_at=datetime.now()
             )
             db.add(new_like)
@@ -507,10 +501,10 @@ async def toggle_homeshopping_likes(
             
             try:
                 # 방송 정보 조회하여 알림 생성 (가장 최근 방송 정보 선택)
-                logger.info(f"방송 정보 조회 시작: product_id={product_id}")
+                logger.info(f"방송 정보 조회 시작: homeshopping_product_id={homeshopping_product_id}")
                 live_info_result = await db.execute(
                     select(HomeshoppingList).where(
-                        HomeshoppingList.product_id == product_id
+                        HomeshoppingList.product_id == homeshopping_product_id
                     ).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
                 )
                 live_info = live_info_result.scalar_one_or_none()
@@ -522,7 +516,7 @@ async def toggle_homeshopping_likes(
                         db=db,
                         user_id=user_id,
                         homeshopping_like_id=new_like.homeshopping_like_id,
-                        product_id=product_id,
+                        product_id=homeshopping_product_id,
                         product_name=live_info.product_name,
                         broadcast_date=live_info.live_date,
                         broadcast_start_time=live_info.live_start_time
@@ -533,11 +527,11 @@ async def toggle_homeshopping_likes(
             except Exception as e:
                 logger.warning(f"방송 알림 생성 실패 (무시하고 진행): {str(e)}")
             
-            logger.info(f"홈쇼핑 찜 등록 완료: user_id={user_id}, product_id={product_id}, like_id={new_like.homeshopping_like_id}")
+            logger.info(f"홈쇼핑 찜 등록 완료: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}, like_id={new_like.homeshopping_like_id}")
             return True
             
     except Exception as e:
-        logger.error(f"홈쇼핑 찜 토글 실패: user_id={user_id}, product_id={product_id}, error={str(e)}")
+        logger.error(f"홈쇼핑 찜 토글 실패: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}, error={str(e)}")
         logger.error(f"에러 타입: {type(e).__name__}")
         logger.error(f"에러 상세: {str(e)}")
         import traceback
@@ -638,10 +632,10 @@ async def get_homeshopping_stream_info(
         return stream_info
         
     except Exception as e:
-        logger.error(f"홈쇼핑 스트리밍 정보 조회 중 오류 발생: product_id={product_id}, error={str(e)}")
+        logger.error(f"홈쇼핑 스트리밍 정보 조회 중 오류 발생: live_id={live_id}, error={str(e)}")
         # 중복 데이터가 있는 경우 로그에 기록
         if "Multiple rows were found" in str(e):
-            logger.error(f"중복 데이터 발견: product_id={product_id}에 대해 여러 행이 존재합니다.")
+            logger.error(f"중복 데이터 발견: live_id={live_id}에 대해 여러 행이 존재합니다.")
         raise
 
 
@@ -653,15 +647,15 @@ async def create_broadcast_notification(
     db: AsyncSession,
     user_id: int,
     homeshopping_like_id: int,
-    product_id: int,
-    product_name: str,
+    homeshopping_product_id: int,
+    homeshopping_product_name: str,
     broadcast_date: date,
     broadcast_start_time: time
 ) -> dict:
     """
     방송 찜 알림 생성
     """
-    logger.info(f"방송 찜 알림 생성 시작: user_id={user_id}, like_id={homeshopping_like_id}, product_id={product_id}")
+    logger.info(f"방송 찜 알림 생성 시작: user_id={user_id}, homeshopping_like_id={homeshopping_like_id}, homeshopping_product_id={homeshopping_product_id}")
     
     try:
         # 방송 시작 알림 생성
@@ -669,11 +663,11 @@ async def create_broadcast_notification(
             "user_id": user_id,
             "notification_type": "broadcast_start",
             "related_entity_type": "product",
-            "related_entity_id": product_id,
+            "related_entity_id": homeshopping_product_id,
             "homeshopping_like_id": homeshopping_like_id,
             "homeshopping_order_id": None,
             "status_id": None,
-            "title": f"{product_name} 방송 시작 알림",
+            "title": f"{homeshopping_product_name} 방송 시작 알림",
             "message": f"{broadcast_date} {broadcast_start_time}에 방송이 시작됩니다.",
             "is_read": 0,
             "created_at": datetime.now()
@@ -744,7 +738,7 @@ async def create_order_status_notification(
     """
     주문 상태 변경 알림 생성
     """
-    logger.info(f"주문 상태 변경 알림 생성 시작: user_id={user_id}, order_id={order_id}, status={status_name}")
+    logger.info(f"주문 상태 변경 알림 생성 시작: user_id={user_id}, homeshopping_order_id={homeshopping_order_id}, status={status_name}")
     
     try:
         # 주문 상태 변경 알림 생성
@@ -752,7 +746,7 @@ async def create_order_status_notification(
             "user_id": user_id,
             "notification_type": "order_status",
             "related_entity_type": "order",
-            "related_entity_id": order_id,
+            "related_entity_id": homeshopping_order_id,
             "homeshopping_like_id": None,
             "homeshopping_order_id": homeshopping_order_id,
             "status_id": status_id,
@@ -956,40 +950,40 @@ async def get_pending_broadcast_notifications(
 
 async def get_homeshopping_product_name(
     db: AsyncSession,
-    product_id: int
+    homeshopping_product_id: int
 ) -> Optional[str]:
     """
     홈쇼핑 상품명 조회
     """
-    logger.info(f"홈쇼핑 상품명 조회 시작: product_id={product_id}")
+    logger.info(f"홈쇼핑 상품명 조회 시작: homeshopping_product_id={homeshopping_product_id}")
     
     try:
-        stmt = select(HomeshoppingList.product_name).where(HomeshoppingList.product_id == product_id).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
+        stmt = select(HomeshoppingList.product_name).where(HomeshoppingList.product_id == homeshopping_product_id).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
         result = await db.execute(stmt)
         product_name = result.scalar()
         
         if product_name:
-            logger.info(f"홈쇼핑 상품명 조회 완료: product_id={product_id}, name={product_name}")
+            logger.info(f"홈쇼핑 상품명 조회 완료: homeshopping_product_id={homeshopping_product_id}, name={product_name}")
             return product_name
         else:
-            logger.warning(f"홈쇼핑 상품을 찾을 수 없음: product_id={product_id}")
+            logger.warning(f"홈쇼핑 상품을 찾을 수 없음: homeshopping_product_id={homeshopping_product_id}")
             return None
             
     except Exception as e:
-        logger.error(f"홈쇼핑 상품명 조회 실패: product_id={product_id}, error={str(e)}")
+        logger.error(f"홈쇼핑 상품명 조회 실패: product_id={homeshopping_product_id}, error={str(e)}")
         return None
 
 
 async def get_kok_product_infos(
     db: AsyncSession,
-    product_ids: List[int]
+    kok_product_ids: List[int]
 ) -> List[dict]:
     """
     콕 상품 정보 조회 (실제 DB 연동)
     """
-    logger.info(f"콕 상품 정보 조회 시작: product_ids={product_ids}")
+    logger.info(f"콕 상품 정보 조회 시작: kok_product_ids={kok_product_ids}")
     
-    if not product_ids:
+    if not kok_product_ids:
         logger.warning("조회할 상품 ID가 없음")
         return []
     
@@ -998,7 +992,7 @@ async def get_kok_product_infos(
         stmt = (
             select(KokProductInfo)
             .where(
-                KokProductInfo.kok_product_id.in_(product_ids)
+                KokProductInfo.kok_product_id.in_(kok_product_ids)
             )
             .order_by(KokProductInfo.kok_review_cnt.desc())  # 리뷰 수 순으로 정렬 (MariaDB 호환)
         )
@@ -1052,7 +1046,7 @@ async def get_kok_product_infos(
         # 에러 발생 시 더미 데이터로 폴백
         logger.warning("더미 데이터로 폴백")
         fallback_products = []
-        for i, pid in enumerate(product_ids):
+        for i, pid in enumerate(kok_product_ids):
             fallback_products.append({
                 "kok_product_id": pid,
                 "kok_thumbnail": f"https://example.com/kok_{pid}.jpg",
@@ -1319,9 +1313,10 @@ async def kok_candidates_by_keywords_gated(
         logger.error(f"키워드 기반 검색 실패: {str(e)}, 기본값 사용")
         return [1001, 1002, 1003, 1004, 1005][:limit]
 
+
 async def recommend_homeshopping_to_kok(
     db,
-    product_id: int,
+    homeshopping_product_id: int,
     k: int = 5,                       # 최대 5개
     use_rerank: bool = False,         # 여기선 기본 거리 정렬만 사용
     candidate_n: int = 150,
@@ -1332,9 +1327,9 @@ async def recommend_homeshopping_to_kok(
     """
     try:
         # 기존 추천 로직 사용
-        prod_name = await get_homeshopping_product_name(db, product_id) or ""
+        prod_name = await get_homeshopping_product_name(db, homeshopping_product_id) or ""
         if not prod_name:
-            logger.warning(f"홈쇼핑 상품명을 찾을 수 없음: product_id={product_id}")
+            logger.warning(f"홈쇼핑 상품명을 찾을 수 없음: homeshopping_product_id={homeshopping_product_id}")
             return []
 
         # 1) 키워드 구성
@@ -1360,7 +1355,7 @@ async def recommend_homeshopping_to_kok(
         # 3) 후보 내 pgvector 정렬
         sims = await get_pgvector_topk_within(
             db,
-            product_id=product_id,
+            product_id=homeshopping_product_id,
             candidate_ids=cand_ids,
             k=max(k, candidate_n),
         )
@@ -1392,17 +1387,17 @@ async def recommend_homeshopping_to_kok(
         logger.error(f"추천 로직 실패: {str(e)}, 폴백 시스템 사용")
         
         # 폴백: 기존 로직 사용
-        return await simple_recommend_homeshopping_to_kok(product_id, k, db)
+        return await simple_recommend_homeshopping_to_kok(homeshopping_product_id, k, db)
 
 async def simple_recommend_homeshopping_to_kok(
-    product_id: int,
+    homeshopping_product_id: int,
     k: int = 5,
     db=None
 ) -> List[Dict]:
     """
     간단한 추천 데이터 반환 (실제 DB 연동 시도, 실패 시 더미 데이터)
     """
-    logger.info(f"간단한 추천 시스템 호출: product_id={product_id}, k={k}")
+    logger.info(f"간단한 추천 시스템 호출: homeshopping_product_id={homeshopping_product_id}, k={k}")
     
     # DB가 있고 실제 DB 연동이 가능한 경우 시도
     if db:

@@ -19,11 +19,15 @@ from services.order.crud.order_common import (
 )
 
 from common.database.mariadb_service import get_maria_service_db
+
 from common.logger import get_logger
 logger = get_logger("hs_order_crud")
 
 
-async def get_hs_current_status(db: AsyncSession, homeshopping_order_id: int) -> HomeShoppingOrderStatusHistory:
+async def get_hs_current_status(
+    db: AsyncSession, 
+    homeshopping_order_id: int
+) -> HomeShoppingOrderStatusHistory:
     """
     홈쇼핑 주문의 현재 상태(가장 최근 상태 이력) 조회
     

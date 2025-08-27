@@ -12,8 +12,8 @@ from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession 
 
 from services.order.models.order_model import (
-    Order, KokOrder, HomeShoppingOrder, 
-    KokOrderStatusHistory, HomeShoppingOrderStatusHistory, 
+    Order, KokOrder, KokOrderStatusHistory, 
+    HomeShoppingOrder, HomeShoppingOrderStatusHistory, 
     StatusMaster
 )
 from services.kok.models.kok_model import KokProductInfo, KokImageInfo
@@ -26,6 +26,7 @@ from services.recipe.crud.recipe_crud import fetch_recipe_ingredients_status
 
 from common.logger import get_logger
 logger = get_logger("order_crud")
+
 
 async def get_delivery_info(db: AsyncSession, order_type: str, order_id: int) -> tuple[str, str]:
     """

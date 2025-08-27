@@ -13,27 +13,38 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status, Background
 from sqlalchemy.ext.asyncio import AsyncSession
 import pandas as pd
 
-from common.dependencies import get_current_user, debug_optional_auth, get_current_user_optional
+from common.dependencies import (
+    get_current_user, debug_optional_auth, get_current_user_optional
+)
 
 from services.kok.models.kok_model import KokCart
 from services.user.schemas.user_schema import UserOut
+from services.homeshopping.schemas.homeshopping_schema import (
+    KokHomeshoppingRecommendationProduct, 
+    KokHomeshoppingRecommendationResponse
+)
 from services.kok.schemas.kok_schema import (
     # 제품 관련 스키마
     KokProductDetailResponse,
     KokProductInfoResponse,
     KokProductTabsResponse,
+
     # 리뷰 관련 스키마      
     KokReviewResponse,
+
     # 상품 상세정보 스키마
     KokProductDetailsResponse,
+
     # 메인화면 상품 리스트 스키마
     KokDiscountedProductsResponse,
     KokTopSellingProductsResponse,
     KokStoreBestProductsResponse,
+
     # 찜 관련 스키마
     KokLikesToggleRequest,
     KokLikesToggleResponse,
     KokLikedProductsResponse,
+
     # 장바구니 관련 스키마
     KokCartItemsResponse,
     KokCartAddRequest,
@@ -41,13 +52,18 @@ from services.kok.schemas.kok_schema import (
     KokCartUpdateRequest,
     KokCartUpdateResponse,
     KokCartDeleteResponse,
-    KokCartRecipeRecommendRequest,
     KokCartRecipeRecommendResponse,
+
     # 검색 관련 스키마
     KokSearchResponse,
     KokSearchHistoryResponse,
     KokSearchHistoryCreate,
     KokSearchHistoryDeleteResponse
+)
+from services.homeshopping.crud.homeshopping_crud import (
+    get_kok_product_name_by_id, 
+    get_homeshopping_recommendations_by_kok, 
+    get_homeshopping_recommendations_fallback
 )
 from services.kok.crud.kok_crud import (
     # 제품 관련 CRUD
@@ -55,23 +71,25 @@ from services.kok.crud.kok_crud import (
     get_kok_product_info,
     get_kok_product_tabs,
     get_kok_product_seller_details,
+
     # 리뷰 관련 CRUD
     get_kok_review_data,
+
     # 메인화면 상품 리스트 CRUD
     get_kok_discounted_products,
     get_kok_top_selling_products,
     get_kok_store_best_items,
+
     # 찜 관련 CRUD
     toggle_kok_likes,
     get_kok_liked_products,
+
     # 장바구니 관련 CRUD
     get_kok_cart_items,
     add_kok_cart,
     update_kok_cart_quantity,
     delete_kok_cart_item,
-    get_ingredients_from_selected_cart_items,
-    get_ingredients_from_cart_product_ids,
-    get_cart_product_names_by_ids,
+
     # 검색 관련 CRUD
     search_kok_products,
     get_kok_search_history,
@@ -193,7 +211,7 @@ async def get_store_best_items(
 @router.get("/product/{product_id}/info", response_model=KokProductInfoResponse)
 async def get_product_info(
         request: Request,
-        product_id: int,
+        kok_product_id: int,
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -202,9 +220,9 @@ async def get_product_info(
     """
     current_user = await get_current_user_optional(request)
     user_id = current_user.user_id if current_user else None
-    logger.info(f"상품 기본 정보 조회 요청: user_id={user_id}, product_id={product_id}")
+    logger.info(f"상품 기본 정보 조회 요청: user_id={user_id}, kok_product_id={kok_product_id}")
     
-    product = await get_kok_product_info(db, product_id, user_id)
+    product = await get_kok_product_info(db, kok_product_id, user_id)
     if not product:
         raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
     
@@ -214,17 +232,17 @@ async def get_product_info(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="product_info_view", 
-            event_data={"product_id": product_id}
+            event_data={"kok_product_id": kok_product_id}
         )
     
-    logger.info(f"상품 기본 정보 조회 완료: user_id={user_id}, product_id={product_id}")
+    logger.info(f"상품 기본 정보 조회 완료: user_id={user_id}, kok_product_id={kok_product_id}")
     return product
 
 
 @router.get("/product/{product_id}/tabs", response_model=KokProductTabsResponse)
 async def get_product_tabs(
         request: Request,
-        product_id: int,
+        kok_product_id: int,
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -233,9 +251,9 @@ async def get_product_tabs(
     """
     current_user = await get_current_user_optional(request)
     user_id = current_user.user_id if current_user else None
-    logger.info(f"상품 탭 정보 조회 요청: user_id={user_id}, product_id={product_id}")
+    logger.info(f"상품 탭 정보 조회 요청: user_id={user_id}, kok_product_id={kok_product_id}")
     
-    images = await get_kok_product_tabs(db, product_id)
+    images = await get_kok_product_tabs(db, kok_product_id)
     if images is None:
         raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
     
@@ -245,10 +263,10 @@ async def get_product_tabs(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="product_tabs_view", 
-            event_data={"product_id": product_id, "tab_count": len(images)}
+            event_data={"kok_product_id": kok_product_id, "tab_count": len(images)}
         )
     
-    logger.info(f"상품 탭 정보 조회 완료: user_id={user_id}, product_id={product_id}")
+    logger.info(f"상품 탭 정보 조회 완료: user_id={user_id}, kok_product_id={kok_product_id}")
     return {
         "images": images
     }
@@ -257,7 +275,7 @@ async def get_product_tabs(
 @router.get("/product/{product_id}/reviews", response_model=KokReviewResponse)
 async def get_product_reviews(
         request: Request,
-        product_id: int,
+        kok_product_id: int,
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -268,9 +286,9 @@ async def get_product_reviews(
     """
     current_user = await get_current_user_optional(request)
     user_id = current_user.user_id if current_user else None
-    logger.info(f"상품 리뷰 조회 요청: user_id={user_id}, product_id={product_id}")
+    logger.info(f"상품 리뷰 조회 요청: user_id={user_id}, kok_product_id={kok_product_id}")
     
-    review_data = await get_kok_review_data(db, product_id)
+    review_data = await get_kok_review_data(db, kok_product_id)
     if review_data is None:
         raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
     
@@ -280,10 +298,10 @@ async def get_product_reviews(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="product_reviews_view", 
-            event_data={"product_id": product_id}
+            event_data={"kok_product_id": kok_product_id}
         )
     
-    logger.info(f"상품 리뷰 조회 완료: user_id={user_id}, product_id={product_id}")
+    logger.info(f"상품 리뷰 조회 완료: user_id={user_id}, kok_product_id={kok_product_id}")
     return review_data
 
 
@@ -294,7 +312,7 @@ async def get_product_reviews(
 @router.get("/product/{product_id}/seller-details", response_model=KokProductDetailsResponse)
 async def get_product_details(
         request: Request,
-        product_id: int,
+        kok_product_id: int,
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -303,9 +321,9 @@ async def get_product_details(
     """
     current_user = await get_current_user_optional(request)
     user_id = current_user.user_id if current_user else None
-    logger.info(f"상품 상세 정보 조회 요청: user_id={user_id}, product_id={product_id}")
+    logger.info(f"상품 상세 정보 조회 요청: user_id={user_id}, kok_product_id={kok_product_id}")
     
-    product_details = await get_kok_product_seller_details(db, product_id)
+    product_details = await get_kok_product_seller_details(db, kok_product_id)
     if not product_details:
         raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
     
@@ -315,17 +333,17 @@ async def get_product_details(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="product_details_view", 
-            event_data={"product_id": product_id}
+            event_data={"kok_product_id": kok_product_id}
         )
     
-    logger.info(f"상품 상세 정보 조회 완료: user_id={user_id}, product_id={product_id}")
+    logger.info(f"상품 상세 정보 조회 완료: user_id={user_id}, kok_product_id={kok_product_id}")
     return product_details
 
 
 @router.get("/product/{product_id}/full-detail", response_model=KokProductDetailResponse)
 async def get_product_detail(
         request: Request,
-        product_id: int,
+        kok_product_id: int,
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -334,9 +352,9 @@ async def get_product_detail(
     """
     current_user = await get_current_user_optional(request)
     user_id = current_user.user_id if current_user else None
-    logger.info(f"상품 상세 조회 요청: user_id={user_id}, product_id={product_id}")
+    logger.info(f"상품 상세 조회 요청: user_id={user_id}, kok_product_id={kok_product_id}")
     
-    product = await get_kok_product_full_detail(db, product_id)
+    product = await get_kok_product_full_detail(db, kok_product_id)
     if not product:
         raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
     
@@ -346,10 +364,10 @@ async def get_product_detail(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="product_view", 
-            event_data={"product_id": product_id, "kok_product_name": product.get("kok_product_name", "")}
+            event_data={"kok_product_id": kok_product_id, "kok_product_name": product.get("kok_product_name", "")}
         )
     
-    logger.info(f"상품 상세 조회 완료: user_id={user_id}, product_id={product_id}")
+    logger.info(f"상품 상세 조회 완료: user_id={user_id}, kok_product_id={kok_product_id}")
     return product
 
 
@@ -526,13 +544,13 @@ async def toggle_likes(
     """
     상품 찜 등록/해제
     """
-    logger.info(f"찜 토글 요청: user_id={current_user.user_id}, product_id={like_data.kok_product_id}")
+    logger.info(f"찜 토글 요청: user_id={current_user.user_id}, kok_product_id={like_data.kok_product_id}")
     
     try:
         liked = await toggle_kok_likes(db, current_user.user_id, like_data.kok_product_id)
         await db.commit()
         
-        logger.info(f"찜 토글 완료: user_id={current_user.user_id}, product_id={like_data.kok_product_id}, liked={liked}")
+        logger.info(f"찜 토글 완료: user_id={current_user.user_id}, kok_product_id={like_data.kok_product_id}, liked={liked}")
         
         # 찜 토글 로그 기록
         if background_tasks:
@@ -541,7 +559,7 @@ async def toggle_likes(
                 user_id=current_user.user_id, 
                 event_type="likes_toggle", 
                 event_data={
-                    "product_id": like_data.kok_product_id,
+                    "kok_product_id": like_data.kok_product_id,
                     "liked": liked
                 }
             )
@@ -558,7 +576,7 @@ async def toggle_likes(
             }
     except Exception as e:
         await db.rollback()
-        logger.error(f"찜 토글 실패: user_id={current_user.user_id}, product_id={like_data.kok_product_id}, error={str(e)}")
+        logger.error(f"찜 토글 실패: user_id={current_user.user_id}, kok_product_id={like_data.kok_product_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail="찜 토글 중 오류가 발생했습니다.")
 
 
@@ -626,7 +644,7 @@ async def add_cart_item(
         new_cart = cart_result.scalar_one()
         actual_cart_id = new_cart.kok_cart_id if new_cart else 0
         
-        logger.info(f"장바구니 추가 완료: user_id={current_user.user_id}, cart_id={actual_cart_id}, message={result['message']}")
+        logger.info(f"장바구니 추가 완료: user_id={current_user.user_id}, kok_cart_id={actual_cart_id}, message={result['message']}")
         
         # 장바구니 추가 로그 기록
         if background_tasks:
@@ -637,7 +655,7 @@ async def add_cart_item(
                 event_data={
                     "kok_product_id": cart_data.kok_product_id,
                     "kok_quantity": cart_data.kok_quantity,
-                    "cart_id": actual_cart_id,
+                    "kok_cart_id": actual_cart_id,
                     "recipe_id": cart_data.recipe_id
                 }
             )
@@ -648,7 +666,7 @@ async def add_cart_item(
         )
     except Exception as e:
         await db.rollback()
-        logger.error(f"장바구니 추가 실패: user_id={current_user.user_id}, product_id={cart_data.kok_product_id}, error={str(e)}")
+        logger.error(f"장바구니 추가 실패: user_id={current_user.user_id}, kok_product_id={cart_data.kok_product_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail="장바구니 추가 중 오류가 발생했습니다.")
     
 
@@ -701,7 +719,7 @@ async def update_cart_quantity(
                 user_id=current_user.user_id, 
                 event_type="cart_update", 
                 event_data={
-                    "cart_id": cart_id,
+                    "kok_cart_id": cart_id,
                     "quantity": update_data.kok_quantity
                 }
             )
@@ -716,7 +734,7 @@ async def update_cart_quantity(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         await db.rollback()
-        logger.error(f"장바구니 수량 변경 실패: user_id={current_user.user_id}, cart_id={cart_id}, error={str(e)}")
+        logger.error(f"장바구니 수량 변경 실패: user_id={current_user.user_id}, kok_cart_id={cart_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail="장바구니 수량 변경 중 오류가 발생했습니다.")
 
 
@@ -742,7 +760,7 @@ async def delete_cart_item(
                     send_user_log, 
                     user_id=current_user.user_id, 
                     event_type="cart_delete", 
-                    event_data={"cart_id": cart_id}
+                    event_data={"kok_cart_id": cart_id}
                 )
             
             return KokCartDeleteResponse(message="장바구니에서 상품이 삭제되었습니다.")
@@ -752,7 +770,7 @@ async def delete_cart_item(
         raise
     except Exception as e:
         await db.rollback()
-        logger.error(f"장바구니 삭제 실패: user_id={current_user.user_id}, cart_id={cart_id}, error={str(e)}")
+        logger.error(f"장바구니 삭제 실패: user_id={current_user.user_id}, kok_cart_id={cart_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail="장바구니 삭제 중 오류가 발생했습니다.")
 
 
@@ -858,7 +876,7 @@ async def recommend_recipes_from_cart_items(
                 event_data={
                     "kok_product_ids": product_ids,
                     "extracted_ingredients": ingredients,
-                    "product_names": product_names,
+                    "kok_product_names": product_names,
                     "recommended_recipes_count": len(recipes),
                     "page": page,
                     "size": size
@@ -903,8 +921,6 @@ async def get_homeshopping_recommendations(
         logger.info(f"홈쇼핑 추천 요청: user_id={user_id}, k={k}")
         
         # 1. 현재 사용자의 KOK 찜 목록과 장바구니 목록에서 kok_product_id 수집
-        from services.kok.crud.kok_crud import get_kok_liked_products, get_kok_cart_items
-        
         # 찜한 상품들의 kok_product_id 수집
         liked_products = await get_kok_liked_products(db, user_id, limit=100)
         liked_product_ids = [product["kok_product_id"] for product in liked_products]
@@ -921,10 +937,7 @@ async def get_homeshopping_recommendations(
         
         logger.info(f"수집된 KOK 상품 ID: 찜={len(liked_product_ids)}개, 장바구니={len(cart_product_ids)}개, 총={len(all_product_ids)}개")
         
-        # 2. 각 KOK 상품명 조회 및 추천 키워드 수집
-        from services.homeshopping.crud.homeshopping_crud import get_kok_product_name_by_id
-        from services.kok.utils.kok_homeshopping import get_recommendation_strategy
-        
+        # 2. 각 KOK 상품명 조회 및 추천 키워드 수집        
         all_search_terms = set()
         kok_product_names = []
         
@@ -946,9 +959,7 @@ async def get_homeshopping_recommendations(
         
         logger.info(f"추출된 추천 키워드: {list(all_search_terms)}")
         
-        # 3. 각 KOK 상품별로 홈쇼핑 상품 추천 조회 (각각 최대 5개씩)
-        from services.homeshopping.crud.homeshopping_crud import get_homeshopping_recommendations_by_kok, get_homeshopping_recommendations_fallback
-        
+        # 3. 각 KOK 상품별로 홈쇼핑 상품 추천 조회 (각각 최대 5개씩)        
         all_recommendations = []
         product_recommendations = {}  # 각 상품별 추천 결과를 저장
         
@@ -1021,8 +1032,6 @@ async def get_homeshopping_recommendations(
         }
         
         # 5. 응답 데이터 구성
-        from services.homeshopping.schemas.homeshopping_schema import KokHomeshoppingRecommendationProduct, KokHomeshoppingRecommendationResponse
-        
         response_products = []
         for rec in final_recommendations:
             response_products.append(KokHomeshoppingRecommendationProduct(
