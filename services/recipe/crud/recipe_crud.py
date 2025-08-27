@@ -919,7 +919,7 @@ async def get_recipe_ingredients_status(
                 Order.order_time,
                 KokOrder.kok_order_id,
                 KokOrder.kok_product_id,
-                KokOrder.kok_quantity,
+                KokOrder.quantity,
                 KokProductInfo.kok_product_name
             )
             .join(KokOrder, Order.order_id == KokOrder.order_id)
@@ -955,14 +955,14 @@ async def get_recipe_ingredients_status(
             
             # 주문 정보를 딕셔너리 형태로 변환
             recent_orders = []
-            for order_id, order_time, kok_order_id, kok_product_id, kok_quantity, kok_product_name in kok_orders:
+            for order_id, order_time, kok_order_id, kok_product_id, quantity, kok_product_name in kok_orders:
                 recent_orders.append({
                     "order_id": order_id,
                     "order_time": order_time,
                     "kok_orders": [{
                         "kok_order_id": kok_order_id,
                         "kok_product_id": kok_product_id,
-                        "kok_quantity": kok_quantity,
+                        "quantity": quantity,
                         "product_name": kok_product_name
                     }],
                     "homeshopping_orders": []
