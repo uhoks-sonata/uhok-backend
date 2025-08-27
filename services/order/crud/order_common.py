@@ -52,7 +52,18 @@ NOTIFICATION_MESSAGES = {
 async def get_status_by_code(db: AsyncSession, status_code: str) -> StatusMaster:
     """
     상태 코드로 상태 정보 조회
-    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+    
+    Args:
+        db: 데이터베이스 세션
+        status_code: 조회할 상태 코드
+    
+    Returns:
+        StatusMaster: 상태 정보 객체 (없으면 None)
+        
+    Note:
+        - CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+        - StatusMaster 테이블에서 status_code로 조회
+        - 주문 상태 변경 시 상태 정보 조회에 사용
     """
     result = await db.execute(
         select(StatusMaster).where(StatusMaster.status_code == status_code)
@@ -62,7 +73,18 @@ async def get_status_by_code(db: AsyncSession, status_code: str) -> StatusMaster
 async def initialize_status_master(db: AsyncSession):
     """
     STATUS_MASTER 테이블에 기본 상태 코드들을 초기화
-    CRUD 계층: DB 상태 변경 담당, 트랜잭션 단위 책임
+    
+    Args:
+        db: 데이터베이스 세션
+    
+    Returns:
+        None
+        
+    Note:
+        - CRUD 계층: DB 상태 변경 담당, 트랜잭션 단위 책임
+        - STATUS_CODES 상수에 정의된 모든 상태 코드를 테이블에 추가
+        - 기존 상태 코드가 있는 경우 중복 추가하지 않음
+        - 시스템 초기화 시 사용
     """
     for status_code, status_name in STATUS_CODES.items():
         # 기존 상태 코드 확인
@@ -80,7 +102,19 @@ async def initialize_status_master(db: AsyncSession):
 async def validate_user_exists(user_id: int, db: AsyncSession) -> bool:
     """
     사용자 ID가 유효한지 검증 (AUTH_DB.USERS 테이블 확인)
-    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+    
+    Args:
+        user_id: 검증할 사용자 ID
+        db: 데이터베이스 세션 (사용되지 않음, AUTH_DB 사용)
+    
+    Returns:
+        bool: 사용자가 존재하면 True, 없으면 False
+        
+    Note:
+        - CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+        - AUTH_DB.USERS 테이블에서 사용자 존재 여부 확인
+        - 주문 생성 시 사용자 유효성 검증에 사용
+        - 별도의 AUTH_DB 세션을 사용하여 인증 데이터베이스 접근
     """  
     # AUTH_DB에서 사용자 조회
     auth_db = get_maria_auth_db()

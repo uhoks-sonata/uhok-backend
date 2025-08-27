@@ -2,12 +2,28 @@
 BackgroundTasks용 로그 API 호출 함수 (.env config 사용)
 """
 import requests
+import json
+from datetime import datetime
 from common.config import get_settings
 from common.logger import get_logger
 
 settings = get_settings()
 logger = get_logger("log_utils")
 api_url = settings.log_api_url   # .env에서 불러옴
+
+
+def serialize_datetime(obj):
+    """
+    datetime 객체를 JSON 직렬화 가능한 형태로 변환
+    """
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, dict):
+        return {key: serialize_datetime(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [serialize_datetime(item) for item in obj]
+    else:
+        return obj
 
 def check_log_service_health():
     """
@@ -42,10 +58,13 @@ def send_user_log(user_id: int, event_type: str, event_data: dict = None):
     if not health_check_passed:
         logger.debug(f"로그 서비스 헬스체크 실패했지만 로그 전송을 시도합니다: user_id={user_id}, event_type={event_type}")
     
+    # event_data에 datetime 객체가 있을 수 있으므로 JSON 직렬화 가능한 형태로 변환
+    serialized_event_data = serialize_datetime(event_data) if event_data else {}
+    
     log_payload = {
         "user_id": user_id,
         "event_type": event_type,
-        "event_data": event_data or {}
+        "event_data": serialized_event_data
     }
     
     # 재시도 설정

@@ -55,8 +55,22 @@ async def order_from_selected_carts(
 ):
     """
     장바구니에서 선택된 항목들로 주문 생성
-    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
-    비즈니스 로직은 CRUD 계층에 위임
+    
+    Args:
+        request: 장바구니 주문 요청 데이터 (선택된 항목들)
+        current_user: 현재 인증된 사용자 (의존성 주입)
+        background_tasks: 백그라운드 작업 관리자
+        db: 데이터베이스 세션 (의존성 주입)
+    
+    Returns:
+        KokCartOrderResponse: 주문 생성 결과
+        
+    Note:
+        - Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+        - 비즈니스 로직은 CRUD 계층에 위임
+        - 선택된 장바구니 항목들을 기반으로 주문 생성
+        - 주문 생성 후 사용자 행동 로그 기록
+        - 단일 상품 주문 대신 멀티 카트 주문 방식 사용
     """
     logger.info(f"장바구니 주문 시작: user_id={current_user.user_id}, selected_items_count={len(request.selected_items)}")
     
@@ -64,29 +78,47 @@ async def order_from_selected_carts(
         logger.warning(f"선택된 항목이 없음: user_id={current_user.user_id}")
         raise HTTPException(status_code=400, detail="선택된 항목이 없습니다.")
 
-    # CRUD 계층에 주문 생성 위임
-    result = await create_orders_from_selected_carts(
-        db, current_user.user_id, [i.model_dump() for i in request.selected_items]
-    )
-
-    logger.info(f"장바구니 주문 완료: user_id={current_user.user_id}, order_id={result['order_id']}, order_count={result['order_count']}")
-
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log,
-            user_id=current_user.user_id,
-            event_type="cart_order_create",
-            event_data=result,
+    try:
+        # CRUD 계층에 주문 생성 위임
+        result = await create_orders_from_selected_carts(
+            db, current_user.user_id, [i.model_dump() for i in request.selected_items]
         )
 
-    return KokCartOrderResponse(
-        order_id=result["order_id"],
-        total_amount=result["total_amount"],
-        order_count=result["order_count"],
-        order_details=result["order_details"],
-        message=result["message"],
-        order_time=result["order_time"],
-    )
+        logger.info(f"장바구니 주문 완료: user_id={current_user.user_id}, order_id={result['order_id']}, order_count={result['order_count']}")
+
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log,
+                user_id=current_user.user_id,
+                event_type="cart_order_create",
+                event_data=result,
+            )
+
+        return KokCartOrderResponse(
+            order_id=result["order_id"],
+            total_amount=result["total_amount"],
+            order_count=result["order_count"],
+            order_details=result["order_details"],
+            message=result["message"],
+            order_time=result["order_time"],
+        )
+        
+    except ValueError as e:
+        logger.warning(f"장바구니 주문 생성 실패 (검증 오류): user_id={current_user.user_id}, error={str(e)}")
+        # 사용자에게 더 친화적인 에러 메시지 제공
+        error_message = str(e)
+        if "선택된 장바구니 항목을 찾을 수 없습니다" in error_message:
+            error_message = "선택한 장바구니 항목이 존재하지 않거나 이미 삭제되었습니다. 장바구니를 다시 확인해주세요."
+        elif "상품 정보나 가격 정보를 찾을 수 없습니다" in error_message:
+            error_message = "선택한 상품의 정보를 찾을 수 없습니다. 상품이 삭제되었거나 가격 정보가 누락되었을 수 있습니다."
+        elif "유효한 주문 항목을 생성할 수 없습니다" in error_message:
+            error_message = "주문할 수 있는 유효한 상품이 없습니다. 상품 정보를 확인해주세요."
+        
+        raise HTTPException(status_code=400, detail=error_message)
+        
+    except Exception as e:
+        logger.error(f"장바구니 주문 생성 실패 (시스템 오류): user_id={current_user.user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="주문 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
 
 
 # ================================
@@ -103,8 +135,23 @@ async def update_kok_order_status_api(
 ):
     """
     콕 주문 상태 업데이트
-    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
-    비즈니스 로직은 CRUD 계층에 위임
+    
+    Args:
+        kok_order_id: 콕 주문 ID
+        status_update: 상태 업데이트 요청 데이터
+        background_tasks: 백그라운드 작업 관리자
+        db: 데이터베이스 세션 (의존성 주입)
+        user: 현재 인증된 사용자 (의존성 주입)
+    
+    Returns:
+        KokOrderStatusResponse: 상태 업데이트 결과 (현재 상태 + 변경 이력)
+        
+    Note:
+        - Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+        - 비즈니스 로직은 CRUD 계층에 위임
+        - 주문자 본인만 상태 변경 가능 (권한 검증)
+        - 상태 변경 시 자동으로 알림 생성
+        - 상태 변경 이력 기록 및 사용자 행동 로그 기록
     """
     try:
         # 사용자 권한 확인 - order 정보 명시적으로 로드
@@ -173,6 +220,22 @@ async def get_kok_order_status(
 ):
     """
     콕 주문 현재 상태 및 변경 이력 조회 (가장 최근 이력 사용)
+    
+    Args:
+        kok_order_id: 콕 주문 ID
+        background_tasks: 백그라운드 작업 관리자
+        db: 데이터베이스 세션 (의존성 주입)
+        user: 현재 인증된 사용자 (의존성 주입)
+    
+    Returns:
+        KokOrderStatusResponse: 주문 상태 정보 (현재 상태 + 변경 이력)
+        
+    Note:
+        - Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+        - 비즈니스 로직은 CRUD 계층에 위임
+        - 주문자 본인만 조회 가능 (권한 검증)
+        - 가장 최근 상태 이력을 기준으로 현재 상태 판단
+        - 상태 변경 이력 전체 조회
     """
     # 1. 주문 존재 여부 확인
     kok_order_result = await db.execute(

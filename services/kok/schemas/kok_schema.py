@@ -4,10 +4,9 @@
 - DB ORM과 분리, API 직렬화/유효성 검증용
 - DB 데이터 정의서 기반으로 변수명 통일 (KOK_ 접두사 제거 후 소문자)
 """
-
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
-from datetime import datetime, date, time
+from datetime import datetime
 
 # -----------------------------
 # 이미지 정보 스키마
@@ -403,6 +402,7 @@ class KokCartItem(BaseModel):
     """장바구니 상품 정보"""
     kok_cart_id: int
     kok_product_id: int
+    kok_price_id: Optional[int] = None  # 최신 가격 ID 추가
     recipe_id: Optional[int] = None
     kok_product_name: Optional[str] = None
     kok_thumbnail: Optional[str] = None

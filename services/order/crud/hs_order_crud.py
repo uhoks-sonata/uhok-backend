@@ -26,7 +26,19 @@ logger = get_logger("hs_order_crud")
 async def get_hs_current_status(db: AsyncSession, homeshopping_order_id: int) -> HomeShoppingOrderStatusHistory:
     """
     홈쇼핑 주문의 현재 상태(가장 최근 상태 이력) 조회
-    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+    
+    Args:
+        db: 데이터베이스 세션
+        homeshopping_order_id: 홈쇼핑 주문 ID
+    
+    Returns:
+        HomeShoppingOrderStatusHistory: 가장 최근 상태 이력 객체
+        
+    Note:
+        - CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+        - changed_at 기준으로 내림차순 정렬하여 가장 최근 상태 반환
+        - 상태 이력이 없는 경우 기본 상태(ORDER_RECEIVED)로 상태 이력 생성
+        - status 관계를 명시적으로 로드하여 상태 정보 포함
     """
     result = await db.execute(
         select(HomeShoppingOrderStatusHistory)
@@ -73,7 +85,21 @@ async def create_hs_notification_for_status_change(
 ):
     """
     홈쇼핑 주문 상태 변경 시 알림 생성
-    CRUD 계층: DB 상태 변경 담당, 트랜잭션 단위 책임
+    
+    Args:
+        db: 데이터베이스 세션
+        homeshopping_order_id: 홈쇼핑 주문 ID
+        status_id: 상태 ID
+        user_id: 사용자 ID
+    
+    Returns:
+        None
+        
+    Note:
+        - CRUD 계층: DB 상태 변경 담당, 트랜잭션 단위 책임
+        - 주문 상태 변경 시 자동으로 알림 생성
+        - NOTIFICATION_TITLES와 NOTIFICATION_MESSAGES에서 상태별 메시지 조회
+        - HomeshoppingNotification 테이블에 알림 정보 저장
     """
     # 상태 정보 조회
     status_result = await db.execute(
@@ -111,7 +137,21 @@ async def update_hs_order_status(
 ) -> HomeShoppingOrder:
     """
     홈쇼핑 주문 상태 업데이트 (INSERT만 사용) + 알림 생성
-    CRUD 계층: 트랜잭션 단위 책임
+    
+    Args:
+        db: 데이터베이스 세션
+        homeshopping_order_id: 홈쇼핑 주문 ID
+        new_status_code: 새로운 상태 코드
+        changed_by: 상태 변경을 수행한 사용자 ID (기본값: None)
+    
+    Returns:
+        HomeShoppingOrder: 업데이트된 홈쇼핑 주문 객체
+        
+    Note:
+        - CRUD 계층: 트랜잭션 단위 책임
+        - 기존 상태를 UPDATE하지 않고 새로운 상태 이력을 INSERT
+        - 상태 변경 시 자동으로 알림 생성
+        - 트랜잭션으로 처리하여 일관성 보장
     """
     # 1. 새로운 상태 조회
     new_status = await get_status_by_code(db, new_status_code)
@@ -164,7 +204,20 @@ async def get_hs_order_status_history(
 ) -> list[HomeShoppingOrderStatusHistory]:
     """
     홈쇼핑 주문의 상태 변경 이력 조회
-    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+    
+    Args:
+        db: 데이터베이스 세션
+        homeshopping_order_id: 홈쇼핑 주문 ID
+    
+    Returns:
+        list[HomeShoppingOrderStatusHistory]: 상태 변경 이력 목록
+        
+    Note:
+        - CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+        - 주문의 모든 상태 변경 이력을 시간순으로 조회
+        - StatusMaster와 조인하여 상태 정보 포함
+        - changed_at 기준으로 내림차순 정렬
+        - status 관계를 명시적으로 로드하여 상태 정보 포함
     """
     result = await db.execute(
         select(HomeShoppingOrderStatusHistory)
@@ -194,7 +247,20 @@ async def get_hs_order_with_status(
 ) -> dict:
     """
     홈쇼핑 주문과 현재 상태를 함께 조회
-    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+    
+    Args:
+        db: 데이터베이스 세션
+        homeshopping_order_id: 홈쇼핑 주문 ID
+    
+    Returns:
+        dict: 주문 정보와 현재 상태 정보
+        
+    Note:
+        - CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+        - 주문 정보, 상품 정보, 현재 상태, 상태 이력을 모두 포함
+        - 가장 최근 상태 이력을 기준으로 현재 상태 판단
+        - 상태 이력이 없는 경우 기본 상태(ORDER_RECEIVED) 사용
+        - 상세한 디버깅 로그 포함
     """
     # 주문 상세 정보 조회
     hs_order_result = await db.execute(
@@ -299,7 +365,21 @@ async def confirm_hs_payment(
 ) -> dict:
     """
     홈쇼핑 주문 결제 확인 (PAYMENT_REQUESTED → PAYMENT_COMPLETED)
-    CRUD 계층: 트랜잭션 단위 책임
+    
+    Args:
+        db: 데이터베이스 세션
+        homeshopping_order_id: 홈쇼핑 주문 ID
+        user_id: 결제 확인을 요청한 사용자 ID
+    
+    Returns:
+        dict: 결제 확인 결과 (homeshopping_order_id, previous_status, current_status, message)
+        
+    Note:
+        - CRUD 계층: 트랜잭션 단위 책임
+        - 주문자 본인만 결제 확인 가능
+        - 현재 상태가 PAYMENT_REQUESTED인지 확인
+        - PAYMENT_COMPLETED 상태로 변경하고 알림 생성
+        - 트랜잭션으로 처리하여 일관성 보장
     """
     # 1. 주문 조회 및 권한 확인
     hs_order_result = await db.execute(
@@ -366,7 +446,21 @@ async def start_hs_auto_update(
 ) -> dict:
     """
     홈쇼핑 주문 자동 상태 업데이트 시작 (테스트용)
-    CRUD 계층: 트랜잭션 단위 책임
+    
+    Args:
+        db: 데이터베이스 세션
+        homeshopping_order_id: 홈쇼핑 주문 ID
+        user_id: 자동 업데이트를 요청한 사용자 ID
+    
+    Returns:
+        dict: 자동 업데이트 시작 결과 (homeshopping_order_id, message, auto_update_started, current_status, next_status)
+        
+    Note:
+        - CRUD 계층: 트랜잭션 단위 책임
+        - 주문자 본인만 자동 업데이트 시작 가능
+        - 현재 상태에 따른 다음 상태 결정 및 업데이트
+        - 백그라운드에서 나머지 상태 업데이트 시작
+        - 상태 전환 로직: PAYMENT_COMPLETED → PREPARING → SHIPPING → DELIVERED
     """
     try:
         # 1. 주문 조회 및 권한 확인
@@ -475,7 +569,20 @@ async def start_hs_auto_update(
 async def auto_update_hs_order_status(homeshopping_order_id: int, db: AsyncSession):
     """
     홈쇼핑 주문 후 자동으로 상태를 업데이트하는 함수
-    PAYMENT_COMPLETED -> PREPARING -> SHIPPING -> DELIVERED 순서로 업데이트
+    
+    Args:
+        homeshopping_order_id: 홈쇼핑 주문 ID
+        db: 데이터베이스 세션
+    
+    Returns:
+        None
+        
+    Note:
+        - PAYMENT_COMPLETED -> PREPARING -> SHIPPING -> DELIVERED 순서로 자동 업데이트
+        - 각 단계마다 5초 대기
+        - 첫 단계(PAYMENT_COMPLETED)는 이미 설정되어 있을 수 있으므로 건너뜀
+        - 시스템 자동 업데이트 (changed_by=1)
+        - 각 단계마다 commit하여 DB에 반영
     """
     status_sequence = [
         "PAYMENT_COMPLETED",
@@ -515,7 +622,18 @@ async def auto_update_hs_order_status(homeshopping_order_id: int, db: AsyncSessi
 async def start_auto_hs_order_status_update(homeshopping_order_id: int):
     """
     홈쇼핑 주문 자동 상태 업데이트를 백그라운드에서 시작하는 함수
-    CRUD 계층: 백그라운드 작업 시작 담당
+    
+    Args:
+        homeshopping_order_id: 홈쇼핑 주문 ID
+    
+    Returns:
+        None
+        
+    Note:
+        - CRUD 계층: 백그라운드 작업 시작 담당
+        - 새로운 DB 세션을 생성하여 자동 상태 업데이트 실행
+        - 백그라운드 작업 실패는 전체 프로세스를 중단하지 않음
+        - 첫 번째 세션만 사용하여 리소스 효율성 확보
     """
     try:
         # 새로운 DB 세션 생성
@@ -539,7 +657,20 @@ async def calculate_homeshopping_order_price(
 ) -> dict:
     """
     홈쇼핑 주문 금액 계산
-    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+    
+    Args:
+        db: 데이터베이스 세션
+        product_id: 상품 ID
+        quantity: 수량 (기본값: 1)
+    
+    Returns:
+        dict: 가격 정보 (product_id, product_name, dc_price, quantity, order_price)
+        
+    Note:
+        - CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+        - 할인가(dc_price) 우선 사용, 없으면 할인율 적용하여 계산
+        - 최종 주문 금액 = 할인가 × 수량
+        - 상품명도 함께 조회하여 반환
     """
     logger.info(f"홈쇼핑 주문 금액 계산 시작: product_id={product_id}, quantity={quantity}")
     
@@ -593,7 +724,22 @@ async def create_homeshopping_order(
 ) -> dict:
     """
     홈쇼핑 주문 생성 (단건 주문)
-    CRUD 계층: 트랜잭션 단위 책임
+    
+    Args:
+        db: 데이터베이스 세션
+        user_id: 주문하는 사용자 ID
+        product_id: 상품 ID
+        quantity: 수량 (기본값: 1)
+    
+    Returns:
+        dict: 주문 생성 결과 (order_id, homeshopping_order_id, product_id, product_name, quantity, dc_price, order_price, order_time, message)
+        
+    Note:
+        - CRUD 계층: 트랜잭션 단위 책임
+        - 주문 금액 자동 계산 (calculate_homeshopping_order_price 함수 사용)
+        - 주문 접수 상태로 초기화
+        - 주문 생성 알림 자동 생성
+        - 트랜잭션으로 처리하여 일관성 보장
     """
     logger.info(f"홈쇼핑 주문 생성 시작: user_id={user_id}, product_id={product_id}, quantity={quantity}")
     

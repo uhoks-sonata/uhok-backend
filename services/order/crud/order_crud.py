@@ -30,7 +30,6 @@ logger = get_logger("order_crud")
 async def get_delivery_info(db: AsyncSession, order_type: str, order_id: int) -> tuple[str, str]:
     """
     주문의 배송 상태와 배송완료 날짜를 조회하는 헬퍼 함수
-    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
     
     Args:
         db: 데이터베이스 세션
@@ -39,6 +38,10 @@ async def get_delivery_info(db: AsyncSession, order_type: str, order_id: int) ->
     
     Returns:
         tuple: (delivery_status, delivery_date)
+        
+    Note:
+        - CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+        - 배송완료 상태인 경우 한국어 형식으로 날짜 포맷팅
     """
     try:
         if order_type == "kok":
@@ -96,7 +99,17 @@ async def get_delivery_info(db: AsyncSession, order_type: str, order_id: int) ->
 async def get_order_by_id(db: AsyncSession, order_id: int) -> dict:
     """
     주문 ID로 통합 주문 조회 (공통 정보 + 서비스별 상세)
-    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+    
+    Args:
+        db: 데이터베이스 세션
+        order_id: 조회할 주문 ID
+    
+    Returns:
+        dict: 주문 정보 (order_id, user_id, order_time, cancel_time, kok_orders, homeshopping_orders)
+        
+    Note:
+        - CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+        - 콕 주문과 홈쇼핑 주문 정보를 모두 포함하여 반환
     """
     # 주문 기본 정보 조회
     result = await db.execute(
@@ -133,7 +146,21 @@ async def get_order_by_id(db: AsyncSession, order_id: int) -> dict:
 async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offset: int = 0) -> list:
     """
     사용자별 주문 목록 조회 (공통 정보 + 서비스별 상세 + 상품 이미지)
-    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+    
+    Args:
+        db: 데이터베이스 세션
+        user_id: 조회할 사용자 ID
+        limit: 조회할 주문 개수 (기본값: 20)
+        offset: 건너뛸 주문 개수 (기본값: 0)
+    
+    Returns:
+        list: 사용자의 주문 목록 (각 주문에 상품 이미지, 레시피 정보 포함)
+        
+    Note:
+        - CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+        - 콕 주문: 상품 이미지, 레시피 정보, 재료 보유 현황 포함
+        - 홈쇼핑 주문: 상품 이미지 포함
+        - 최신 주문순으로 정렬
     """
     # 주문 기본 정보 조회
     result = await db.execute(
@@ -287,8 +314,19 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
 async def calculate_order_total_price(db: AsyncSession, order_id: int) -> int:
     """
     주문 ID로 총 주문 금액 계산 (콕 주문 + 홈쇼핑 주문)
-    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
-    각 주문 타입별로 이미 계산된 order_price 사용
+    
+    Args:
+        db: 데이터베이스 세션
+        order_id: 계산할 주문 ID
+    
+    Returns:
+        int: 총 주문 금액
+        
+    Note:
+        - CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+        - 각 주문 타입별로 이미 계산된 order_price 사용
+        - order_price가 없는 경우 계산 함수를 통해 재계산
+        - 계산 실패 시 기본값(dc_price * quantity) 사용
     """
     logger.info(f"주문 총액 계산 시작: order_id={order_id}")
     total_price = 0
@@ -361,8 +399,18 @@ async def calculate_order_total_price(db: AsyncSession, order_id: int) -> int:
 async def _post_json(url: str, json: Dict[str, Any], timeout: float = 20.0) -> httpx.Response:
     """
     비동기 HTTP POST 유틸
-    - httpx.AsyncClient를 context manager로 생성하여 커넥션 누수 방지
-    - timeout: 연결/읽기 통합 타임아웃(초)
+    
+    Args:
+        url: 요청할 URL
+        json: POST할 JSON 데이터
+        timeout: 연결/읽기 통합 타임아웃(초, 기본값: 20.0)
+    
+    Returns:
+        httpx.Response: HTTP 응답 객체
+        
+    Note:
+        - httpx.AsyncClient를 context manager로 생성하여 커넥션 누수 방지
+        - Content-Type: application/json 헤더 자동 설정
     """
     async with httpx.AsyncClient(timeout=timeout) as client:
         return await client.post(url, json=json, headers={"Content-Type": "application/json"})
@@ -371,8 +419,18 @@ async def _post_json(url: str, json: Dict[str, Any], timeout: float = 20.0) -> h
 async def _get_json(url: str, timeout: float = 15.0) -> httpx.Response:
     """
     비동기 HTTP GET 유틸
-    - httpx.AsyncClient 사용
-    - timeout: 연결/읽기 통합 타임아웃(초)
+    
+    Args:
+        url: 요청할 URL
+        timeout: 연결/읽기 통합 타임아웃(초, 기본값: 15.0)
+    
+    Returns:
+        httpx.Response: HTTP 응답 객체
+        
+    Note:
+        - httpx.AsyncClient 사용
+        - 상세한 로깅을 통한 디버깅 지원
+        - 예외 발생 시 에러 타입과 함께 로깅
     """
     logger.info(f"HTTP GET 요청 시작: url={url}, timeout={timeout}초")
     try:
@@ -395,9 +453,21 @@ async def _mark_all_children_paid(
 ) -> None:
     """
     하위 주문(콕/홈쇼핑)을 PAYMENT_COMPLETED로 일괄 갱신
-    CRUD 계층: DB 상태 변경 담당, 트랜잭션 단위 책임
-    - 기존 트랜잭션 사용 (새로운 트랜잭션 시작하지 않음)
-    - 실패 시 상위에서 롤백 처리
+    
+    Args:
+        db: 데이터베이스 세션
+        kok_orders: 콕 주문 목록
+        hs_orders: 홈쇼핑 주문 목록
+        user_id: 상태 변경을 수행하는 사용자 ID
+    
+    Returns:
+        None
+        
+    Note:
+        - CRUD 계층: DB 상태 변경 담당, 트랜잭션 단위 책임
+        - 기존 트랜잭션 사용 (새로운 트랜잭션 시작하지 않음)
+        - 실패 시 상위에서 롤백 처리
+        - 모든 하위 주문의 상태를 PAYMENT_COMPLETED로 변경
     """
     logger.info(f"하위 주문 상태 갱신 시작: kok_count={len(kok_orders)}, hs_count={len(hs_orders)}")
     
@@ -435,9 +505,22 @@ async def _mark_all_children_paid(
 async def _ensure_order_access(db: AsyncSession, order_id: int, user_id: int) -> Dict[str, Any]:
     """
     주문 존재/권한 확인 유틸
-    CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
-    - 해당 order_id가 존재하고, 소유자가 user_id인지 확인
-    - dict(order) 반환, 없거나 권한 없으면 404
+    
+    Args:
+        db: 데이터베이스 세션
+        order_id: 확인할 주문 ID
+        user_id: 요청한 사용자 ID
+    
+    Returns:
+        Dict[str, Any]: 주문 데이터 (권한이 있는 경우)
+        
+    Raises:
+        HTTPException: 주문이 없거나 권한이 없는 경우 404
+        
+    Note:
+        - CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+        - 해당 order_id가 존재하고, 소유자가 user_id인지 확인
+        - 권한이 없으면 404 에러 반환
     """
     logger.info(f"주문 접근 권한 확인: order_id={order_id}, user_id={user_id}")
     
@@ -458,7 +541,20 @@ async def _ensure_order_access(db: AsyncSession, order_id: int, user_id: int) ->
 async def cancel_order(db: AsyncSession, order_id: int, reason: str = "결제 시간 초과"):
     """
     주문을 취소하는 함수
-    CRUD 계층: DB 상태 변경 담당
+    
+    Args:
+        db: 데이터베이스 세션
+        order_id: 취소할 주문 ID
+        reason: 취소 사유 (기본값: "결제 시간 초과")
+    
+    Returns:
+        dict: 취소 결과 정보 (order_id, cancel_time, reason, cancelled_kok_orders, cancelled_hs_orders)
+        
+    Note:
+        - CRUD 계층: DB 상태 변경 담당
+        - 주문의 cancel_time을 현재 시간으로 설정
+        - 모든 하위 주문(콕/홈쇼핑)의 상태를 CANCELLED로 변경
+        - 상태 변경 이력을 StatusHistory 테이블에 기록
     """
     try:
         # 주문 조회
@@ -531,6 +627,20 @@ async def cancel_order(db: AsyncSession, order_id: int, reason: str = "결제 �
 async def _get_status_id_by_code(db: AsyncSession, status_code: str) -> int:
     """
     상태 코드로 status_id를 조회하는 헬퍼 함수
+    
+    Args:
+        db: 데이터베이스 세션
+        status_code: 조회할 상태 코드 (예: "CANCELLED", "PAYMENT_COMPLETED")
+    
+    Returns:
+        int: 해당 상태 코드의 status_id
+        
+    Raises:
+        ValueError: 상태 코드를 찾을 수 없는 경우
+        
+    Note:
+        - StatusMaster 테이블에서 status_code로 status_id 조회
+        - 주문 취소 시 CANCELLED 상태 ID 조회에 사용
     """
     status_result = await db.execute(
         select(StatusMaster.status_id)
