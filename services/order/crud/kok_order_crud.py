@@ -21,7 +21,7 @@ from services.order.crud.order_common import (
 
 from common.database.mariadb_service import get_maria_service_db
 from common.logger import get_logger
-logger = get_logger(__name__)
+logger = get_logger("kok_order_crud")
 
 
 async def calculate_kok_order_price(
