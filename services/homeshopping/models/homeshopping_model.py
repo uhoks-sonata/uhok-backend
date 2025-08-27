@@ -6,7 +6,7 @@
 
 from sqlalchemy import (
     Column, Integer, String, DateTime, Text, BigInteger, 
-    Enum, ForeignKey, SMALLINT, Date, Time
+    Enum, ForeignKey, SMALLINT, Date, Time, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 
@@ -101,14 +101,37 @@ class HomeshoppingImgUrl(MariaBase):
     __tablename__ = "FCT_HOMESHOPPING_IMG_URL"
     
     img_id = Column("IMG_ID", Integer, primary_key=True, autoincrement=True, comment="이미지 인덱스")
-    product_id = Column("PRODUCT_ID", BigInteger, ForeignKey("FCT_HOMESHOPPING_PRODUCT_INFO.PRODUCT_ID"), comment="제품코드")
-    sort_order = Column("SORT_ORDER", SMALLINT, comment="이미지 순서")
+    product_id = Column("PRODUCT_ID", BigInteger, ForeignKey("FCT_HOMESHOPPING_PRODUCT_INFO.PRODUCT_ID"), comment="제품 코드")
     img_url = Column("IMG_URL", Text, comment="이미지 URL")
-
+    img_type = Column("IMG_TYPE", String(20), comment="이미지 타입 (예: thumbnail, detail)")
+    
     # 제품 정보와 N:1 관계 설정
     product_info = relationship(
         "HomeshoppingProductInfo",
         primaryjoin="HomeshoppingImgUrl.product_id==HomeshoppingProductInfo.product_id",
+        lazy="select"
+    )
+
+
+class HomeshoppingCart(MariaBase):
+    """홈쇼핑 장바구니 테이블"""
+    __tablename__ = "HOMESHOPPING_CART"
+    
+    cart_id = Column("CART_ID", Integer, primary_key=True, autoincrement=True, comment="장바구니 ID")
+    user_id = Column("USER_ID", Integer, nullable=False, comment="사용자 ID")
+    product_id = Column("PRODUCT_ID", BigInteger, ForeignKey("FCT_HOMESHOPPING_PRODUCT_INFO.PRODUCT_ID"), nullable=False, comment="제품 코드")
+    quantity = Column("QUANTITY", Integer, nullable=False, default=1, comment="수량")
+    created_at = Column("CREATED_AT", DateTime, nullable=True, comment="추가 시간")
+    recipe_id = Column("RECIPE_ID", Integer, ForeignKey("FCT_RECIPE.RECIPE_ID", onupdate="RESTRICT", ondelete="RESTRICT"), nullable=True, comment="레시피 ID")
+    
+    __table_args__ = (
+        UniqueConstraint("USER_ID", "PRODUCT_ID", name="UK_HOMESHOPPING_CART_USER_PRODUCT"),
+    )
+    
+    # 제품 정보와 N:1 관계 설정
+    product_info = relationship(
+        "HomeshoppingProductInfo",
+        primaryjoin="HomeshoppingCart.product_id==HomeshoppingProductInfo.product_id",
         lazy="select"
     )
 

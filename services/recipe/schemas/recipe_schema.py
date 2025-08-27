@@ -135,12 +135,57 @@ class RecipeRatingResponse(BaseModel):
 #     comments: List[RecipeComment]
 #     total: int
 
+class OrderInfo(BaseModel):
+    """주문 정보"""
+    order_id: int
+    order_date: datetime
+    order_type: str = Field(..., description="주문 유형: 'kok' 또는 'homeshopping'")
+    product_name: str
+    quantity: int
+    
+    class Config:
+        from_attributes = True
+
+
+class CartInfo(BaseModel):
+    """장바구니 정보"""
+    cart_id: int
+    cart_type: str = Field(..., description="장바구니 유형: 'kok' 또는 'homeshopping'")
+    product_name: str
+    quantity: int
+    
+    class Config:
+        from_attributes = True
+
+
+class IngredientStatusSummary(BaseModel):
+    """식재료 상태 요약"""
+    total_ingredients: int
+    owned_count: int
+    cart_count: int
+    not_owned_count: int
+    
+    class Config:
+        from_attributes = True
+
+
+class IngredientStatusItem(BaseModel):
+    """개별 식재료 상태 정보"""
+    material_name: str
+    status: str = Field(..., description="상태: 'owned', 'cart', 'not_owned'")
+    order_info: Optional[OrderInfo] = None
+    cart_info: Optional[CartInfo] = None
+    
+    class Config:
+        from_attributes = True
+
+
 class RecipeIngredientStatusResponse(BaseModel):
     """레시피 식재료 상태 조회 응답 스키마"""
     recipe_id: int
     user_id: int
-    ingredients_status: Dict[str, List[Dict[str, Any]]]
-    summary: Dict[str, int]
+    ingredients: List[IngredientStatusItem]
+    summary: IngredientStatusSummary
     
     class Config:
         from_attributes = True

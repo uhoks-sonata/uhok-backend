@@ -867,4 +867,259 @@ async def get_homeshopping_products_by_ingredient(
         return []
 
 
+async def get_recipe_ingredients_status(
+    db: AsyncSession, 
+    user_id: int, 
+    recipe_id: int
+) -> Optional[Dict]:
+    """
+    레시피의 식재료별 사용자 보유/장바구니/미보유 상태 조회
+    
+    Args:
+        db: 데이터베이스 세션
+        user_id: 사용자 ID
+        recipe_id: 레시피 ID
+        
+    Returns:
+        식재료 상태 정보 딕셔너리
+    """
+    logger.info(f"레시피 식재료 상태 조회 시작: user_id={user_id}, recipe_id={recipe_id}")
+    
+    try:
+        # 1. 레시피와 재료 정보 조회
+        recipe_stmt = select(Recipe).where(Recipe.recipe_id == recipe_id)
+        recipe_result = await db.execute(recipe_stmt)
+        recipe = recipe_result.scalar_one_or_none()
+        
+        if not recipe:
+            logger.warning(f"레시피를 찾을 수 없음: recipe_id={recipe_id}")
+            return None
+        
+        # 2. 재료 목록 조회
+        materials_stmt = select(Material).where(Material.recipe_id == recipe_id)
+        materials_result = await db.execute(materials_stmt)
+        materials = materials_result.scalars().all()
+        
+        if not materials:
+            logger.warning(f"레시피에 재료가 없음: recipe_id={recipe_id}")
+            return None
+        
+        # 3. 사용자의 최근 7일 주문 내역 조회 (보유 상태 확인)
+        from datetime import datetime, timedelta
+        from services.order.models.order_model import Order, KokOrder, HomeShoppingOrder
+        from services.kok.models.kok_model import KokProductInfo
+        from services.homeshopping.models.homeshopping_model import HomeshoppingList
+        
+        cutoff_date = datetime.now() - timedelta(days=7)
+        
+        # 콕 주문 조회
+        kok_orders_stmt = (
+            select(
+                Order.order_id,
+                Order.order_time,
+                KokOrder.kok_order_id,
+                KokOrder.kok_product_id,
+                KokOrder.kok_quantity,
+                KokProductInfo.kok_product_name
+            )
+            .join(KokOrder, Order.order_id == KokOrder.order_id)
+            .join(KokProductInfo, KokOrder.kok_product_id == KokProductInfo.kok_product_id)
+            .where(Order.user_id == user_id)
+            .where(Order.order_time >= cutoff_date)
+            .where(Order.cancel_time.is_(None))
+        )
+        
+        # 홈쇼핑 주문 조회
+        homeshopping_orders_stmt = (
+            select(
+                Order.order_id,
+                Order.order_time,
+                HomeShoppingOrder.homeshopping_order_id,
+                HomeShoppingOrder.product_id,
+                HomeShoppingOrder.quantity,
+                HomeshoppingList.product_name
+            )
+            .join(HomeShoppingOrder, Order.order_id == HomeShoppingOrder.order_id)
+            .join(HomeshoppingList, HomeShoppingOrder.product_id == HomeshoppingList.product_id)
+            .where(Order.user_id == user_id)
+            .where(Order.order_time >= cutoff_date)
+            .where(Order.cancel_time.is_(None))
+        )
+        
+        try:
+            kok_orders_result = await db.execute(kok_orders_stmt)
+            kok_orders = kok_orders_result.all()
+            
+            homeshopping_orders_result = await db.execute(homeshopping_orders_stmt)
+            homeshopping_orders = homeshopping_orders_result.all()
+            
+            # 주문 정보를 딕셔너리 형태로 변환
+            recent_orders = []
+            for order_id, order_time, kok_order_id, kok_product_id, kok_quantity, kok_product_name in kok_orders:
+                recent_orders.append({
+                    "order_id": order_id,
+                    "order_time": order_time,
+                    "kok_orders": [{
+                        "kok_order_id": kok_order_id,
+                        "kok_product_id": kok_product_id,
+                        "kok_quantity": kok_quantity,
+                        "product_name": kok_product_name
+                    }],
+                    "homeshopping_orders": []
+                })
+            
+            for order_id, order_time, hs_order_id, hs_product_id, hs_quantity, hs_product_name in homeshopping_orders:
+                recent_orders.append({
+                    "order_id": order_id,
+                    "order_time": order_time,
+                    "kok_orders": [],
+                    "homeshopping_orders": [{
+                        "homeshopping_order_id": hs_order_id,
+                        "product_id": hs_product_id,
+                        "quantity": hs_quantity,
+                        "product_name": hs_product_name
+                    }]
+                })
+                
+        except Exception as e:
+            logger.warning(f"주문 정보 조회 실패: {e}")
+            recent_orders = []
+        
+        # 4. 사용자의 장바구니 정보 조회
+        from services.kok.models.kok_model import KokCart
+        
+        # 콕 장바구니 조회
+        kok_cart_stmt = select(KokCart).where(KokCart.user_id == user_id)
+        kok_cart_result = await db.execute(kok_cart_stmt)
+        kok_cart_items = kok_cart_result.scalars().all()
+        
+        # 홈쇼핑 장바구니 조회 (상품명 포함, 테이블이 없을 수 있음)
+        homeshopping_cart_items = []
+        try:
+            from services.homeshopping.models.homeshopping_model import HomeshoppingCart, HomeshoppingList
+            homeshopping_cart_stmt = (
+                select(HomeshoppingCart, HomeshoppingList.product_name)
+                .join(HomeshoppingList, HomeshoppingCart.product_id == HomeshoppingList.product_id)
+                .where(HomeshoppingCart.user_id == user_id)
+            )
+            homeshopping_cart_result = await db.execute(homeshopping_cart_stmt)
+            homeshopping_cart_items = homeshopping_cart_result.all()
+        except Exception as e:
+            logger.info(f"홈쇼핑 장바구니 테이블이 없거나 조회 실패: {e}")
+            homeshopping_cart_items = []
+        
+        # 5. 각 재료별 상태 판별
+        ingredients_status = []
+        owned_count = 0
+        cart_count = 0
+        not_owned_count = 0
+        
+        for material in materials:
+            material_name = material.material_name
+            status = "not_owned"  # 기본값
+            order_info = None
+            cart_info = None
+            
+            # 보유 상태 확인 (최근 7일 주문 내역)
+            for order in recent_orders:
+                # 콕 주문 확인
+                for kok_order in order.get("kok_orders", []):
+                    if hasattr(kok_order, 'product_name') and kok_order.product_name:
+                        if material_name.lower() in kok_order.product_name.lower():
+                            status = "owned"
+                            order_info = {
+                                "order_id": order["order_id"],
+                                "order_date": order["order_time"],
+                                "order_type": "kok",
+                                "product_name": kok_order.product_name,
+                                "quantity": getattr(kok_order, "quantity", 1)
+                            }
+                            break
+                
+                # 홈쇼핑 주문 확인
+                for hs_order in order.get("homeshopping_orders", []):
+                    if hasattr(hs_order, 'product_name') and hs_order.product_name:
+                        if material_name.lower() in hs_order.product_name.lower():
+                            status = "owned"
+                            order_info = {
+                                "order_id": order["order_id"],
+                                "order_date": order["order_time"],
+                                "order_type": "homeshopping",
+                                "product_name": hs_order.product_name,
+                                "quantity": getattr(hs_order, "quantity", 1)
+                            }
+                            break
+                
+                if status == "owned":
+                    break
+            
+            # 장바구니 상태 확인 (보유가 아닌 경우에만)
+            if status != "owned":
+                # 콕 장바구니 확인
+                for cart_item in kok_cart_items:
+                    if hasattr(cart_item, 'product') and cart_item.product:
+                        if material_name.lower() in cart_item.product.kok_product_name.lower():
+                            status = "cart"
+                            cart_info = {
+                                "cart_id": cart_item.kok_cart_id,
+                                "cart_type": "kok",
+                                "product_name": cart_item.product.kok_product_name,
+                                "quantity": cart_item.kok_quantity
+                            }
+                            break
+                
+                # 홈쇼핑 장바구니 확인
+                for cart_item, product_name in homeshopping_cart_items:
+                    if product_name and material_name.lower() in product_name.lower():
+                        status = "cart"
+                        cart_info = {
+                            "cart_id": cart_item.cart_id,
+                            "cart_type": "homeshopping",
+                            "product_name": product_name,
+                            "quantity": cart_item.quantity
+                        }
+                        break
+                
+
+            
+            # 상태별 카운트 업데이트
+            if status == "owned":
+                owned_count += 1
+            elif status == "cart":
+                cart_count += 1
+            else:
+                not_owned_count += 1
+            
+            # 재료 상태 정보 추가
+            ingredients_status.append({
+                "material_name": material_name,
+                "status": status,
+                "order_info": order_info,
+                "cart_info": cart_info
+            })
+        
+        # 6. 요약 정보 생성
+        summary = {
+            "total_ingredients": len(materials),
+            "owned_count": owned_count,
+            "cart_count": cart_count,
+            "not_owned_count": not_owned_count
+        }
+        
+        result = {
+            "recipe_id": recipe_id,
+            "user_id": user_id,
+            "ingredients": ingredients_status,
+            "summary": summary
+        }
+        
+        logger.info(f"레시피 식재료 상태 조회 완료: recipe_id={recipe_id}, 총 재료={len(materials)}, 보유={owned_count}, 장바구니={cart_count}, 미보유={not_owned_count}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"레시피 식재료 상태 조회 실패: user_id={user_id}, recipe_id={recipe_id}, error={str(e)}")
+        return None
+
+
 

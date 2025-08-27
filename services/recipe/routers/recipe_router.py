@@ -19,7 +19,8 @@ from services.recipe.schemas.recipe_schema import (
     RecipeRatingResponse,
     RecipeByIngredientsListResponse,
     RecipeIngredientStatusDetailResponse,
-    HomeshoppingProductsResponse
+    HomeshoppingProductsResponse,
+    RecipeIngredientStatusResponse
 )
 from services.recipe.crud.recipe_crud import (
     get_recipe_detail,
@@ -32,7 +33,8 @@ from services.recipe.crud.recipe_crud import (
     get_recipe_rating,
     set_recipe_rating,
     fetch_recipe_ingredients_status,
-    get_homeshopping_products_by_ingredient
+    get_homeshopping_products_by_ingredient,
+    get_recipe_ingredients_status
 )
 from services.kok.crud.kok_crud import get_kok_products_by_ingredient
 
@@ -426,53 +428,49 @@ async def get_recipe_url_api(
     return {"url": url}
 
 # 라우터 함수: 이름을 handler로 변경
-@router.get("/{recipe_id}/status", response_model=RecipeIngredientStatusDetailResponse)
+@router.get("/{recipe_id}/status", response_model=RecipeIngredientStatusResponse)
 async def get_recipe_ingredients_status_handler(
-    current_user: UserOut = Depends(get_current_user),
     recipe_id: int = Path(..., description="레시피 ID"),
+    current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    레시피의 식재료 상태(보유/장바구니/미보유)를 조회하는 라우터 핸들러.
-    - 인증 사용자/레시피 ID를 받아 서비스 함수를 호출한다.
-    - 조회 결과를 반환하고, 배경 작업으로 사용자 로그를 적재한다.
+    레시피 상세페이지에서 사용자의 식재료 보유/장바구니/미보유 상태 조회
+    
+    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+    비즈니스 로직은 CRUD 계층에 위임
     """
     logger.info(f"레시피 식재료 상태 조회 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}")
-
-    try:
-        # ✅ 서비스 함수로 이름 변경
-        result = await fetch_recipe_ingredients_status(db=db, recipe_id=recipe_id, user_id=current_user.user_id)
-
-        if background_tasks:
-            background_tasks.add_task(
-                send_user_log,
-                user_id=current_user.user_id,
-                event_type="recipe_ingredients_status_view",
-                event_data={
-                    "recipe_id": recipe_id,
-                    "summary": result.get("summary", {}),
-                    "ingredients_status": {
-                        "owned_count": result.get("summary", {}).get("owned_count", 0),
-                        "cart_count": result.get("summary", {}).get("cart_count", 0),
-                        "not_owned_count": result.get("summary", {}).get("not_owned_count", 0),
-                    },
-                },
-            )
-
-        logger.info(f"레시피 식재료 상태 조회 완료: recipe_id={recipe_id}, user_id={current_user.user_id}")
-        return result
-
-    except Exception as e:
-        # 여기서 current_user는 여전히 UserOut 이라 안전
-        logger.error(f"레시피 식재료 상태 조회 실패: recipe_id={recipe_id}, user_id={current_user.user_id}, error={e}")
-        raise HTTPException(status_code=500, detail="레시피 식재료 상태 조회 중 오류가 발생했습니다.")
+    
+    # CRUD 계층에 식재료 상태 조회 위임
+    result = await get_recipe_ingredients_status(db, current_user.user_id, recipe_id)
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="레시피를 찾을 수 없거나 식재료 정보가 없습니다.")
+    
+    # 레시피 식재료 상태 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="recipe_ingredients_status_view", 
+            event_data={
+                "recipe_id": recipe_id,
+                "total_ingredients": result["summary"]["total_ingredients"],
+                "owned_count": result["summary"]["owned_count"],
+                "cart_count": result["summary"]["cart_count"],
+                "not_owned_count": result["summary"]["not_owned_count"]
+            }
+        )
+    
+    return RecipeIngredientStatusResponse(**result)
 
 
 
 @router.get("/{recipe_id}/rating", response_model=RecipeRatingResponse)
 async def get_rating(
-        current_user = Depends(get_current_user),
+        current_user: UserOut = Depends(get_current_user),
         recipe_id: int = Path(..., description="레시피 ID"),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
@@ -497,7 +495,7 @@ async def get_rating(
 
 @router.post("/{recipe_id}/rating", response_model=RecipeRatingResponse)
 async def post_rating(
-        current_user = Depends(get_current_user),
+        current_user: UserOut = Depends(get_current_user),
         recipe_id: int = Path(..., description="레시피 ID"),
         req: RecipeRatingCreate = Body(...),
         db: AsyncSession = Depends(get_maria_service_db),
