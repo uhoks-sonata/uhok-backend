@@ -100,7 +100,7 @@ from common.log_utils import send_user_log
 from common.logger import get_logger
 
 router = APIRouter(prefix="/api/homeshopping", tags=["HomeShopping"])
-logger = get_logger("homeshopping_router")
+logger = get_logger("homeshopping_router", sqlalchemy_logging={'enable': False})
 
 
 # ================================
