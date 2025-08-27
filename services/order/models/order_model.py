@@ -40,7 +40,7 @@ class KokOrder(MariaBase):
 
     kok_order_id = Column("KOK_ORDER_ID", Integer, primary_key=True, autoincrement=True)
     order_id = Column("ORDER_ID", Integer, ForeignKey("ORDERS.ORDER_ID"), nullable=False)
-    kok_price_id = Column("KOK_PRICE_ID", Integer, ForeignKey("FCT_KOK_PRICE_INFO.KOK_PRICE_ID"), nullable=False)
+    kok_price_id = Column("KOK_PRICE_ID", Integer, ForeignKey("FCT_KOK_PRICE_INFO.KOK_PRICE_ID"), nullable=True)  # nullable=True로 변경
     kok_product_id = Column("KOK_PRODUCT_ID", Integer, ForeignKey("FCT_KOK_PRODUCT_INFO.KOK_PRODUCT_ID"), nullable=False)
     quantity = Column("QUANTITY", Integer, nullable=False)
     order_price = Column("ORDER_PRICE", Integer, nullable=True)

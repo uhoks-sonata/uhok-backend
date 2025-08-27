@@ -95,11 +95,9 @@ from services.recipe.crud.recipe_crud import recommend_by_recipe_pgvector
 from common.database.mariadb_service import get_maria_service_db
 from common.log_utils import send_user_log
 from common.logger import get_logger
-
-from sqlalchemy import select
+logger = get_logger("kok_router")
 
 router = APIRouter(prefix="/api/kok", tags=["Kok"])
-logger = get_logger("kok_router")
 
 
 # ================================
