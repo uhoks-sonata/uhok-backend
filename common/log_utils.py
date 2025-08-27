@@ -31,7 +31,7 @@ def check_log_service_health():
     """
     try:
         # 헬스체크 엔드포인트가 있다면 사용
-        health_url = api_url.replace('/log/', '/log/health')
+        health_url = api_url.replace('/user-event-log', '/user-event-log/health')
         response = requests.get(health_url, timeout=3)  # 3초로 단축
         if response.status_code == 200:
             logger.debug("로그 서비스 헬스체크 성공")
@@ -68,7 +68,7 @@ def send_user_log(user_id: int, event_type: str, event_data: dict = None):
     }
     
     # 재시도 설정
-    max_retries = 3
+    max_retries = 2  # 최대 시도 횟수
     timeout = 10  # 10초 타임아웃
     
     for attempt in range(max_retries):
