@@ -877,10 +877,10 @@ async def get_kok_cart_items(
     """
     사용자의 장바구니 상품 목록 조회
     """
+    # 1단계: 장바구니 항목과 상품 정보 조회
     stmt = (
-        select(KokCart, KokProductInfo, KokPriceInfo)
+        select(KokCart, KokProductInfo)
         .join(KokProductInfo, KokCart.kok_product_id == KokProductInfo.kok_product_id)
-        .join(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id, isouter=True)
         .where(KokCart.user_id == user_id)
         .order_by(KokCart.kok_created_at.desc())
         .limit(limit)
@@ -889,10 +889,25 @@ async def get_kok_cart_items(
     results = (await db.execute(stmt)).all()
     
     cart_items = []
-    for cart, product, price in results:
+    for cart, product in results:
+        # 2단계: 각 상품에 대해 최신 가격 정보 조회 (kok_price_id가 최대인 것)
+        latest_price_id = await get_latest_kok_price_id(db, product.kok_product_id)
+        
+        if latest_price_id:
+            # 최신 가격 정보 조회
+            price_stmt = (
+                select(KokPriceInfo)
+                .where(KokPriceInfo.kok_price_id == latest_price_id)
+            )
+            price_result = await db.execute(price_stmt)
+            price = price_result.scalar_one_or_none()
+        else:
+            price = None
+        
         cart_items.append({
             "kok_cart_id": cart.kok_cart_id,
             "kok_product_id": product.kok_product_id,
+            "kok_price_id": latest_price_id,  # 최신 가격 ID 추가
             "recipe_id": cart.recipe_id,
             "kok_product_name": product.kok_product_name,
             "kok_thumbnail": product.kok_thumbnail,
@@ -905,6 +920,41 @@ async def get_kok_cart_items(
     
     return cart_items
 
+async def get_latest_kok_price_id(
+    db: AsyncSession,
+    kok_product_id: int
+) -> Optional[int]:
+    """
+    특정 kok_product_id에 대해 kok_price_id가 최대인(최신) 가격 정보의 ID를 반환
+    
+    Args:
+        db: 데이터베이스 세션
+        kok_product_id: 상품 ID
+        
+    Returns:
+        최신 kok_price_id 또는 None (해당 상품의 가격 정보가 없는 경우)
+    """
+    try:
+        stmt = (
+            select(KokPriceInfo.kok_price_id)
+            .where(KokPriceInfo.kok_product_id == kok_product_id)
+            .order_by(KokPriceInfo.kok_price_id.desc())
+            .limit(1)
+        )
+        
+        result = await db.execute(stmt)
+        latest_price_id = result.scalar_one_or_none()
+        
+        if latest_price_id:
+            logger.info(f"최신 가격 ID 조회 성공: kok_product_id={kok_product_id}, latest_kok_price_id={latest_price_id}")
+        else:
+            logger.warning(f"가격 정보를 찾을 수 없음: kok_product_id={kok_product_id}")
+            
+        return latest_price_id
+        
+    except Exception as e:
+        logger.error(f"최신 가격 ID 조회 실패: kok_product_id={kok_product_id}, error={str(e)}")
+        raise
 
 # 새로운 장바구니 CRUD 함수들
 async def add_kok_cart(
@@ -941,6 +991,15 @@ async def add_kok_cart(
             "message": f"장바구니 수량이 {existing_cart.kok_quantity}개로 업데이트되었습니다."
         }
     else:
+        # 새 항목 추가 전에 최신 가격 정보 확인
+        latest_price_id = await get_latest_kok_price_id(db, kok_product_id)
+        
+        if not latest_price_id:
+            logger.warning(f"상품 {kok_product_id}의 가격 정보를 찾을 수 없음")
+            # 가격 정보가 없어도 장바구니에는 추가 (기본 가격 사용)
+        else:
+            logger.info(f"상품 {kok_product_id}의 최신 가격 ID: {latest_price_id}")
+        
         # 새 항목 추가
         created_at = datetime.now()
         
