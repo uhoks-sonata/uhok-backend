@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from common.config import get_settings
 from common.logger import get_logger
 
-logger = get_logger("mariadb_auth")
+logger = get_logger("mariadb_auth", sqlalchemy_logging={'enable': False})
 
 settings = get_settings()
 engine = create_async_engine(settings.mariadb_auth_url, echo=settings.debug)
