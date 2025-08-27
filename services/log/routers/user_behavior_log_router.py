@@ -6,19 +6,17 @@ from fastapi import APIRouter, Depends, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Dict, Any
 
-from services.log.schemas.user_activity_schema import UserActivityLog
-from services.log.crud.user_activity_crud import create_user_activity_log
-from common.database.postgres_log import get_postgres_log_db
 from common.dependencies import get_current_user
-from services.user.schemas.user_schema import UserOut
+from common.database.postgres_log import get_postgres_log_db
 
-router = APIRouter(
-    prefix="/user-activity",
-    tags=["UserActivity"]
-)
+from services.user.schemas.user_schema import UserOut
+from services.log.schemas.user_activity_schema import UserActivityLog
+from services.log.crud.user_behavior_log_crud import create_user_activity_log
 
 from common.logger import get_logger
-logger = get_logger("user_activity_router")
+logger = get_logger("user_behavior_log_router")
+
+router = APIRouter(prefix="/user-behavior-log", tags=["UserBehaviorLog"])
 
 
 @router.post("/", response_model=Dict[str, Any], status_code=status.HTTP_201_CREATED)

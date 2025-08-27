@@ -4,13 +4,13 @@
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import Dict, Any, Optional
+from typing import Optional
 
 from services.log.models.log_model import UserLog
-from services.log.schemas.user_activity_schema import UserActivityLog, UserActivityLogCreate
-from common.logger import get_logger
+from services.log.schemas.user_activity_schema import UserActivityLog
 
-logger = get_logger("user_activity_crud")
+from common.logger import get_logger
+logger = get_logger("user_behavior_log_crud")
 
 
 async def create_user_activity_log(
