@@ -36,8 +36,7 @@ from common.log_utils import send_user_log
 
 from common.logger import get_logger
 logger = get_logger("kok_order_router")
-from common.logging_config import disable_sqlalchemy_logging
-disable_sqlalchemy_logging()
+
 
 router = APIRouter(prefix="/api/orders/kok", tags=["Kok Orders"])
 
@@ -82,8 +81,11 @@ async def order_from_selected_carts(
 
     return KokCartOrderResponse(
         order_id=result["order_id"],
+        total_amount=result["total_amount"],
         order_count=result["order_count"],
+        order_details=result["order_details"],
         message=result["message"],
+        order_time=result["order_time"],
     )
 
 

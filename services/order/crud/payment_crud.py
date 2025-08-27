@@ -26,8 +26,7 @@ from common.log_utils import send_user_log
 
 from common.logger import get_logger
 logger = get_logger("payment_crud")
-from common.logging_config import disable_sqlalchemy_logging
-disable_sqlalchemy_logging()
+
 
 load_dotenv()
 pay_api_base = os.getenv("PAY_API_BASE")
