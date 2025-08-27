@@ -5,7 +5,7 @@ KOK 상품 기반 홈쇼핑 추천 유틸리티
 """
 
 import re
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Any
 from collections import Counter
 
 # -------------------- 기본 설정값 --------------------
@@ -173,33 +173,63 @@ def recommend_by_tail_keywords(kok_product_name: str, k: int = 5) -> List[str]:
     tail_keywords = extract_tail_keywords(kok_product_name, max_n=k)
     return tail_keywords
 
-def get_recommendation_strategy(kok_product_name: str, k: int = 5) -> List[str]:
+def get_recommendation_strategy(kok_product_name: str, k: int = 5) -> Dict[str, Any]:
     """추천 전략 선택 및 실행"""
     if not kok_product_name:
-        return []
+        return {
+            "algorithm": "none",
+            "status": "failed",
+            "search_terms": [],
+            "message": "상품명이 없습니다."
+        }
     
     # 1. 마지막 의미 토큰 전략
     last_word_results = recommend_by_last_word(kok_product_name, k)
     if last_word_results:
-        return last_word_results
+        return {
+            "algorithm": "last_meaningful_token",
+            "status": "success",
+            "search_terms": last_word_results,
+            "message": "마지막 의미 토큰 기반 추천"
+        }
     
     # 2. 핵심 키워드 전략
     core_results = recommend_by_core_keywords(kok_product_name, k)
     if core_results:
-        return core_results
+        return {
+            "algorithm": "core_keywords",
+            "status": "success",
+            "search_terms": core_results,
+            "message": "핵심 키워드 기반 추천"
+        }
     
     # 3. Tail 키워드 전략
     tail_results = recommend_by_tail_keywords(kok_product_name, k)
     if tail_results:
-        return tail_results
+        return {
+            "algorithm": "tail_keywords",
+            "status": "success",
+            "search_terms": tail_results,
+            "message": "Tail 키워드 기반 추천"
+        }
     
     # 4. 폴백: 상품명의 일부 사용
     normalized = normalize_name(kok_product_name)
     tokens = tokenize_normalized(normalized, DEFAULT_STOPWORDS)
     if tokens:
-        return tokens[:k]
+        return {
+            "algorithm": "fallback_tokens",
+            "status": "success",
+            "search_terms": tokens[:k],
+            "message": "폴백 토큰 기반 추천"
+        }
     
-    return []
+    return {
+        "algorithm": "none",
+        "status": "failed",
+        "search_terms": [],
+        "message": "적절한 추천 전략을 찾을 수 없습니다."
+    }
 
 __all__ = [
     "get_recommendation_strategy",

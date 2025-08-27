@@ -1,34 +1,22 @@
 # -*- coding: utf-8 -*-
 """
-Homeshopping 서비스 유틸리티 모듈
+홈쇼핑 유틸리티 모듈
 """
 
-from .homeshopping_kok import (
-    # 파라미터
-    DYN_MAX_TERMS, DYN_MAX_EXTRAS, DYN_SAMPLE_ROWS,
-    DYN_NGRAM_MIN, DYN_NGRAM_MAX, NGRAM_N,
-    TAIL_MAX_DF_RATIO, TAIL_MAX_TERMS,
-    DYN_COUNT_MIN, DYN_COUNT_MAX,
-    # 사전/전처리
-    load_domain_dicts, normalize_name, tokenize_normalized,
-    # 키워드
-    extract_core_keywords, extract_tail_keywords, roots_in_name,
-    infer_terms_from_name_via_ngrams,
-    # 최종 필터
-    filter_tail_and_ngram_and
+from .keyword_extraction import (
+    extract_homeshopping_keywords,
+    extract_homeshopping_keywords_simple,
+    load_homeshopping_ing_vocab,
+    get_homeshopping_db_config,
+    is_homeshopping_product,
+    get_homeshopping_keyword_stats
 )
 
 __all__ = [
-    # 파라미터
-    "DYN_MAX_TERMS", "DYN_MAX_EXTRAS", "DYN_SAMPLE_ROWS",
-    "DYN_NGRAM_MIN", "DYN_NGRAM_MAX", "NGRAM_N",
-    "TAIL_MAX_DF_RATIO", "TAIL_MAX_TERMS",
-    "DYN_COUNT_MIN", "DYN_COUNT_MAX",
-    # 사전/전처리
-    "load_domain_dicts", "normalize_name", "tokenize_normalized",
-    # 키워드
-    "extract_core_keywords", "extract_tail_keywords", "roots_in_name",
-    "infer_terms_from_name_via_ngrams",
-    # 최종 필터
-    "filter_tail_and_ngram_and"
+    "extract_homeshopping_keywords",
+    "extract_homeshopping_keywords_simple", 
+    "load_homeshopping_ing_vocab",
+    "get_homeshopping_db_config",
+    "is_homeshopping_product",
+    "get_homeshopping_keyword_stats"
 ]

@@ -600,36 +600,50 @@ async def get_homeshopping_stream_info(
     """
     logger.info(f"홈쇼핑 스트리밍 정보 조회 시작: product_id={product_id}")
     
-    # 상품 정보 조회 (가장 최근 방송 정보 선택)
-    stmt = select(HomeshoppingList).where(HomeshoppingList.product_id == product_id).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
-    result = await db.execute(stmt)
-    product = result.scalar_one_or_none()
-    
-    if not product:
-        logger.warning(f"상품을 찾을 수 없음: product_id={product_id}")
-        return None
-    
-    # 현재 시간 기준으로 라이브 여부 판단
-    now = datetime.now()
-    live_date = product.live_date
-    is_live = False
-    
-    if live_date:
-        # date를 datetime으로 변환하여 연산
-        live_datetime = datetime.combine(live_date, datetime.min.time())
-        time_diff = abs((now - live_datetime).total_seconds())
-        is_live = time_diff < 3600  # 1시간 이내면 라이브로 간주
-    
-    stream_info = {
-        "product_id": product_id,
-        "stream_url": f"https://stream.example.com/live/{product_id}",  # 임시 URL
-        "is_live": is_live,
-        "live_start_time": product.live_start_time,
-        "live_end_time": product.live_end_time
-    }
-    
-    logger.info(f"홈쇼핑 스트리밍 정보 조회 완료: product_id={product_id}, is_live={is_live}")
-    return stream_info
+    try:
+        # 상품 정보 조회 (가장 최근 방송 정보 선택)
+        # LIMIT 1을 사용하여 중복 데이터 문제 해결
+        stmt = (
+            select(HomeshoppingList)
+            .where(HomeshoppingList.product_id == product_id)
+            .order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
+            .limit(1)
+        )
+        result = await db.execute(stmt)
+        product = result.scalar_one_or_none()
+        
+        if not product:
+            logger.warning(f"상품을 찾을 수 없음: product_id={product_id}")
+            return None
+        
+        # 현재 시간 기준으로 라이브 여부 판단
+        now = datetime.now()
+        live_date = product.live_date
+        is_live = False
+        
+        if live_date:
+            # date를 datetime으로 변환하여 연산
+            live_datetime = datetime.combine(live_date, datetime.min.time())
+            time_diff = abs((now - live_datetime).total_seconds())
+            is_live = time_diff < 3600  # 1시간 이내면 라이브로 간주
+        
+        stream_info = {
+            "product_id": product_id,
+            "stream_url": f"https://stream.example.com/live/{product_id}",  # 임시 URL
+            "is_live": is_live,
+            "live_start_time": product.live_start_time,
+            "live_end_time": product.live_end_time
+        }
+        
+        logger.info(f"홈쇼핑 스트리밍 정보 조회 완료: product_id={product_id}, is_live={is_live}")
+        return stream_info
+        
+    except Exception as e:
+        logger.error(f"홈쇼핑 스트리밍 정보 조회 중 오류 발생: product_id={product_id}, error={str(e)}")
+        # 중복 데이터가 있는 경우 로그에 기록
+        if "Multiple rows were found" in str(e):
+            logger.error(f"중복 데이터 발견: product_id={product_id}에 대해 여러 행이 존재합니다.")
+        raise
 
 
 # -----------------------------
@@ -953,7 +967,7 @@ async def get_homeshopping_product_name(
     try:
         stmt = select(HomeshoppingList.product_name).where(HomeshoppingList.product_id == product_id).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
         result = await db.execute(stmt)
-        product_name = result.scalar_one_or_none()
+        product_name = result.scalar()
         
         if product_name:
             logger.info(f"홈쇼핑 상품명 조회 완료: product_id={product_id}, name={product_name}")

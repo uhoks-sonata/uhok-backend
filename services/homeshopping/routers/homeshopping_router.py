@@ -88,8 +88,12 @@ from services.homeshopping.crud.homeshopping_crud import (
     # KOK 상품 기반 홈쇼핑 추천 관련 CRUD
     get_kok_product_name_by_id,
     get_homeshopping_recommendations_by_kok,
-    get_homeshopping_recommendations_fallback
+    get_homeshopping_recommendations_fallback,
+    get_homeshopping_product_name
 )
+
+from services.recipe.crud.recipe_crud import recommend_by_recipe_pgvector
+from services.homeshopping.utils.keyword_extraction import extract_homeshopping_keywords
 
 from common.database.mariadb_service import get_maria_service_db
 from common.log_utils import send_user_log
@@ -264,21 +268,39 @@ async def get_stream_info(
     user_id = current_user.user_id if current_user else None
     logger.info(f"홈쇼핑 스트리밍 정보 조회 요청: user_id={user_id}, product_id={product_id}")
     
-    stream_info = await get_homeshopping_stream_info(db, product_id)
-    if not stream_info:
-        raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
-    
-    # 스트리밍 정보 조회 로그 기록 (인증된 사용자인 경우에만)
-    if current_user and background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="homeshopping_stream_info_view", 
-            event_data={"product_id": product_id, "is_live": stream_info["is_live"]}
+    try:
+        stream_info = await get_homeshopping_stream_info(db, product_id)
+        if not stream_info:
+            raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
+        
+        # 스트리밍 정보 조회 로그 기록 (인증된 사용자인 경우에만)
+        if current_user and background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="homeshopping_stream_info_view", 
+                event_data={"product_id": product_id, "is_live": stream_info["is_live"]}
+            )
+        
+        logger.info(f"홈쇼핑 스트리밍 정보 조회 완료: user_id={user_id}, product_id={product_id}")
+        return stream_info
+        
+    except HTTPException:
+        # 404 에러는 그대로 전달
+        raise
+    except Exception as e:
+        logger.error(f"홈쇼핑 스트리밍 정보 조회 실패: product_id={product_id}, error={str(e)}")
+        # 중복 데이터 에러인 경우 구체적인 메시지 제공
+        if "Multiple rows were found" in str(e):
+            raise HTTPException(
+                status_code=500, 
+                detail="데이터베이스에 중복된 상품 정보가 존재합니다. 관리자에게 문의해주세요."
+            )
+        # 기타 에러는 일반적인 500 에러로 처리
+        raise HTTPException(
+            status_code=500, 
+            detail="스트리밍 정보 조회 중 오류가 발생했습니다."
         )
-    
-    logger.info(f"홈쇼핑 스트리밍 정보 조회 완료: user_id={user_id}, product_id={product_id}")
-    return stream_info
 
 
 # ================================
@@ -680,104 +702,144 @@ async def mark_notification_read_api(
         raise HTTPException(status_code=500, detail="알림 읽음 처리 중 오류가 발생했습니다.")
 
 # ================================
-# KOK 상품 기반 홈쇼핑 추천 API
+# 레시피 추천 관련 API
 # ================================
 
-@router.get("/kok-product/{product_id}/homeshopping-recommendations", response_model=KokHomeshoppingRecommendationResponse)
-async def get_homeshopping_recommendations_by_kok(
-    request: Request,
+@router.get("/product/{product_id}/recipe-recommendations", response_model=RecipeRecommendationsResponse)
+async def get_recipe_recommendations_for_product(
     product_id: int,
-    k: int = Query(5, ge=1, le=20, description="추천 상품 개수"),
+    current_user: Optional[UserOut] = Depends(get_current_user_optional),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    KOK 상품을 기반으로 유사한 홈쇼핑 상품 추천
-    - 마지막 의미 토큰, 핵심 키워드, Tail 키워드 등 다양한 알고리즘 사용
+    홈쇼핑 상품에 대한 레시피 추천 조회
+    - 상품명에서 키워드(식재료) 추출
+    - 추출된 키워드를 기반으로 레시피 추천
+    - recommend_by_recipe_pgvector를 method == "ingredient" 방식으로 사용
     """
+    user_id = current_user.user_id if current_user else None
+    logger.info(f"홈쇼핑 상품 레시피 추천 요청: user_id={user_id}, product_id={product_id}")
+    
     try:
-        current_user = await get_current_user_optional(request)
-        user_id = current_user.user_id if current_user else None
-        logger.info(f"KOK 기반 홈쇼핑 추천 요청: user_id={user_id}, product_id={product_id}, k={k}")
+        # 1. 홈쇼핑 상품명 조회
+        product_name = await get_homeshopping_product_name(db, product_id)
+        if not product_name:
+            raise HTTPException(status_code=404, detail="홈쇼핑 상품을 찾을 수 없습니다.")
         
-        # 1. KOK 상품명 조회
-        kok_product_name = await get_kok_product_name_by_id(db, product_id)
-        if not kok_product_name:
-            raise HTTPException(status_code=404, detail="KOK 상품을 찾을 수 없습니다.")
+        logger.info(f"상품명 조회 완료: product_id={product_id}, name={product_name}")
         
-        # 2. 추천 전략 선택 및 실행
-        from services.kok.utils.kok_homeshopping import get_recommendation_strategy
+        # 2. 상품이 식재료인지 확인
+        is_ingredient = await get_homeshopping_classify_cls_ing(db, product_id)
         
-        strategy_result = get_recommendation_strategy(kok_product_name, k)
-        algorithm_info = {
-            "algorithm": strategy_result["algorithm"],
-            "status": strategy_result["status"],
-            "search_terms": strategy_result.get("search_terms", [])
-        }
-        
-        # 3. 홈쇼핑 상품 추천 조회
-        recommendations = []
-        if strategy_result["status"] == "success" and strategy_result.get("search_terms"):
-            recommendations = await get_homeshopping_recommendations_by_kok(
-                db, kok_product_name, strategy_result["search_terms"], k
+        # 3. 식재료가 아닌 경우 빈 응답 반환
+        if not is_ingredient:
+            logger.info(f"상품이 식재료가 아님: product_id={product_id}")
+            return RecipeRecommendationsResponse(
+                recipes=[],
+                is_ingredient=False
             )
         
-        # 4. 추천 결과가 부족한 경우 폴백 전략 사용
-        if len(recommendations) < k:
-            fallback_recommendations = await get_homeshopping_recommendations_fallback(
-                db, kok_product_name, k - len(recommendations)
+        # 4. 키워드 추출을 위한 표준 재료 어휘 로드 (MariaDB)
+        # 홈쇼핑 전용 키워드 추출 로직 사용
+        
+        # 5. 상품명에서 키워드(식재료) 추출 (홈쇼핑 전용)
+        keyword_result = extract_homeshopping_keywords(
+            product_name=product_name,
+            use_bigrams=True,
+            drop_first_token=True,
+            strip_digits=True,
+            keep_longest_only=True
+        )
+        
+        extracted_keywords = keyword_result["keywords"]
+        logger.info(f"키워드 추출 완료: product_id={product_id}, keywords={extracted_keywords}")
+        
+        # 6. 추출된 키워드가 없으면 빈 응답 반환
+        if not extracted_keywords:
+            logger.info(f"추출된 키워드가 없음: product_id={product_id}")
+            return RecipeRecommendationsResponse(
+                recipes=[],
+                is_ingredient=True
             )
-            recommendations.extend(fallback_recommendations)
-            algorithm_info["fallback_used"] = True
-            algorithm_info["fallback_count"] = len(fallback_recommendations)
         
-        # 5. 응답 데이터 구성
-        response_products = []
-        for rec in recommendations:
-            response_products.append(KokHomeshoppingRecommendationProduct(
-                product_id=rec["product_id"],
-                product_name=rec["product_name"],
-                store_name=rec["store_name"],
-                sale_price=rec["sale_price"],
-                dc_price=rec["dc_price"],
-                dc_rate=rec["dc_rate"],
-                thumb_img_url=rec["thumb_img_url"],
-                live_date=rec["live_date"],
-                live_start_time=rec["live_start_time"],
-                live_end_time=rec["live_end_time"],
-                similarity_score=None  # 향후 유사도 점수 계산 로직 추가 가능
-            ))
+        # 7. 키워드를 쉼표로 구분하여 레시피 추천 요청
+        keywords_query = ",".join(extracted_keywords)
+        logger.info(f"레시피 추천 요청: keywords={keywords_query}")
         
-        # 6. 인증된 사용자의 경우에만 로그 기록
+        # 8. recommend_by_recipe_pgvector를 method == "ingredient" 방식으로 호출
+        # PostgreSQL DB 연결을 위한 import 추가
+        from common.database.postgres_log import get_postgres_log_db
+        from services.recipe.utils.recommend_service import get_db_vector_searcher
+        
+        # PostgreSQL DB 연결
+        postgres_db = get_postgres_log_db()
+        
+        # VectorSearcher 인스턴스 생성
+        vector_searcher = await get_db_vector_searcher()
+        
+        recipes_df = await recommend_by_recipe_pgvector(
+            mariadb=db,
+            postgres=postgres_db,
+            vector_searcher=vector_searcher,
+            query=keywords_query,
+            method="ingredient",
+            page=1,
+            size=10,
+            include_materials=True
+        )
+        
+        # 9. DataFrame을 RecipeRecommendation 형태로 변환
+        recipes = []
+        if not recipes_df.empty:
+            for _, row in recipes_df.iterrows():
+                recipe = {
+                    "recipe_id": int(row.get("RECIPE_ID", 0)),
+                    "recipe_name": str(row.get("RECIPE_TITLE", "")),
+                    "cooking_time": "30분",  # 기본값, 실제로는 DB에서 가져와야 함
+                    "difficulty": "중급",     # 기본값, 실제로는 DB에서 가져와야 함
+                    "ingredients": [],
+                    "description": str(row.get("COOKING_INTRODUCTION", ""))
+                }
+                
+                # 재료 정보가 있는 경우 추가
+                if "MATERIALS" in row and row["MATERIALS"]:
+                    for material in row["MATERIALS"]:
+                        material_name = material.get("MATERIAL_NAME", "")
+                        if material_name:
+                            recipe["ingredients"].append(material_name)
+                
+                recipes.append(recipe)
+        
+        logger.info(f"레시피 추천 완료: product_id={product_id}, 레시피 수={len(recipes)}")
+        
+        # 10. 인증된 사용자의 경우에만 로그 기록
         if current_user and background_tasks:
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
-                event_type="kok_homeshopping_recommendation", 
+                event_type="homeshopping_recipe_recommendation", 
                 event_data={
-                    "kok_product_id": product_id,
-                    "kok_product_name": kok_product_name,
-                    "recommendation_count": len(response_products),
-                    "algorithm": strategy_result["algorithm"],
-                    "k": k
+                    "product_id": product_id,
+                    "product_name": product_name,
+                    "extracted_keywords": extracted_keywords,
+                    "recipe_count": len(recipes),
+                    "is_ingredient": True
                 }
             )
         
-        logger.info(f"KOK 기반 홈쇼핑 추천 완료: user_id={user_id}, product_id={product_id}, 결과 수={len(response_products)}")
-        
-        return KokHomeshoppingRecommendationResponse(
-            kok_product_id=product_id,
-            kok_product_name=kok_product_name,
-            recommendations=response_products,
-            total_count=len(response_products),
-            algorithm_info=algorithm_info
+        return RecipeRecommendationsResponse(
+            recipes=recipes,
+            is_ingredient=True
         )
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"KOK 기반 홈쇼핑 추천 API 오류: product_id={product_id}, user_id={user_id}, error={str(e)}")
+        logger.error(f"홈쇼핑 상품 레시피 추천 실패: product_id={product_id}, user_id={user_id}, error={str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"홈쇼핑 추천 중 오류가 발생했습니다: {str(e)}"
+            detail=f"레시피 추천 조회 중 오류가 발생했습니다: {str(e)}"
         )
+
+

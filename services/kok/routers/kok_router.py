@@ -12,6 +12,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime
+import pandas as pd
 
 from common.dependencies import get_current_user, debug_optional_auth, get_current_user_optional
 from services.user.schemas.user_schema import UserOut
@@ -89,7 +90,7 @@ from services.kok.crud.kok_crud import (
     delete_kok_search_history
 )
 
-from services.recipe.crud.recipe_crud import recommend_recipes_by_ingredients
+from services.recipe.crud.recipe_crud import recommend_by_recipe_pgvector
 
 from common.database.mariadb_service import get_maria_service_db
 from common.log_utils import send_user_log
@@ -815,11 +816,49 @@ async def recommend_recipes_from_cart_items(
         
         logger.info(f"재료 추출 성공: {ingredients}")
         
-        # 추출된 재료를 기반으로 레시피 추천 (recipe 폴더 내의 로직 사용)
-        recipes, total_count = await recommend_recipes_by_ingredients(
-            db, ingredients, page, size
+        # 추출된 재료를 기반으로 레시피 추천 (pgvector 기반 ingredient 방식)
+        # 쉼표로 구분된 재료명을 하나의 문자열로 결합
+        ingredients_query = ",".join(ingredients)
+        
+        # recommend_by_recipe_pgvector 함수 호출 (method="ingredient")
+        # ingredient 모드에서는 vector_searcher가 필요하지 않지만 함수 시그니처상 필수
+        # None을 전달하여 실제 사용하지 않음을 표시
+        recipes_df = await recommend_by_recipe_pgvector(
+            mariadb=db,
+            postgres=db,  # MariaDB를 postgres로도 사용 (ingredient 모드에서는 pgvector 사용 안함)
+            query=ingredients_query,
+            method="ingredient",
+            page=page,
+            size=size,
+            include_materials=True,
+            vector_searcher=None  # ingredient 모드에서는 사용하지 않음
         )
         
+        # DataFrame을 응답 형식에 맞게 변환
+        recipes = []
+        if not recipes_df.empty:
+            for _, row in recipes_df.iterrows():
+                recipe_dict = {
+                    "recipe_id": int(row["RECIPE_ID"]),
+                    "cooking_name": row["RECIPE_TITLE"],
+                    "scrap_count": int(row["SCRAP_COUNT"]) if row["SCRAP_COUNT"] is not None and not (isinstance(row["SCRAP_COUNT"], float) and pd.isna(row["SCRAP_COUNT"])) else 0,
+                    "recipe_url": f"https://www.10000recipe.com/recipe/{int(row['RECIPE_ID'])}",
+                    "matched_ingredient_count": len(ingredients)
+                }
+                
+                # 재료 정보가 있으면 추가
+                if "MATERIALS" in row and row["MATERIALS"] is not None:
+                    try:
+                        # pandas의 NaN 값 체크를 안전하게 수행
+                        if not (isinstance(row["MATERIALS"], float) and pd.isna(row["MATERIALS"])):
+                            recipe_dict["materials"] = row["MATERIALS"]
+                    except:
+                        # 에러가 발생하면 재료 정보를 추가하지 않음
+                        pass
+                
+                recipes.append(recipe_dict)
+        
+        total_count = len(recipes)
         total_pages = (total_count + size - 1) // size
         
         logger.info(f"레시피 추천 완료: {len(recipes)}개 레시피, 총 {total_count}개")
