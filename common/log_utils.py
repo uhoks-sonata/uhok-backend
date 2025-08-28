@@ -82,10 +82,10 @@ def send_user_log(user_id: int, event_type: str, event_data: dict = None):
     
     for attempt in range(max_retries):
         try:
-            logger.info(f"로그 전송 시도 {attempt + 1}/{max_retries}: user_id={user_id}, event_type={event_type}")
+            # logger.info(f"로그 전송 시도 {attempt + 1}/{max_retries}: user_id={user_id}, event_type={event_type}")
             res = requests.post(api_url, json=log_payload, timeout=timeout)
             res.raise_for_status()
-            logger.info(f"사용자 로그 전송 성공: user_id={user_id}, event_type={event_type}")
+            # logger.info(f"사용자 로그 전송 성공: user_id={user_id}, event_type={event_type}")
             return res.json()
         except requests.exceptions.Timeout:
             logger.warning(f"로그 전송 타임아웃 (시도 {attempt + 1}/{max_retries}): user_id={user_id}, event_type={event_type}")
