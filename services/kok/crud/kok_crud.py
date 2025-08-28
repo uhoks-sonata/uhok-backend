@@ -27,7 +27,7 @@ from services.kok.models.kok_model import (
     KokNotification,
     KokClassify
 )
-from services.kok.utils.keyword_extraction import load_ing_vocab, extract_ingredient_keywords
+from services.kok.utils.keyword_extraction import extract_ingredient_keywords
 
 logger = get_logger("kok_crud")
 
