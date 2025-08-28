@@ -98,10 +98,26 @@ class RecipeByIngredientsResponse(BaseModel):
 class RecipeByIngredientsListResponse(BaseModel):
     """재료 기반 레시피 추천 목록 응답"""
     recipes: List[RecipeByIngredientsResponse]
-    page: int
-    total: int
-    combination_number: int = Field(..., description="현재 조합 번호 (1, 2, 3)")
-    has_more_combinations: bool = Field(..., description="더 많은 조합이 있는지 여부")
+
+# -----------------------------
+# 상품 추천 응답 스키마
+# -----------------------------
+
+class ProductRecommendation(BaseModel):
+    """상품 추천 정보"""
+    source: str = Field(..., description="상품 출처 (homeshopping 또는 kok)")
+    table: str = Field(..., description="상품 테이블명")
+    name: str = Field(..., description="상품명")
+    id: Optional[int] = Field(None, description="상품 ID")
+    image_url: Optional[str] = Field(None, description="상품 이미지 URL")
+    brand_name: Optional[str] = Field(None, description="브랜드명")
+    price: Optional[int] = Field(None, description="가격")
+
+class ProductRecommendResponse(BaseModel):
+    """상품 추천 응답"""
+    ingredient: str
+    recommendations: List[ProductRecommendation] = Field(default_factory=list)
+    total_count: int = Field(0, description="추천 상품 총 개수")
 
 # -----------------------------
 # 별점 스키마
