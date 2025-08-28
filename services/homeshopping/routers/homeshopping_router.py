@@ -217,7 +217,7 @@ async def get_product_detail(
 # 상품 추천 관련 API
 # ================================
 
-@router.get("/product/{product_id}/kok-recommendations")
+@router.get("/product/{product_id}/kok-recommend")
 async def get_kok_recommendations(
         request: Request,
         product_id: int,
@@ -297,7 +297,7 @@ async def check_product_ingredient(
 # 레시피 추천 관련 API
 # ================================
 
-@router.get("/product/{product_id}/recipe-recommendations", response_model=RecipeRecommendationsResponse)
+@router.get("/product/{product_id}/recipe-recommend", response_model=RecipeRecommendationsResponse)
 async def get_recipe_recommendations_for_product(
         request: Request,
         product_id: int,
@@ -392,7 +392,8 @@ async def get_recipe_recommendations_for_product(
                     "cooking_time": "30분",  # 기본값, 실제로는 DB에서 가져와야 함
                     "difficulty": "중급",     # 기본값, 실제로는 DB에서 가져와야 함
                     "ingredients": [],
-                    "description": str(row.get("COOKING_INTRODUCTION", ""))
+                    "description": str(row.get("COOKING_INTRODUCTION", "")),
+                    "recipe_image_url": str(row.get("RECIPE_IMAGE_URL", "")) if row.get("RECIPE_IMAGE_URL") else None
                 }
                 
                 # 재료 정보가 있는 경우 추가

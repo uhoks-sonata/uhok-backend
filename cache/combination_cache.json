@@ -15,5 +15,15 @@
             7027838
         ],
         "combo_3_timestamp": "2025-08-28T14:02:47.135599"
+    },
+    "user:8:ingredients:4da6dc58c954e7cd4debcabb19e8c96d:combinations": {
+        "combo_1": [
+            7022220,
+            7035586,
+            7021860,
+            7022671,
+            7020612
+        ],
+        "combo_1_timestamp": "2025-08-28T16:55:43.723149"
     }
 }

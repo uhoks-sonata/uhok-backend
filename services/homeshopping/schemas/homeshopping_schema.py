@@ -175,6 +175,7 @@ class RecipeRecommendation(BaseModel):
     difficulty: str
     ingredients: List[str]
     description: str
+    recipe_image_url: Optional[str] = None
     
     class Config:
         from_attributes = True
