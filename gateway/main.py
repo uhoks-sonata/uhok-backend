@@ -11,6 +11,7 @@ from common.config import get_settings
 from common.logger import get_logger
 from services.user.routers.user_router import router as user_router
 from services.log.routers.user_event_log_router import router as user_event_log_router
+from services.log.routers.user_activity_log_routers import router as user_activity_log_router
 from services.order.routers.order_router import router as order_router
 from services.order.routers.payment_router import router as payment_router
 from services.homeshopping.routers.homeshopping_router import router as homeshopping_router
@@ -70,6 +71,10 @@ logger.info("사용자 라우터 포함 완료")
 logger.debug("로그 라우터 포함 중...")
 app.include_router(user_event_log_router)
 logger.info("로그 라우터 포함 완료")
+
+logger.debug("활동 로그 라우터 포함 중...")
+app.include_router(user_activity_log_router)
+logger.info("활동 로그 라우터 포함 완료")
 
 logger.debug("주문 라우터 포함 중...")
 app.include_router(order_router)
