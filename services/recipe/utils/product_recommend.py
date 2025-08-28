@@ -5,14 +5,9 @@ import os
 import re
 import pandas as pd
 from dotenv import load_dotenv
-
-# ---- DB 드라이버: mariadb 우선, 실패시 pymysql 폴백 ----
-try:
-    import mariadb as dbapi
-    DBAPI_NAME = "mariadb"
-except ImportError:
-    import pymysql as dbapi
-    DBAPI_NAME = "pymysql"
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
+from common.database.mariadb_service import get_maria_service_db
 
 # 환경변수 로드
 load_dotenv()
@@ -83,49 +78,17 @@ def apply_exclude(df: pd.DataFrame, name_col: str, ingredient: str) -> pd.DataFr
     return df[mask]
 
 # ---------- DB 유틸 ----------
-def _parse_db_url(db_url: str):
-    m = re.match(
-        r"^[a-zA-Z0-9_+]+://(?P<user>[^:]+):(?P<pw>[^@]+)@(?P<host>[^:/]+):(?P<port>\d+)/(?P<db>[\w\d_]+)$",
-        db_url or ""
-    )
-    return m.groupdict() if m else None
-
-def connect_mariadb():
-    cfg = _parse_db_url(os.getenv("MARIADB_SERVICE_URL", ""))
-    if cfg:
-        host = cfg["host"]; port = int(cfg["port"]); user = cfg["user"]
-        password = cfg["pw"]; database = cfg["db"]
-    else:
-        host = os.getenv("MARIADB_HOST")
-        port = int(os.getenv("MARIADB_PORT", "3306"))
-        user = os.getenv("MARIADB_USER")
-        password = os.getenv("MARIADB_PASSWORD")
-        database = os.getenv("MARIADB_DB")
-
-    if DBAPI_NAME == "mariadb":
-        return dbapi.connect(host=host, port=port, user=user, password=password, database=database)
-    else:
-        # pymysql 폴백
-        return dbapi.connect(host=host, port=port, user=user, password=password, database=database, charset="utf8mb4")
-
-def dict_cursor(conn):
-    if DBAPI_NAME == "mariadb":
-        return conn.cursor(dictionary=True)
-    else:
-        from pymysql.cursors import DictCursor
-        return conn.cursor(DictCursor)
-
-def adapt_sql(sql: str) -> str:
-    """PyMySQL은 %s 플레이스홀더 사용"""
-    return sql if DBAPI_NAME == "mariadb" else sql.replace("?", "%s")
-
-def _read_df(conn, sql, params):
-    sql = adapt_sql(sql)
-    cur = dict_cursor(conn)
-    cur.execute(sql, params)
-    rows = cur.fetchall()
-    cur.close()
-    return pd.DataFrame(rows) if rows else pd.DataFrame()
+async def _read_df_async(session: AsyncSession, sql: str, params: list) -> pd.DataFrame:
+    """SQLAlchemy 세션을 사용하여 데이터프레임 반환"""
+    result = await session.execute(text(sql), params)
+    rows = result.fetchall()
+    if rows:
+        # 컬럼명 추출
+        columns = result.keys()
+        # 딕셔너리 리스트로 변환
+        dict_rows = [dict(zip(columns, row)) for row in rows]
+        return pd.DataFrame(dict_rows)
+    return pd.DataFrame()
 
 # def detect_name_col(conn, table: str) -> str:
 #     cur = conn.cursor()
@@ -153,13 +116,13 @@ LEFT JOIN FCT_HOMESHOPPING_IMG_URL hiu ON hc.PRODUCT_ID = hiu.PRODUCT_ID AND hiu
 WHERE hc.CLS_FOOD = 1
   AND hc.CLS_ING  = 1
   AND (
-        hc.PRODUCT_NAME REGEXP ?
-        OR REPLACE(hc.PRODUCT_NAME, ' ', '') REGEXP ?
+        hc.PRODUCT_NAME REGEXP :pat
+        OR REPLACE(hc.PRODUCT_NAME, ' ', '') REGEXP :pat_ns
       )
 ORDER BY
-  CASE WHEN LOCATE(?, hc.PRODUCT_NAME) > 0 THEN LOCATE(?, hc.PRODUCT_NAME) ELSE 99999 END,
+  CASE WHEN LOCATE(:kw, hc.PRODUCT_NAME) > 0 THEN LOCATE(:kw, hc.PRODUCT_NAME) ELSE 99999 END,
   CHAR_LENGTH(hc.PRODUCT_NAME) ASC
-LIMIT ?
+LIMIT :limit_n
 """
 
 KOK_SQL_TMPL = """
@@ -174,20 +137,22 @@ FROM KOK_CLASSIFY kc
 LEFT JOIN FCT_KOK_PRODUCT_INFO kpi ON kc.PRODUCT_ID = kpi.KOK_PRODUCT_ID
 WHERE kc.CLS_ING = 1
   AND (
-        kc.PRODUCT_NAME REGEXP ?
-        OR REPLACE(kc.PRODUCT_NAME, ' ', '') REGEXP ?
+        kc.PRODUCT_NAME REGEXP :pat
+        OR REPLACE(kc.PRODUCT_NAME, ' ', '') REGEXP :pat_ns
       )
 ORDER BY
-  CASE WHEN LOCATE(?, kc.PRODUCT_NAME) > 0 THEN LOCATE(?, kc.PRODUCT_NAME) ELSE 99999 END,
+  CASE WHEN LOCATE(:kw, kc.PRODUCT_NAME) > 0 THEN LOCATE(:kw, kc.PRODUCT_NAME) ELSE 99999 END,
   CHAR_LENGTH(kc.PRODUCT_NAME) ASC
-LIMIT ?
+LIMIT :limit_n
 """
 
 # ---------- 검색 함수 ----------
-def search_homeshopping(conn, ingredient: str, limit_n: int = 2) -> pd.DataFrame:
+async def search_homeshopping(session: AsyncSession, ingredient: str, limit_n: int = 2) -> pd.DataFrame:
     (pat, pat_ns), kw = build_regex_params(ingredient)
     sql = HS_SQL_TMPL
-    df = _read_df(conn, sql, [pat, pat_ns, kw, kw, limit_n*3])  # 중복/필터 대비 여유
+    params = {"pat": pat, "pat_ns": pat_ns, "kw": kw, "limit_n": limit_n * 3}  # 중복/필터 대비 여유
+    
+    df = await _read_df_async(session, sql, params)
 
     if not df.empty:
         # (선택) 맥락 필터 — 현재 스텁 False
@@ -197,10 +162,12 @@ def search_homeshopping(conn, ingredient: str, limit_n: int = 2) -> pd.DataFrame
         df = df.head(limit_n)
     return df
 
-def search_kok(conn, ingredient: str, limit_n: int) -> pd.DataFrame:
+async def search_kok(session: AsyncSession, ingredient: str, limit_n: int) -> pd.DataFrame:
     (pat, pat_ns), kw = build_regex_params(ingredient)
     sql = KOK_SQL_TMPL
-    df = _read_df(conn, sql, [pat, pat_ns, kw, kw, limit_n*3])
+    params = {"pat": pat, "pat_ns": pat_ns, "kw": kw, "limit_n": limit_n * 3}
+    
+    df = await _read_df_async(session, sql, params)
 
     if not df.empty:
         df = df[~df['PRODUCT_NAME'].astype(str).apply(lambda n: is_false_positive(n, ingredient))]
@@ -209,7 +176,7 @@ def search_kok(conn, ingredient: str, limit_n: int) -> pd.DataFrame:
     return df
 
 # ---------- 추천 메인 ----------
-def recommend_for_ingredient(conn, ingredient: str, max_total: int = 5, max_home: int = 2):
+async def recommend_for_ingredient(session: AsyncSession, ingredient: str, max_total: int = 5, max_home: int = 2):
     """
     반환: list of dict(source, table, name, id, image_url, brand_name, price)
     """
@@ -217,7 +184,7 @@ def recommend_for_ingredient(conn, ingredient: str, max_total: int = 5, max_home
     seen = set()
 
     # 1) 홈쇼핑 먼저 (최대 2)
-    hs = search_homeshopping(conn, ingredient, limit_n=max_home)
+    hs = await search_homeshopping(session, ingredient, limit_n=max_home)
     if not hs.empty:
         for _, r in hs.iterrows():
             name = str(r.get('PRODUCT_NAME', "")); key = norm_for_dedupe(name)
@@ -239,7 +206,7 @@ def recommend_for_ingredient(conn, ingredient: str, max_total: int = 5, max_home
     # 2) KOK로 채우기 (총 max_total까지)
     need = max_total - len(recs)
     if need > 0:
-        kok = search_kok(conn, ingredient, limit_n=need * 3)  # 여유로 뽑아 중복 제거
+        kok = await search_kok(session, ingredient, limit_n=need * 3)  # 여유로 뽑아 중복 제거
         if not kok.empty:
             for _, r in kok.iterrows():
                 if len(recs) >= max_total:
