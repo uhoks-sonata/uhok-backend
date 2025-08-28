@@ -1267,7 +1267,7 @@ from ..utils.homeshopping_kok import (
     DYN_NGRAM_MIN, DYN_NGRAM_MAX,
     DYN_COUNT_MIN, DYN_COUNT_MAX,
     extract_core_keywords, extract_tail_keywords, roots_in_name,
-    infer_terms_from_name_via_ngrams, filter_tail_and_ngram_and,
+    infer_terms_from_name_via_ngrams, filter_tail_and_ngram_or,
     load_domain_dicts, normalize_name, tokenize_normalized
 )
 
@@ -1374,9 +1374,12 @@ async def recommend_homeshopping_to_kok(
 
         # 5) 거리 정렬
         ranked = sorted(details, key=lambda x: x.get("distance", 1e9))
+        logger.info(f"거리 정렬 완료: {len(ranked)}개 상품")
 
-        # 6) 최종 AND 필터 적용
-        filtered = filter_tail_and_ngram_and(ranked, prod_name)
+        # 6) 최종 필터 적용
+        logger.info(f"필터링 시작: prod_name='{prod_name}', ranked_count={len(ranked)}")
+        filtered = filter_tail_and_ngram_or(ranked, prod_name)
+        logger.info(f"필터링 완료: filtered_count={len(filtered)}")
 
         # 7) 최대 k개까지 반환
         final_result = filtered[:k]

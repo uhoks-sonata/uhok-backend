@@ -3,7 +3,7 @@
 추천 오케스트레이터
 - 후보 게이트(LIKE): (tail 핵심 + core/roots + 동적 n-gram)
 - 후보 내 pgvector 정렬 → 상세/가격 조인
-- 최종 AND 필터: tail ≥1 AND n-gram ≥1
+- 최종 OR 필터: tail ≥1 OR n-gram ≥1
 - 결과는 최대 k개(기본 5). 모자라면 있는 만큼, 없으면 빈 리스트.
 """
 
@@ -13,11 +13,8 @@ from collections import Counter
 from dotenv import load_dotenv
 load_dotenv()
 
-# 공통 키워드 추출 함수 import
-from common.keyword_extraction import extract_core_keywords, extract_tail_keywords
-
 # ---- 환경 기본값 ----
-RERANK_MODE_DEFAULT = os.getenv("RERANK_MODE", "off").lower().strip()  # 여기선 기본 off (원하면 "boost"/"strict")
+RERANK_MODE_DEFAULT = os.getenv("RERANK_MODE", "off").lower().strip()
 
 # -------------------- 동적 파라미터 --------------------
 def _env_int(key: str, default: int) -> int:
@@ -26,15 +23,15 @@ def _env_int(key: str, default: int) -> int:
     except Exception:
         return default
 
-# LIKE 검색/키워드 확장 파라미터(외부에서도 import해 사용)
+# LIKE 검색/키워드 확장 파라미터
 DYN_MAX_TERMS   = _env_int("DYN_MAX_TERMS", 32)
 DYN_MAX_EXTRAS  = _env_int("DYN_MAX_EXTRAS", 20)
 DYN_SAMPLE_ROWS = _env_int("DYN_SAMPLE_ROWS", 4000)
 
 # Tail / n-gram 필터 동작 파라미터
-TAIL_MAX_DF_RATIO = float(os.getenv("TAIL_MAX_DF_RATIO", "0.35"))  # 희소 토큰 판정 기준(문서비율 ≤ 0.35)
-TAIL_MAX_TERMS    = _env_int("TAIL_MAX_TERMS", 3)                   # tail 후보로 쓸 최대 토큰 수
-NGRAM_N           = _env_int("NGRAM_N", 2)                          # bi-gram 기본
+TAIL_MAX_DF_RATIO = float(os.getenv("TAIL_MAX_DF_RATIO", "0.35"))
+TAIL_MAX_TERMS    = _env_int("TAIL_MAX_TERMS", 3)
+NGRAM_N           = _env_int("NGRAM_N", 2)
 
 # n-gram 생성 범위
 DYN_NGRAM_MIN  = _env_int("DYN_NGRAM_MIN", 2)
@@ -149,7 +146,29 @@ def _expand_variants(core: List[str], variants: Dict[str, List[str]]) -> List[st
     return out
 
 # -------------------- 핵심/루트/테일 키워드 --------------------
-# extract_core_keywords와 extract_tail_keywords는 common.keyword_extraction에서 import하여 사용
+def extract_core_keywords(prod_name: str, max_n: int = 3) -> List[str]:
+    d = load_domain_dicts()
+    roots, strong, variants, stop = d["roots"], d["strong_ngrams"], d["variants"], d["stopwords"]
+
+    s = normalize_name(prod_name)
+    found_ng = [ng for ng in strong if ng and ng in s]
+    raw_toks = tokenize_normalized(s, stop)
+
+    expanded: List[str] = []
+    for t in raw_toks:
+        expanded.extend(_split_by_roots(t, roots))
+        expanded.append(t)
+
+    ordered: List[str] = []
+    for ng in found_ng:
+        if ng not in ordered: ordered.append(ng)
+        for r in _split_by_roots(ng, roots):
+            if r not in ordered: ordered.append(r)
+    for t in expanded:
+        if t not in ordered: ordered.append(t)
+
+    core = ordered[:max_n]
+    return _expand_variants(core, variants)[:max_n]
 
 def roots_in_name(prod_name: str) -> List[str]:
     d = load_domain_dicts()
@@ -163,7 +182,31 @@ def roots_in_name(prod_name: str) -> List[str]:
             out.append(h); seen.add(h)
     return out[:5]
 
-# extract_tail_keywords는 common.keyword_extraction에서 import하여 사용
+def extract_tail_keywords(prod_name: str, max_n: int = 2) -> List[str]:
+    """뒤쪽 핵심 키워드 중심으로(희소성/변형 고려는 가볍게) 추출."""
+    d = load_domain_dicts()
+    stop, variants, roots = d["stopwords"], d["variants"], d["roots"]
+    s = normalize_name(prod_name)
+    toks = [t for t in s.split() if len(t) >= 2 and not t.isnumeric() and t not in stop and not re.search(r"\d", t)]
+
+    tail_base: List[str] = []
+    for t in reversed(toks):
+        if t not in tail_base:
+            tail_base.append(t)
+        if len(tail_base) >= max_n:
+            break
+    tail_base.reverse()
+
+    expanded = list(tail_base)
+    for t in tail_base:
+        for v in variants.get(t, []):
+            if v not in expanded:
+                expanded.append(v)
+    for t in tail_base:
+        for r in _split_by_roots(t, roots):
+            if r not in expanded:
+                expanded.append(r)
+    return expanded
 
 # -------------------- 동적 n-gram --------------------
 def _char_ngrams_windowed(token: str, nmin: int, nmax: int) -> List[str]:
@@ -190,7 +233,7 @@ def infer_terms_from_name_via_ngrams(prod_name: str, max_terms: int = DYN_MAX_TE
     cand = list(dict.fromkeys(cand))[:max_terms]
     return cand
 
-# -------------------- tail + n-gram AND 필터 --------------------
+# -------------------- tail + n-gram OR 필터 (AND에서 변경) --------------------
 def _char_ngrams_raw(s: str, n: int = 2) -> Set[str]:
     s2 = normalize_name(s).replace(" ", "")
     if len(s2) < n:
@@ -198,7 +241,18 @@ def _char_ngrams_raw(s: str, n: int = 2) -> Set[str]:
     return {s2[i:i+n] for i in range(len(s2)-n+1)}
 
 def _ngram_overlap_count(a: str, b: str, n: int = 2) -> int:
-    return len(_char_ngrams_raw(a, n) & _char_ngrams_raw(b, n))
+    a_ngrams = _char_ngrams_raw(a, n)
+    b_ngrams = _char_ngrams_raw(b, n)
+    overlap = a_ngrams & b_ngrams
+    
+    # 디버깅: 처음 몇 개만 로그로 출력
+    from common.logger import get_logger
+    logger = get_logger("homeshopping_kok")
+    
+    if len(a) < 100 and len(b) < 100:  # 짧은 문자열만 로그로 출력
+        logger.debug(f"n-gram 계산: a='{a}' -> {list(a_ngrams)[:5]}, b='{b}' -> {list(b_ngrams)[:5]}, overlap={list(overlap)[:5]}")
+    
+    return len(overlap)
 
 def _dynamic_tail_terms(query_name: str, candidate_names: List[str], stopwords: Set[str]) -> List[str]:
     """후보 집합에서 희소한 쿼리 토큰만 tail로 선정."""
@@ -217,66 +271,59 @@ def _dynamic_tail_terms(query_name: str, candidate_names: List[str], stopwords: 
         tail = list(q_toks)[:1]
     return tail[:max(1, TAIL_MAX_TERMS)]
 
-def filter_tail_and_ngram_and(details: List[dict], prod_name: str) -> List[dict]:
+def filter_tail_and_ngram_or(details: List[dict], prod_name: str) -> List[dict]:
     """
-    AND 조건:
-      - tail 토큰 일치 ≥ 1
-      - n-gram 겹침 ≥ 1 (기본 bi-gram)
+    OR 조건으로 변경:
+      - tail 토큰 일치 ≥ 1 OR n-gram 겹침 ≥ 1
     들어온 순서를 보존(이미 정렬되어 있다고 가정).
     """
     if not details:
         return []
+    
+    from common.logger import get_logger
+    logger = get_logger("homeshopping_kok")
+    
     d = load_domain_dicts()
     stop = d["stopwords"]
 
-    cand_names = [f"{r.get('KOK_PRODUCT_NAME','')} {r.get('KOK_STORE_NAME','')}" for r in details]
+    # 실제 DB에서 반환되는 키 이름에 맞춰 수정
+    cand_names = []
+    for r in details:
+        product_name = r.get('kok_product_name') or r.get('KOK_PRODUCT_NAME') or ''
+        store_name = r.get('kok_store_name') or r.get('KOK_STORE_NAME') or ''
+        cand_names.append(f"{product_name} {store_name}")
+    
     tails = set(_dynamic_tail_terms(prod_name, cand_names, stop))
+    
+    logger.info(f"필터링 시작: prod_name='{prod_name}', tails={list(tails)[:10]}, 총 후보={len(details)}개")
 
     out = []
+    filtered_count = 0
     for r in details:
-        name = f"{r.get('KOK_PRODUCT_NAME','')} {r.get('KOK_STORE_NAME','')}"
+        product_name = r.get('kok_product_name') or r.get('KOK_PRODUCT_NAME') or ''
+        store_name = r.get('kok_store_name') or r.get('KOK_STORE_NAME') or ''
+        name = f"{product_name} {store_name}"
         toks = set(tokenize_normalized(name, stop))
         tail_hits = len(tails & toks)
         ngram_hits = _ngram_overlap_count(prod_name, name, n=NGRAM_N)
-        if tail_hits >= 1 and ngram_hits >= 1:
+        
+        # 디버깅: 처음 3개 상품의 상세 정보 출력
+        if filtered_count < 3:
+            logger.info(f"상품 '{name}' 분석: tail_hits={tail_hits}, ngram_hits={ngram_hits}")
+            logger.info(f"  - tails: {list(tails)[:5]}")
+            logger.info(f"  - toks: {list(toks)[:5]}")
+            logger.info(f"  - 교집합: {list(tails & toks)}")
+        
+        # 조건 완화: tail_hits >= 1 OR ngram_hits >= 1 (AND에서 OR로 변경)
+        if tail_hits >= 1 or ngram_hits >= 1:
             out.append(r)
+        else:
+            filtered_count += 1
+            if filtered_count <= 5:  # 처음 5개만 로그로 출력
+                logger.debug(f"필터링됨: '{name}' (tail_hits={tail_hits}, ngram_hits={ngram_hits})")
+    
+    logger.info(f"필터링 완료: 통과={len(out)}개, 필터링됨={filtered_count}개")
     return out
-
-# -------------------- DB 유틸리티 함수들 (기본 구현) --------------------
-def fetch_homeshopping_prod_name(product_id: Union[int, str]) -> str:
-    """홈쇼핑 상품명 조회 (기본 구현 - 실제 DB 연결 필요)"""
-    # TODO: 실제 DB 연결 및 쿼리 구현
-    return f"홈쇼핑상품_{product_id}"
-
-def fetch_kok_prod_infos(product_ids: List[int]) -> List[Dict]:
-    """KOK 상품 정보 조회 (기본 구현 - 실제 DB 연결 필요)"""
-    # TODO: 실제 DB 연결 및 쿼리 구현
-    return [{"KOK_PRODUCT_ID": pid, "KOK_PRODUCT_NAME": f"KOK상품_{pid}", "KOK_STORE_NAME": "기본스토어"} for pid in product_ids]
-
-def pgvector_topk_within(product_id: Union[int, str], candidate_ids: List[int], k: int) -> List[Tuple[Union[int, str], float]]:
-    """pgvector 기반 유사도 정렬 (기본 구현 - 실제 벡터 DB 연결 필요)"""
-    # TODO: 실제 pgvector 연결 및 쿼리 구현
-    return [(pid, 1.0 / (i + 1)) for i, pid in enumerate(candidate_ids[:k])]
-
-# 테이블명 상수
-KOK_PROD_INFO = "KOK_PRODUCT_INFO"  # 실제 테이블명으로 수정 필요
-
-def connect_mariadb():
-    """MariaDB 연결 (기본 구현 - 실제 DB 연결 필요)"""
-    # TODO: 실제 DB 연결 구현
-    class MockConnection:
-        def __enter__(self):
-            return self
-        def __exit__(self, exc_type, exc_val, exc_tb):
-            pass
-        def cursor(self, **kwargs):
-            class MockCursor:
-                def execute(self, sql, params):
-                    pass
-                def fetchall(self):
-                    return []
-            return MockCursor()
-    return MockConnection()
 
 # ----- 옵션: 게이트에서 스토어명도 LIKE 비교할지 (기본 False) -----
 GATE_COMPARE_STORE = os.getenv("GATE_COMPARE_STORE", "false").lower() in ("1","true","yes","on")
@@ -309,22 +356,21 @@ def kok_candidates_by_keywords_gated(
         cols.append("i.KOK_STORE_NAME")
 
     def _run(sql: str, params: List[str]) -> List[int]:
-        with connect_mariadb() as conn:
-            cur = conn.cursor()
-            cur.execute(sql, params + [int(limit)])
-            return [int(r[0]) for r in cur.fetchall() if r and r[0] is not None]
+        # 실제 DB 연결 구현 필요
+        # 현재는 더미 데이터 반환
+        return list(range(1001, 1001 + min(limit, 100)))
 
     ids: List[int] = []
     if must_kws:
         cond_or = _sql_like_or(cols, len(must_kws))
-        sql_or = f"SELECT DISTINCT i.KOK_PRODUCT_ID FROM {KOK_PROD_INFO} i WHERE ({cond_or}) LIMIT %s"
+        sql_or = f"SELECT DISTINCT i.KOK_PRODUCT_ID FROM KOK_PRODUCT_INFO i WHERE ({cond_or}) LIMIT %s"
         params_or = [f"%{k}%" for k in must_kws for _ in cols]
         ids = _run(sql_or, params_or)
 
     if len(ids) < min_if_all_fail and must_kws:
         use = must_kws[:2]
         cond_and = _sql_like_and(cols, len(use))
-        sql_and = f"SELECT DISTINCT i.KOK_PRODUCT_ID FROM {KOK_PROD_INFO} i WHERE ({cond_and}) LIMIT %s"
+        sql_and = f"SELECT DISTINCT i.KOK_PRODUCT_ID FROM KOK_PRODUCT_INFO i WHERE ({cond_and}) LIMIT %s"
         params_and = [f"%{k}%" for k in use for _ in cols]
         ids = _run(sql_and, params_and)
         if len(ids) < min_if_all_fail:
@@ -332,7 +378,7 @@ def kok_candidates_by_keywords_gated(
 
     if len(ids) < min_if_all_fail and optional_kws:
         cond_opt = _sql_like_or(cols, len(optional_kws))
-        sql_opt = f"SELECT DISTINCT i.KOK_PRODUCT_ID FROM {KOK_PROD_INFO} i WHERE ({cond_opt}) LIMIT %s"
+        sql_opt = f"SELECT DISTINCT i.KOK_PRODUCT_ID FROM KOK_PRODUCT_INFO i WHERE ({cond_opt}) LIMIT %s"
         params_opt = [f"%{k}%" for k in optional_kws for _ in cols]
         more = _run(sql_opt, params_opt)
         ids = list(dict.fromkeys(ids + more))[:limit]
@@ -346,7 +392,6 @@ def recommend_homeshopping_to_kok(
     use_rerank: bool = False,         # 여기선 기본 거리 정렬만 사용 (원하면 True로)
     candidate_n: int = 150,
     rerank_mode: str = None,
-    # strategy 파라미터는 단순화 (dict/keyword/벡터 조합은 필요 시 확장)
 ) -> List[Dict]:
     """
     파이프라인:
@@ -354,16 +399,17 @@ def recommend_homeshopping_to_kok(
       2) LIKE 게이트로 후보 수집
       3) 후보 내 pgvector 정렬
       4) (옵션) 리랭크
-      5) 최종 AND 필터(tail ≥1 AND n-gram ≥1)
+      5) 최종 OR 필터(tail ≥1 OR n-gram ≥1)
       6) 최대 k개 슬라이스
     """
-    prod_name = fetch_homeshopping_prod_name(product_id) or ""
+    # 실제 DB에서 상품명 조회 필요
+    prod_name = f"홈쇼핑상품_{product_id}"  # 더미 데이터
     if not prod_name:
         return []
 
     # 1) 키워드 구성
-    tail_k = extract_tail_keywords(prod_name, max_n=2, service_type="homeshopping")          # 뒤쪽 핵심(희소 가능성이 높은 토큰)
-    core_k = extract_core_keywords(prod_name, max_n=3, service_type="homeshopping")          # 앞/강한 핵심
+    tail_k = extract_tail_keywords(prod_name, max_n=2)          # 뒤쪽 핵심(희소 가능성이 높은 토큰)
+    core_k = extract_core_keywords(prod_name, max_n=3)          # 앞/강한 핵심
     root_k = roots_in_name(prod_name)                           # 루트 힌트(사전 기반)
     ngram_k = infer_terms_from_name_via_ngrams(prod_name, max_terms=DYN_MAX_TERMS)
 
@@ -380,30 +426,26 @@ def recommend_homeshopping_to_kok(
     if not cand_ids:
         return []  # 게이트 통과 상품이 전혀 없으면 빈 리스트
 
-    # 3) 후보 내 pgvector 정렬
-    sims: List[Tuple[Union[int, str], float]] = pgvector_topk_within(
-        product_id=product_id,
-        candidate_ids=cand_ids,
-        k=max(k, candidate_n),
-    )
+    # 3) 후보 내 pgvector 정렬 (더미 데이터)
+    sims: List[Tuple[Union[int, str], float]] = [(pid, 1.0 / (i + 1)) for i, pid in enumerate(cand_ids[:candidate_n])]
     if not sims:
         return []
 
     pid_order = [pid for pid, _ in sims]
     dist_map = {pid: dist for pid, dist in sims}
 
-    # 4) 상세 조인
-    details = fetch_kok_prod_infos(pid_order)
+    # 4) 상세 조인 (더미 데이터)
+    details = [{"KOK_PRODUCT_ID": pid, "KOK_PRODUCT_NAME": f"콕상품_{pid}", "KOK_STORE_NAME": f"스토어_{pid % 10}"} for pid in pid_order]
     if not details:
         return []
     for d in details:
         d["distance"] = dist_map.get(d["KOK_PRODUCT_ID"])
 
-    # 5) (옵션) 리랭크 or 거리 정렬
-    ranked = sorted(details, key=lambda x: x.get("distance", 1e9))  # 기본: 거리 오름차순
+    # 5) 거리 정렬
+    ranked = sorted(details, key=lambda x: x.get("distance", 1e9))
 
-    # 6) 최종 AND 필터 적용 (tail ≥1 AND n-gram ≥1)
-    filtered = filter_tail_and_ngram_and(ranked, prod_name)
+    # 6) 최종 OR 필터 적용 (tail ≥1 OR n-gram ≥1)
+    filtered = filter_tail_and_ngram_or(ranked, prod_name)
 
     # 7) 최대 k개까지 반환
     return filtered[:k]
@@ -421,10 +463,7 @@ __all__ = [
     "extract_core_keywords","extract_tail_keywords","roots_in_name",
     "infer_terms_from_name_via_ngrams",
     # 최종 필터
-    "filter_tail_and_ngram_and",
+    "filter_tail_and_ngram_or",
     # 추천 시스템
     "recommend_homeshopping_to_kok","kok_candidates_by_keywords_gated",
-    # DB 유틸리티
-    "fetch_homeshopping_prod_name","fetch_kok_prod_infos","pgvector_topk_within",
-    "KOK_PROD_INFO","connect_mariadb",
 ]
