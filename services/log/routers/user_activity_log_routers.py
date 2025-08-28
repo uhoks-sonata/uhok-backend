@@ -42,7 +42,7 @@ async def log_user_activity(
     }
     """
     try:
-        logger.info(f"사용자 활동 로그 기록 시작: user_id={current_user.user_id}, action={activity.action}")
+        # logger.info(f"사용자 활동 로그 기록 시작: user_id={current_user.user_id}, action={activity.action}")
         
         # 사용자 정보 자동 설정 (요청에서 전달된 경우 덮어씀)
         if not activity.user_id:
@@ -63,7 +63,7 @@ async def log_user_activity(
             activity=activity
         )
         
-        logger.info(f"사용자 활동 로그 기록 성공: user_id={current_user.user_id}, action={activity.action}, log_id={log_obj.log_id}")
+        # logger.info(f"사용자 활동 로그 기록 성공: user_id={current_user.user_id}, action={activity.action}, log_id={log_obj.log_id}")
         
         return UserActivityLogResponse(
             message="활동 로그가 성공적으로 기록되었습니다.",

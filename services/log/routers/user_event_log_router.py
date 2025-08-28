@@ -57,7 +57,7 @@ async def write_log(
     - POST /api/log/user/event (슬래시 없음)
     """
     try:
-        logger.info(f"사용자 이벤트 로그 기록 시작: user_id={log.user_id}, event_type={log.event_type}")
+        # logger.info(f"사용자 이벤트 로그 기록 시작: user_id={log.user_id}, event_type={log.event_type}")
         log_obj = await create_user_log(db, log.model_dump())
 
         # log_write_success 이벤트일 때는 또 기록하지 않도록 방지!
@@ -72,7 +72,7 @@ async def write_log(
                     "event_data": log.event_data
                 }
             )
-        logger.info(f"사용자 이벤트 로그 기록 성공: user_id={log.user_id}, event_type={log.event_type}, log_id={log_obj.log_id}")
+        # logger.info(f"사용자 이벤트 로그 기록 성공: user_id={log.user_id}, event_type={log.event_type}, log_id={log_obj.log_id}")
         return log_obj
     except BadRequestException as e:
         logger.warning(f"사용자 이벤트 로그 기록 실패 (잘못된 요청): user_id={log.user_id}, error={str(e)}")
@@ -97,7 +97,7 @@ async def read_user_logs(
     특정 사용자의 최근 로그 조회
     """
     try:
-        logger.info(f"사용자 이벤트 로그 조회 시작: user_id={user_id}")
+        # logger.info(f"사용자 이벤트 로그 조회 시작: user_id={user_id}")
         logs = await get_user_logs(db, user_id)
 
         if background_tasks:
@@ -110,7 +110,7 @@ async def read_user_logs(
                     "log_count": len(logs)
                 }
             )
-        logger.info(f"사용자 이벤트 로그 조회 성공: user_id={user_id}, count={len(logs)}")
+        # logger.info(f"사용자 이벤트 로그 조회 성공: user_id={user_id}, count={len(logs)}")
         return logs
     except Exception:
         logger.error(f"사용자 이벤트 로그 조회 실패: user_id={user_id}")

@@ -10,6 +10,7 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import pandas as pd
 
@@ -604,7 +605,6 @@ async def add_cart_item(
         await db.commit()
         
         # commit 후에 새로 생성된 cart_id를 조회
-        from sqlalchemy import select
         stmt = select(KokCart).where(
             KokCart.user_id == current_user.user_id,
             KokCart.kok_product_id == cart_data.kok_product_id
