@@ -893,7 +893,7 @@ async def get_kok_cart_items(
     stmt = (
         select(KokCart, KokProductInfo, KokPriceInfo)
         .join(KokProductInfo, KokCart.kok_product_id == KokProductInfo.kok_product_id)
-        .join(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id, isouter=True)
+        .join(KokPriceInfo, KokCart.kok_price_id == KokPriceInfo.kok_price_id)
         .where(KokCart.user_id == user_id)
         .order_by(KokCart.kok_created_at.desc())
         .limit(limit)
@@ -906,6 +906,7 @@ async def get_kok_cart_items(
         cart_items.append({
             "kok_cart_id": cart.kok_cart_id,
             "kok_product_id": product.kok_product_id,
+            "kok_price_id": cart.kok_price_id,
             "recipe_id": cart.recipe_id,
             "kok_product_name": product.kok_product_name,
             "kok_thumbnail": product.kok_thumbnail,
@@ -924,23 +925,36 @@ async def add_kok_cart(
     db: AsyncSession,
     user_id: int,
     kok_product_id: int,
+    kok_price_id: int,
     kok_quantity: int = 1,
     recipe_id: Optional[int] = None
 ) -> dict:
     """
     장바구니에 상품 추가
     """
-    logger.info(f"장바구니 추가 시작: user_id={user_id}, product_id={kok_product_id}, quantity={kok_quantity}, recipe_id={recipe_id}")
+    logger.info(f"장바구니 추가 시작: user_id={user_id}, kok_product_id={kok_product_id}, kok_price_id={kok_price_id}, kok_quantity={kok_quantity}, recipe_id={recipe_id}")
     
     # recipe_id가 0이면 None으로 처리 (외래키 제약 조건 위반 방지)
     if recipe_id == 0:
         recipe_id = None
         logger.info(f"recipe_id가 0이므로 None으로 처리")
     
-    # 기존 장바구니 항목 확인
+    # kok_price_id가 유효한지 확인
+    price_stmt = (
+        select(KokPriceInfo.kok_price_id)
+        .where(KokPriceInfo.kok_price_id == kok_price_id)
+        .where(KokPriceInfo.kok_product_id == kok_product_id)
+    )
+    price_result = await db.execute(price_stmt)
+    if not price_result.scalar_one_or_none():
+        logger.warning(f"유효하지 않은 가격 ID: kok_price_id={kok_price_id}, kok_product_id={kok_product_id}")
+        raise ValueError("유효하지 않은 가격 ID입니다.")
+    
+    # 기존 장바구니 항목 확인 (product_id와 price_id 모두 고려)
     stmt = select(KokCart).where(
         KokCart.user_id == user_id,
-        KokCart.kok_product_id == kok_product_id
+        KokCart.kok_product_id == kok_product_id,
+        KokCart.kok_price_id == kok_price_id
     )
     result = await db.execute(stmt)
     existing_cart = result.scalar_one_or_none()
@@ -948,7 +962,7 @@ async def add_kok_cart(
     if existing_cart:
         # 수량 업데이트
         existing_cart.kok_quantity += kok_quantity
-        logger.info(f"장바구니 수량 업데이트 완료: cart_id={existing_cart.kok_cart_id}, new_quantity={existing_cart.kok_quantity}")
+        logger.info(f"장바구니 수량 업데이트 완료: kok_cart_id={existing_cart.kok_cart_id}, new_quantity={existing_cart.kok_quantity}")
         return {
             "kok_cart_id": existing_cart.kok_cart_id,
             "message": f"장바구니 수량이 {existing_cart.kok_quantity}개로 업데이트되었습니다."
@@ -960,6 +974,7 @@ async def add_kok_cart(
         new_cart = KokCart(
             user_id=user_id,
             kok_product_id=kok_product_id,
+            kok_price_id=kok_price_id,
             kok_quantity=kok_quantity,
             kok_created_at=created_at,
             recipe_id=recipe_id
@@ -969,7 +984,7 @@ async def add_kok_cart(
         # refresh는 commit 후에 호출해야 하므로 여기서는 제거
         # await db.refresh(new_cart)
         
-        logger.info(f"장바구니 새 항목 추가 완료: user_id={user_id}, product_id={kok_product_id}")
+        logger.info(f"장바구니 새 항목 추가 완료: user_id={user_id}, kok_product_id={kok_product_id}, kok_price_id={kok_price_id}")
         return {
             "kok_cart_id": 0,  # commit 후에 실제 ID를 얻을 수 있음
             "message": "장바구니에 상품이 추가되었습니다."
@@ -1002,6 +1017,7 @@ async def update_kok_cart_quantity(
     
     return {
         "kok_cart_id": cart_item.kok_cart_id,
+        "kok_price_id": cart_item.kok_price_id,
         "kok_quantity": cart_item.kok_quantity,
         "message": f"수량이 {kok_quantity}개로 변경되었습니다."
     }
@@ -1011,7 +1027,7 @@ async def delete_kok_cart_item(
     db: AsyncSession,
     user_id: int,
     kok_cart_id: int
-) -> bool:
+) -> dict:
     """
     장바구니에서 상품 삭제
     """
@@ -1025,11 +1041,24 @@ async def delete_kok_cart_item(
     cart_item = result.scalar_one_or_none()
     
     if not cart_item:
-        return False
+        return {"success": False, "message": "장바구니 항목을 찾을 수 없습니다."}
+    
+    # 삭제할 항목 정보 저장
+    deleted_info = {
+        "kok_cart_id": cart_item.kok_cart_id,
+        "kok_price_id": cart_item.kok_price_id,
+        "kok_product_id": cart_item.kok_product_id,
+        "kok_quantity": cart_item.kok_quantity
+    }
     
     # 장바구니에서 삭제
     await db.delete(cart_item)
-    return True
+    
+    return {
+        "success": True,
+        "message": "장바구니에서 상품이 삭제되었습니다.",
+        "deleted_item": deleted_info
+    }
 
 
 # -----------------------------
@@ -1224,7 +1253,7 @@ async def get_ingredients_from_selected_cart_items(
     - 상품명에서 식재료 관련 키워드를 추출하여 반환
     - keyword_extraction.py의 로직을 사용하여 정확한 재료 추출
     """
-    logger.info(f"장바구니 상품에서 재료 추출 시작: user_id={user_id}, cart_ids={selected_cart_ids}")
+    logger.info(f"장바구니 상품에서 재료 추출 시작: user_id={user_id}, kok_cart_ids={selected_cart_ids}")
 
     if not selected_cart_ids:
         logger.warning("선택된 장바구니 항목이 없음")
@@ -1242,7 +1271,7 @@ async def get_ingredients_from_selected_cart_items(
     cart_items = result.fetchall()
 
     if not cart_items:
-        logger.warning(f"장바구니 상품을 찾을 수 없음: user_id={user_id}, cart_ids={selected_cart_ids}")
+        logger.warning(f"장바구니 상품을 찾을 수 없음: user_id={user_id}, kok_cart_ids={selected_cart_ids}")
         return []
 
     # 표준 재료 어휘 로드 (TEST_MTRL.MATERIAL_NAME)

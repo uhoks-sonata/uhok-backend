@@ -667,9 +667,9 @@ async def get_cart_items(
     return {"cart_items": cart_items}
 
 
-@router.patch("/carts/{cart_id}", response_model=KokCartUpdateResponse)
+@router.patch("/carts/{kok_cart_id}", response_model=KokCartUpdateResponse)
 async def update_cart_quantity(
-    cart_id: int,
+    kok_cart_id: int,
     update_data: KokCartUpdateRequest,
     current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
@@ -679,7 +679,7 @@ async def update_cart_quantity(
     장바구니 상품 수량 변경
     """
     try:
-        result = await update_kok_cart_quantity(db, current_user.user_id, cart_id, update_data.kok_quantity)
+        result = await update_kok_cart_quantity(db, current_user.user_id, kok_cart_id, update_data.kok_quantity)
         await db.commit()
         
         # 장바구니 수량 변경 로그 기록
@@ -689,7 +689,7 @@ async def update_cart_quantity(
                 user_id=current_user.user_id, 
                 event_type="cart_update", 
                 event_data={
-                    "kok_cart_id": cart_id,
+                    "kok_cart_id": kok_cart_id,
                     "quantity": update_data.kok_quantity
                 }
             )
@@ -704,13 +704,13 @@ async def update_cart_quantity(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         await db.rollback()
-        logger.error(f"장바구니 수량 변경 실패: user_id={current_user.user_id}, kok_cart_id={cart_id}, error={str(e)}")
+        logger.error(f"장바구니 수량 변경 실패: user_id={current_user.user_id}, kok_cart_id={kok_cart_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail="장바구니 수량 변경 중 오류가 발생했습니다.")
 
 
-@router.delete("/carts/{cart_id}", response_model=KokCartDeleteResponse)
+@router.delete("/carts/{kok_cart_id}", response_model=KokCartDeleteResponse)
 async def delete_cart_item(
-    cart_id: int,
+    kok_cart_id: int,
     current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db)
@@ -719,7 +719,7 @@ async def delete_cart_item(
     장바구니에서 상품 삭제
     """
     try:
-        deleted = await delete_kok_cart_item(db, current_user.user_id, cart_id)
+        deleted = await delete_kok_cart_item(db, current_user.user_id, kok_cart_id)
         
         if deleted:
             await db.commit()
@@ -730,7 +730,7 @@ async def delete_cart_item(
                     send_user_log, 
                     user_id=current_user.user_id, 
                     event_type="cart_delete", 
-                    event_data={"kok_cart_id": cart_id}
+                    event_data={"kok_cart_id": kok_cart_id}
                 )
             
             return KokCartDeleteResponse(message="장바구니에서 상품이 삭제되었습니다.")
@@ -740,7 +740,7 @@ async def delete_cart_item(
         raise
     except Exception as e:
         await db.rollback()
-        logger.error(f"장바구니 삭제 실패: user_id={current_user.user_id}, kok_cart_id={cart_id}, error={str(e)}")
+        logger.error(f"장바구니 삭제 실패: user_id={current_user.user_id}, kok_cart_id={kok_cart_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail="장바구니 삭제 중 오류가 발생했습니다.")
 
 

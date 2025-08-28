@@ -220,6 +220,7 @@ class KokCart(MariaBase):
     kok_quantity = Column("KOK_QUANTITY", Integer, nullable=False)  # 수량
     kok_created_at = Column("KOK_CREATED_AT", DateTime, nullable=True)  # 추가 시간
     recipe_id = Column("RECIPE_ID", Integer, ForeignKey("FCT_RECIPE.RECIPE_ID", onupdate="RESTRICT", ondelete="RESTRICT"), nullable=True)
+    kok_price_id = Column("KOK_PRICE_ID", Integer, ForeignKey("FCT_KOK_PRICE_INFO.KOK_PRICE_ID"), nullable=False)  # 가격 정보 ID
     
     # 추가 필드: 상품명과 이미지 (런타임에 설정)
     product_name = None
@@ -233,6 +234,12 @@ class KokCart(MariaBase):
     product = relationship(
         "KokProductInfo",
         back_populates="cart_items",
+        lazy="select"
+    )
+    
+    # 가격 정보와 N:1 관계 설정
+    price_info = relationship(
+        "KokPriceInfo",
         lazy="select"
     )
 
