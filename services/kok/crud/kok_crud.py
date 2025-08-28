@@ -13,6 +13,7 @@ from typing import Optional, List, Tuple
 from datetime import datetime, timedelta
 
 from common.logger import get_logger
+from common.utils import load_ing_vocab, extract_ingredient_keywords
 
 from services.order.models.order_model import Order, KokOrder
 from services.kok.models.kok_model import (
@@ -27,7 +28,6 @@ from services.kok.models.kok_model import (
     KokNotification,
     KokClassify
 )
-from services.kok.utils.keyword_extraction import extract_ingredient_keywords
 
 logger = get_logger("kok_crud")
 
@@ -1412,4 +1412,3 @@ async def get_cart_product_names_by_ids(
     product_names = [row[0] for row in result.fetchall() if row[0]]
     
     return product_names
-    
