@@ -59,11 +59,12 @@ async def confirm_payment_v1(
 # === [v2 routes: webhook flow] ==============================================
 from services.order.crud.payment_crud import confirm_payment_and_update_status_v2, apply_payment_webhook_v2
 
-@router.post("/payment/v2/confirm/{homeshopping_order_id}")
+@router.post("/{order_id}/confirm/v2")  # 주문 결제 확인 v2 (웹훅 방식)
 async def confirm_payment_v2(
-    homeshopping_order_id: int,
+    order_id: int,
     request: Request,
-    current_user = Depends(get_current_user),
+    background_tasks: BackgroundTasks,
+    current_user=Depends(get_current_user),  # 공백 제거
     db: AsyncSession = Depends(get_maria_service_db),
 ):
     """
@@ -73,27 +74,28 @@ async def confirm_payment_v2(
     try:
         result = await confirm_payment_and_update_status_v2(
             db=db,
-            homeshopping_order_id=homeshopping_order_id,
+            order_id=order_id,
             user_id=current_user.user_id,
             request=request,
+            background_tasks=background_tasks,
         )
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"payment v2 init failed: {e}")
 
-@router.post("/payment/webhook/v2/{tx_id}", name="payment_webhook_handler_v2")
+@router.post("/webhook/v2/{tx_id}", name="payment_webhook_handler_v2")
 async def payment_webhook_v2(
     tx_id: str,
     request: Request,
-    x_payment_signature: Optional[str] = Header(None, convert_underscores=False),
-    x_payment_event: Optional[str] = Header(None, convert_underscores=False),
     db: AsyncSession = Depends(get_maria_service_db),
+    x_payment_signature: str = Header(..., convert_underscores=False),
+    x_payment_event: str = Header(..., convert_underscores=False),
+    authorization: str | None = Header(None),  # (옵션) 서비스 토큰
 ):
     """
     결제서버 웹훅 수신 엔드포인트
     - 헤더 X-Payment-Signature (base64 HMAC-SHA256)
     - 헤더 X-Payment-Event (payment.completed | payment.failed | payment.cancelled)
-    - 바디: { "payment_id": "...", "order_id": ..., ... }
     """
     if not x_payment_signature or not x_payment_event:
         raise HTTPException(status_code=400, detail="missing signature or event header")
@@ -104,7 +106,8 @@ async def payment_webhook_v2(
         tx_id=tx_id,
         raw_body=body,
         signature_b64=x_payment_signature,
-        event=x_payment_event,  # type: ignore
+        event=x_payment_event,
+        authorization=authorization,
     )
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("reason","webhook handling failed"))

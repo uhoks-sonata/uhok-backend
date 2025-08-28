@@ -2,6 +2,7 @@ from __future__ import annotations
 import os
 import asyncio
 import httpx
+import json
 from fastapi import HTTPException, BackgroundTasks
 from typing import Dict, Any, Optional, Tuple
 from datetime import datetime
@@ -23,9 +24,10 @@ from services.order.crud.order_crud import (
 logger = get_logger("payment_crud")
 
 load_dotenv()
-pay_api_base = os.getenv("PAY_API_BASE")
 
 # === [v1: Polling-based payment flow] =======================================
+PAYMENT_SERVER_URL = os.getenv("PAYMENT_SERVER_URL")
+
 async def _poll_payment_status(
     payment_id: str,
     *,
@@ -48,8 +50,8 @@ async def _poll_payment_status(
         logger.info(f"결제 상태 확인 시도 {attempt + 1}/{max_attempts}: payment_id={payment_id}, sleep={sleep}초")
         
         try:
-            logger.info(f"결제 상태 확인 요청 시작: payment_id={payment_id}, url={pay_api_base}/payment-status/{payment_id}")
-            resp = await _get_json(f"{pay_api_base}/payment-status/{payment_id}", timeout=15.0)
+            logger.info(f"결제 상태 확인 요청 시작: payment_id={payment_id}, url={PAYMENT_SERVER_URL}/payment-status/{payment_id}")
+            resp = await _get_json(f"{PAYMENT_SERVER_URL}/payment-status/{payment_id}", timeout=15.0)
             logger.info(f"결제 상태 응답: payment_id={payment_id}, status_code={resp.status_code}")
             
         except httpx.RequestError as e:
@@ -116,7 +118,7 @@ async def confirm_payment_and_update_status_v1(
     logger.info(f"주문 총액 계산 완료: order_id={order_id}, total_price={total_order_price}")
 
     # (3) 결제 생성
-    logger.info(f"외부 결제 API 호출 시작: order_id={order_id}, pay_api_base={pay_api_base}")
+    logger.info(f"외부 결제 API 호출 시작: order_id={order_id}, url={PAYMENT_SERVER_URL}")
     pay_req = {
         "order_id": order_id,  # 숫자 그대로 사용
         "payment_amount": total_order_price,
@@ -126,7 +128,7 @@ async def confirm_payment_and_update_status_v1(
     logger.info(f"결제 요청 데이터: {pay_req}")
     
     try:
-        create_resp = await _post_json(f"{pay_api_base}/pay", json=pay_req, timeout=20.0)
+        create_resp = await _post_json(f"{PAYMENT_SERVER_URL}/pay", json=pay_req, timeout=20.0)
         logger.info(f"외부 결제 API 응답: status_code={create_resp.status_code}, response={create_resp.text[:200]}")
     except httpx.RequestError as e:
         logger.error(f"외부 결제 API 연결 실패: order_id={order_id}, error={str(e)}")
@@ -205,110 +207,171 @@ import hmac, hashlib, base64, secrets
 from typing import Literal, Optional
 from fastapi import Request
 
-PAYMENT_SERVER_URL = os.getenv("PAYMENT_SERVER_URL")
+SERVICE_AUTH_TOKEN = os.getenv("SERVICE_AUTH_TOKEN")
+PAYMENT_SERVER_URL2 = os.getenv("PAYMENT_SERVER_URL2")
 PAYMENT_WEBHOOK_SECRET = os.getenv("PAYMENT_WEBHOOK_SECRET")
-
 # 운영서버로 콜백 받을 때 서명을 검증
-def verify_webhook_signature(body_bytes: bytes, signature_b64: str, secret: str) -> bool:
+def _verify_webhook_signature(body_bytes: bytes, signature_b64: str, secret: str) -> bool:
     mac = hmac.new(secret.encode("utf-8"), body_bytes, hashlib.sha256).digest()
     expected = base64.b64encode(mac).decode("ascii")
     # 타이밍 공격 방지 비교
     return hmac.compare_digest(expected, signature_b64)
 
 async def confirm_payment_and_update_status_v2(
-    db,
-    homeshopping_order_id: int,
+    *,
+    db: AsyncSession,
+    order_id: int,
     user_id: int,
     request: Request,
+    background_tasks: Optional[BackgroundTasks] = None,
 ) -> dict:
     """
-    v2(웹훅) 결제 확인 요청 시작:
-    - 주문 상태를 PAYMENT_REQUESTED 로 변경 (v1과 동일)
-    - 결제서버에 '콜백 URL'을 포함해 결제요청 전송
-    - 즉시 응답(PENDING) 반환, 실제 완료는 웹훅 수신 시 최종 반영
+    v2(웹훅) 결제 확인 시작:
+    - 접근검증/총액계산은 v1과 동일
+    - 결제서버로 callback_url을 포함해 '시작 요청'만 보냄
+    - 완료/실패 업데이트는 웹훅 수신 핸들러에서 처리
     """
-    # 1) (예) 주문/결제 금액 조회 (기존 v1과 동일하게 필요한 정보 수집)
-    # amount = await get_order_amount(db, homeshopping_order_id)  # 이미 있는 헬퍼 가정
-    amount = 1000  # 예시
 
-    # 2) 상태 → PAYMENT_REQUESTED (기존 v1과 동일)
-    # await set_status_payment_requested(db, homeshopping_order_id, user_id)
-    # await db.commit()
+    logger.info(f"[v2] 결제 확인 시작: order_id={order_id}, user_id={user_id}")
 
-    # 트랜잭션 식별자/토큰 생성
-    tx_id = f"tx_{homeshopping_order_id}_{secrets.token_urlsafe(8)}"
-    token = secrets.token_urlsafe(32)  # 콜백 URL 보호용 토큰 (선택)
+    # (1) 접근 검증
+    order_data = await _ensure_order_access(db, order_id, user_id)
 
-    # 3) 웹훅 콜백 URL 생성 (라우터에서 name="payment_webhook_handler_v2" 로 등록 가정)
-    callback_url = str(
-        request.url_for("payment_webhook_handler_v2", tx_id=tx_id)
-    ) + f"?t={token}"
+    # (2) 총액 계산
+    total_order_price = await calculate_order_total_price(db, order_id)
 
-    # 4) 결제서버로 "콜백 URL"을 포함하여 결제요청
+    # (선택) 여기서 'PAYMENT_REQUESTED'로 상태 선반영을 원하면 이 지점에서 반영하세요.
+    # 예: await _set_status_payment_requested(db, order_id, user_id); await db.commit()
+
+    # (3) tx & callback_url 준비
+    tx_id = f"tx_{order_id}_{secrets.token_urlsafe(8)}"
+    cb_token = secrets.token_urlsafe(16)
+    callback_url = str(request.url_for("payment_webhook_handler_v2", tx_id=tx_id)) + f"?t={cb_token}"
+
     payload = {
         "version": "v2",
         "tx_id": tx_id,
-        "order_id": homeshopping_order_id,
+        "order_id": order_id,
         "user_id": user_id,
-        "amount": amount,
+        "amount": total_order_price,
         "callback_url": callback_url,
     }
+    headers = {}
+    if SERVICE_AUTH_TOKEN:
+        headers["Authorization"] = f"Bearer {SERVICE_AUTH_TOKEN}"
 
-    # 요청
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.post(
-            f"{PAYMENT_SERVER_URL}/api/v2/payments",
-            json=payload,
-        )
+    # (4) 결제서버에 시작 요청
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(f"{PAYMENT_SERVER_URL2}/api/v2/payments", json=payload, headers=headers)
         r.raise_for_status()
-        init_result = r.json()
+        init_ack = r.json()
+    except httpx.RequestError as e:
+        logger.error(f"[v2] 결제서버 연결 실패: {e}")
+        raise HTTPException(status_code=503, detail="외부 결제 서비스에 연결할 수 없습니다.")
+    except Exception as e:
+        logger.error(f"[v2] 결제서버 오류: {e}")
+        raise HTTPException(status_code=400, detail="결제 시작 요청 실패")
 
-    # 5) 로컬에 tx_id, token 등을 저장(필요 시). 예: PAYMENT_TRANSACTIONS 테이블 or ORDERS 메타
-    # await save_tx_metadata(db, homeshopping_order_id, tx_id, token)
-    # await db.commit()
+    # (5) (옵션) tx 메타 저장이 필요하면 별도 테이블/메타 컬럼에 저장
+    # await save_payment_tx(db, order_id, tx_id, cb_token); await db.commit()
+
+    # (6) 로그
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log,
+            user_id=user_id,
+            event_type="order_payment_confirm_v2_init",
+            event_data={
+                "order_id": order_id,
+                "tx_id": tx_id,
+                "callback_url": callback_url,
+                "payment_init_ack": init_ack,
+            },
+        )
 
     return {
         "status": "PENDING",
         "tx_id": tx_id,
-        "payment_server_ack": init_result,
+        "order_id": order_id,
+        "payment_amount": total_order_price,
+        "payment_server_ack": init_ack,
     }
 
+
 async def apply_payment_webhook_v2(
-    db,
+    *,
+    db: AsyncSession,
     tx_id: str,
     raw_body: bytes,
     signature_b64: str,
-    event: Literal["payment.completed","payment.failed","payment.cancelled"],
+    event: str,  # "payment.completed" | "payment.failed" | "payment.cancelled"
+    authorization: Optional[str] = None,  # (옵션) 서비스 토큰 검증용
 ) -> dict:
     """
-    결제서버 → 운영서버 웹훅 수신 처리
-    - HMAC 서명 검증
-    - event에 따라 주문 상태 최종 업데이트 (PAYMENT_COMPLETED / FAILED 등)
+    결제서버 → 운영서버 웹훅 수신
+    - HMAC 서명 검증 필수
+    - (옵션) Authorization: Bearer <SERVICE_AUTH_TOKEN> 검증
+    - event별로 상태 업데이트 트리거
     """
-    # 1) 서명 검증
-    if not verify_webhook_signature(raw_body, signature_b64, PAYMENT_WEBHOOK_SECRET):
+    # (0) (옵션) 서비스 토큰 검증
+    if SERVICE_AUTH_TOKEN:
+        expected = f"Bearer {SERVICE_AUTH_TOKEN}"
+        if authorization != expected:
+            logger.warning("[v2] 서비스 토큰 불일치")
+            return {"ok": False, "reason": "invalid_service_token"}
+
+    # (1) 서명 검증
+    if not _verify_webhook_signature(raw_body, signature_b64, PAYMENT_WEBHOOK_SECRET):
+        logger.warning("[v2] 웹훅 시그니처 검증 실패")
         return {"ok": False, "reason": "invalid_signature"}
 
-    # 2) 본문 파싱
-    import json
-    payload = json.loads(raw_body.decode("utf-8"))
+    # (2) 페이로드 파싱
+    try:
+        payload = json.loads(raw_body.decode("utf-8"))
+    except Exception as e:
+        logger.error(f"[v2] 웹훅 바디 파싱 실패: {e}")
+        return {"ok": False, "reason": "invalid_body"}
 
     order_id = payload.get("order_id")
     payment_id = payload.get("payment_id")
     completed_at = payload.get("completed_at")
     failure_reason = payload.get("failure_reason")
 
-    # 3) 상태 업데이트
+    if not order_id:
+        return {"ok": False, "reason": "missing_order_id"}
+
+    # (3) event 처리
     if event == "payment.completed":
-        # await set_status_payment_completed(db, order_id, payment_id, completed_at)
-        # await add_status_history(...)
-        pass
+        # 주문 접근 확인 (로그/검증 용도)
+        order_data = await _ensure_order_access(db, order_id, None)  # 내부 호출이면 user_id 검증 생략 가능
+        kok_orders = order_data.get("kok_orders", [])
+        hs_orders = order_data.get("homeshopping_orders", [])
+
+        # 하위 주문 상태 일괄 갱신 (v1과 동일한 헬퍼)
+        await _mark_all_children_paid(
+            db,
+            kok_orders=kok_orders,
+            hs_orders=hs_orders,
+            user_id=None,  # 시스템 처리면 None/0 등 정책에 맞게
+        )
+        await db.commit()
+
+        # (선택) 상태이력/알림 로깅
+        # background task가 라우터에 없다면 여기서 바로 적재하거나 생략
+        logger.info(f"[v2] 결제완료 반영: order_id={order_id}, payment_id={payment_id}")
+
+        return {"ok": True, "order_id": order_id, "event": event, "payment_id": payment_id}
+
     elif event in ("payment.failed", "payment.cancelled"):
-        # await set_status_payment_failed(db, order_id, reason=failure_reason)
-        # await add_status_history(...)
-        pass
+        # 실패/취소 반영 로직이 따로 있다면 호출 (예: _mark_payment_failed)
+        # await _mark_payment_failed(db, order_id, reason=failure_reason)
+        await db.commit()
+        logger.info(f"[v2] 결제실패/취소 반영: order_id={order_id}, reason={failure_reason}")
+        return {"ok": True, "order_id": order_id, "event": event, "reason": failure_reason}
 
-    # await db.commit()
+    else:
+        logger.warning(f"[v2] 알 수 없는 이벤트: {event}")
+        return {"ok": False, "reason": "unknown_event"}
 
-    return {"ok": True, "order_id": order_id, "event": event}
 # ===========================================================================
