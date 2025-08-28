@@ -48,7 +48,7 @@ from services.recipe.crud.recipe_crud import (
 from ..utils.recommend_service import get_db_vector_searcher
 from ..utils.ports import VectorSearcherPort
 from services.recipe.utils.combination_tracker import CombinationTracker
-from services.recipe.utils.product_recommend import recommend_for_ingredient, connect_mariadb
+from services.recipe.utils.product_recommend import recommend_for_ingredient
 
 # combination_tracker 인스턴스 생성
 combination_tracker = CombinationTracker()
@@ -427,14 +427,8 @@ async def get_ingredient_product_recommendations(
     logger.info(f"식재료 상품 추천 API 호출: user_id={current_user.user_id}, ingredient={ingredient}")
     
     try:
-        # MariaDB 연결
-        conn = connect_mariadb()
-        
-        # 상품 추천 로직 실행
-        recommendations = recommend_for_ingredient(conn, ingredient, max_total=5, max_home=2)
-        
-        # 연결 종료
-        conn.close()
+        # 상품 추천 로직 실행 (SQLAlchemy 세션 사용)
+        recommendations = await recommend_for_ingredient(db, ingredient, max_total=5, max_home=2)
         
         # 상품 추천 로그 기록
         if background_tasks:
