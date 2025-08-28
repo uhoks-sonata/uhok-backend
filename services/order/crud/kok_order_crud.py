@@ -89,7 +89,7 @@ async def calculate_kok_order_price(
 async def create_orders_from_selected_carts(
     db: AsyncSession,
     user_id: int,
-    selected_items: List[dict],  # [{"cart_id": int, "quantity": int}]
+    selected_items: List[dict],  # [{"kok_cart_id": int, "quantity": int}]
 ) -> dict:
     """
     장바구니에서 선택된 항목들로 한 번에 주문 생성
@@ -97,14 +97,14 @@ async def create_orders_from_selected_carts(
     Args:
         db: 데이터베이스 세션
         user_id: 주문하는 사용자 ID
-        selected_items: 선택된 장바구니 항목 목록 [{"cart_id": int, "quantity": int}]
+        selected_items: 선택된 장바구니 항목 목록 [{"kok_cart_id": int, "quantity": int}]
     
     Returns:
         dict: 주문 생성 결과 (order_id, total_amount, order_count, order_details, message, order_time, kok_order_ids)
         
     Note:
         - CRUD 계층: DB 트랜잭션 처리 담당
-        - 각 선택 항목에 대해 kok_price_id를 조회하여 KokOrder를 생성
+        - 각 선택 항목에 대해 KokCart.kok_price_id를 직접 사용하여 KokOrder를 생성
         - KokCart.recipe_id가 있으면 KokOrder.recipe_id로 전달
         - 처리 후 선택된 장바구니 항목 삭제
         - 주문 접수 상태로 초기화하고 알림 생성
@@ -117,16 +117,12 @@ async def create_orders_from_selected_carts(
     await db.flush()
 
     # 필요한 데이터 일괄 조회
-    cart_ids = [item["cart_id"] for item in selected_items]
-
-    # 필요한 데이터 일괄 조회
-    cart_ids = [item["cart_id"] for item in selected_items]
+    kok_cart_ids = [item["kok_cart_id"] for item in selected_items]
 
     stmt = (
-        select(KokCart, KokProductInfo, KokPriceInfo)
+        select(KokCart, KokProductInfo)
         .join(KokProductInfo, KokCart.kok_product_id == KokProductInfo.kok_product_id)
-        .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
-        .where(KokCart.kok_cart_id.in_(cart_ids))
+        .where(KokCart.kok_cart_id.in_(kok_cart_ids))
         .where(KokCart.user_id == user_id)
     )
     rows = (await db.execute(stmt)).all()
@@ -143,23 +139,26 @@ async def create_orders_from_selected_carts(
     order_details: List[dict] = []
     created_kok_order_ids: List[int] = []
     
-    for cart, product, price in rows:
+    for cart, product in rows:
         # 선택 항목의 수량 찾기
-        quantity = next((i["quantity"] for i in selected_items if i["cart_id"] == cart.kok_cart_id), None)
+        quantity = next((i["quantity"] for i in selected_items if i["kok_cart_id"] == cart.kok_cart_id), None)
         if quantity is None:
             continue
-        if not price:
+        
+        # KokCart의 kok_price_id를 직접 사용
+        if not cart.kok_price_id:
+            logger.warning(f"장바구니에 가격 정보가 없음: cart_id={cart.kok_cart_id}, user_id={user_id}")
             continue
 
         # 주문 금액 계산 (별도 함수 사용)
-        price_info = await calculate_kok_order_price(db, price.kok_price_id, product.kok_product_id, quantity)
+        price_info = await calculate_kok_order_price(db, cart.kok_price_id, product.kok_product_id, quantity)
         order_price = price_info["order_price"]
         unit_price = price_info["unit_price"]
 
         # 주문 항목 생성
         new_kok_order = KokOrder(
             order_id=main_order.order_id,
-            kok_price_id=price.kok_price_id,
+            kok_price_id=cart.kok_price_id,
             kok_product_id=product.kok_product_id,
             quantity=quantity,
             order_price=order_price,

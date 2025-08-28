@@ -9,7 +9,7 @@ from services.order.schemas.common_schema import StatusMasterSchema
 # -----------------------------
 
 class KokCartOrderItem(BaseModel):
-    cart_id: int = Field(..., description="장바구니 ID")
+    kok_cart_id: int = Field(..., description="장바구니 ID")
     quantity: int = Field(..., ge=1, description="주문 수량")
 
 class KokCartOrderRequest(BaseModel):
