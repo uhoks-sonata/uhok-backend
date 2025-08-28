@@ -3,6 +3,7 @@
 - 메모리 캐시를 활용하여 사용된 레시피 ID들을 관리
 - 각 조합마다 다른 레시피 풀을 사용할 수 있도록 지원
 - 파일 기반 캐시로 서버 재시작 시에도 데이터 유지
+- 현재는 /api/recipes/by-ingredients API에서만 사용
 """
 
 import hashlib
@@ -13,7 +14,7 @@ from datetime import datetime, timedelta
 from common.logger import get_logger
 
 class CombinationTracker:
-    """조합별 사용된 레시피를 추적하는 클래스"""
+    """조합별 사용된 레시피를 추적하는 클래스 (현재는 by-ingredients API에서만 사용)"""
     
     def __init__(self):
         self.logger = get_logger("combination_tracker")
@@ -128,15 +129,7 @@ class CombinationTracker:
         self.logger.info(f"제외할 레시피 ID 조회: user_id={user_id}, combo={current_combination}, excluded_ids={excluded_ids}")
         return list(set(excluded_ids))  # 중복 제거
     
-    def clear_user_combinations(self, user_id: int, ingredients_hash: str):
-        """사용자의 특정 재료 조합에 대한 추적 데이터 삭제"""
-        cache_key = self.get_cache_key(user_id, ingredients_hash)
-        
-        if cache_key in self.memory_cache:
-            del self.memory_cache[cache_key]
-            self.logger.info(f"사용자 조합 데이터 삭제: user_id={user_id}, hash={ingredients_hash}")
-            # 파일에 저장
-            self._save_cache_to_file()
+
     
     def _cleanup_memory_cache(self):
         """메모리 캐시에서 만료된 데이터 정리 (6시간 이상 된 데이터만)"""
@@ -161,29 +154,7 @@ class CombinationTracker:
         # 파일에 저장
         self._save_cache_to_file()
     
-    def get_combination_info(self, user_id: int, ingredients_hash: str) -> Dict:
-        """사용자의 조합 정보 조회"""
-        cache_key = self.get_cache_key(user_id, ingredients_hash)
-        result = self.memory_cache.get(cache_key, {})
-        self.logger.info(f"조합 정보 조회: user_id={user_id}, hash={ingredients_hash}, result={result}")
-        return result
-    
-    def get_cache_status(self) -> Dict:
-        """전체 캐시 상태 조회 (디버깅용)"""
-        return {
-            "total_cache_keys": len(self.memory_cache),
-            "cache_keys": list(self.memory_cache.keys()),
-            "cache_details": self.memory_cache,
-            "last_cleanup": self.last_cleanup.isoformat(),
-            "cache_file": self.cache_file
-        }
-    
-    def manual_cleanup(self):
-        """수동으로 메모리 정리 실행 (디버깅/관리용)"""
-        self.logger.info("수동 메모리 정리 시작")
-        self._cleanup_memory_cache()
-        self.last_cleanup = datetime.now()
-        self.logger.info("수동 메모리 정리 완료")
+
 
 
 # 전역 인스턴스 생성

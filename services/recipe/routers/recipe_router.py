@@ -27,7 +27,8 @@ from services.recipe.schemas.recipe_schema import (
     RecipeByIngredientsListResponse,
     RecipeIngredientStatusDetailResponse,
     HomeshoppingProductsResponse,
-    RecipeIngredientStatusResponse
+    RecipeIngredientStatusResponse,
+    ProductRecommendResponse
 )
 from services.recipe.crud.recipe_crud import (
     get_recipe_detail,
@@ -47,6 +48,7 @@ from services.recipe.crud.recipe_crud import (
 from ..utils.recommend_service import get_db_vector_searcher
 from ..utils.ports import VectorSearcherPort
 from services.recipe.utils.combination_tracker import CombinationTracker
+from services.recipe.utils.product_recommend import recommend_for_ingredient, connect_mariadb
 
 # combination_tracker 인스턴스 생성
 combination_tracker = CombinationTracker()
@@ -163,38 +165,7 @@ async def by_ingredients(
     }
 
 
-@router.get("/by-ingredients/combinations/info")
-async def get_combinations_info(
-    ingredient: List[str] = Query(..., min_length=3, description="식재료 리스트 (최소 3개)"),
-    amount: Optional[List[float]] = Query(None, description="각 재료별 분량 (amount 또는 unit 중 하나는 필수)"),
-    unit: Optional[List[str]] = Query(None, description="각 재료별 단위 (amount 또는 unit 중 하나는 필수)"),
-    current_user = Depends(get_current_user)
-):
-    """
-    사용자의 재료 조합에 대한 조합 정보 조회
-    - 각 조합에서 사용된 레시피 정보 제공
-    """
-    # amount 또는 unit 중 하나는 필수
-    if amount is None and unit is None:
-        logger.warning("amount와 unit 모두 제공되지 않음")
-        from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail="amount 또는 unit 중 하나는 반드시 제공해야 합니다.")
-    
-    # 재료 정보 해시 생성 (amount 또는 unit이 None인 경우 기본값 사용)
-    amounts_for_hash = amount if amount is not None else [1.0] * len(ingredient)
-    units_for_hash = unit if unit is not None else [""] * len(ingredient)
-    ingredients_hash = combination_tracker.generate_ingredients_hash(ingredient, amounts_for_hash, units_for_hash)
-    
-    # 조합 정보 조회
-    combination_info = combination_tracker.get_combination_info(
-        current_user.user_id, ingredients_hash
-    )
-    
-    return {
-        "ingredients_hash": ingredients_hash,
-        "combinations": combination_info,
-        "total_combinations": len([k for k in combination_info.keys() if k.startswith('combo_')])
-    }
+
 
 
 
@@ -441,6 +412,57 @@ async def get_recipe_ingredients_status_handler(
     return RecipeIngredientStatusResponse(**result)
 
 
+@router.get("/{ingredient}/product-recommend", response_model=ProductRecommendResponse)
+async def get_ingredient_product_recommendations(
+    ingredient: str = Path(..., description="추천받을 식재료명"),
+    current_user: UserOut = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
+):
+    """
+    특정 식재료에 대한 콕 상품과 홈쇼핑 상품 추천
+    
+    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+    비즈니스 로직은 product_recommend 모듈에 위임
+    """
+    logger.info(f"식재료 상품 추천 API 호출: user_id={current_user.user_id}, ingredient={ingredient}")
+    
+    try:
+        # MariaDB 연결
+        conn = connect_mariadb()
+        
+        # 상품 추천 로직 실행
+        recommendations = recommend_for_ingredient(conn, ingredient, max_total=5, max_home=2)
+        
+        # 연결 종료
+        conn.close()
+        
+        # 상품 추천 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="ingredient_product_recommend", 
+                event_data={
+                    "ingredient": ingredient,
+                    "recommendation_count": len(recommendations)
+                }
+            )
+        
+        logger.info(f"식재료 상품 추천 완료: ingredient={ingredient}, 추천 상품 수={len(recommendations)}")
+        
+        return ProductRecommendResponse(
+            ingredient=ingredient,
+            recommendations=recommendations,
+            total_count=len(recommendations)
+        )
+        
+    except Exception as e:
+        logger.error(f"식재료 상품 추천 실패: ingredient={ingredient}, user_id={current_user.user_id}, error={e}")
+        raise HTTPException(
+            status_code=500, 
+            detail="상품 추천 중 오류가 발생했습니다."
+        )
+
 
 @router.get("/{recipe_id}/rating", response_model=RecipeRatingResponse)
 async def get_rating(
@@ -568,39 +590,3 @@ async def post_rating(
 #     }
 
 
-@router.get("/debug/cache-status")
-async def get_cache_status(
-    current_user = Depends(get_current_user)
-):
-    """
-    디버깅용: 전체 캐시 상태 조회
-    """
-    cache_status = combination_tracker.get_cache_status()
-    return {
-        "user_id": current_user.user_id,
-        "cache_status": cache_status
-    }
-
-
-@router.delete("/debug/clear-cache")
-async def clear_cache(
-    current_user = Depends(get_current_user),
-    ingredient: List[str] = Query(..., min_length=3, description="식재료 리스트 (최소 3개)"),
-    amount: Optional[List[float]] = Query(None, description="각 재료별 분량"),
-    unit: Optional[List[str]] = Query(None, description="각 재료별 단위")
-):
-    """
-    디버깅용: 특정 재료 조합의 캐시 삭제
-    """
-    # 재료 정보 해시 생성
-    amounts_for_hash = amount if amount is not None else [1.0] * len(ingredient)
-    units_for_hash = unit if unit is not None else [""] * len(ingredient)
-    ingredients_hash = combination_tracker.generate_ingredients_hash(ingredient, amounts_for_hash, units_for_hash)
-    
-    # 캐시 삭제
-    combination_tracker.clear_user_combinations(current_user.user_id, ingredients_hash)
-    
-    return {
-        "message": "캐시가 삭제되었습니다.",
-        "ingredients_hash": ingredients_hash
-    }
