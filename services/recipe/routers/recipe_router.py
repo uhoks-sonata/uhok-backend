@@ -416,7 +416,8 @@ async def get_recipe_ingredients_status_handler(
 async def get_ingredient_product_recommendations(
     ingredient: str = Path(..., description="추천받을 식재료명"),
     current_user: UserOut = Depends(get_current_user),
-    background_tasks: BackgroundTasks = None
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
     특정 식재료에 대한 콕 상품과 홈쇼핑 상품 추천
