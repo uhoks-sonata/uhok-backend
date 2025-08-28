@@ -256,8 +256,8 @@ async def get_product_tabs(
     user_id = current_user.user_id if current_user else None
     logger.info(f"상품 탭 정보 조회 요청: user_id={user_id}, kok_product_id={kok_product_id}")
     
-    images = await get_kok_product_tabs(db, kok_product_id)
-    if images is None:
+    images_response = await get_kok_product_tabs(db, kok_product_id)
+    if images_response is None:
         raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
     
     # 인증된 사용자의 경우에만 로그 기록
@@ -266,13 +266,11 @@ async def get_product_tabs(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="product_tabs_view", 
-            event_data={"kok_product_id": kok_product_id, "tab_count": len(images)}
+            event_data={"kok_product_id": kok_product_id, "tab_count": len(images_response.images)}
         )
     
     logger.info(f"상품 탭 정보 조회 완료: user_id={user_id}, kok_product_id={kok_product_id}")
-    return {
-        "images": images
-    }
+    return images_response
 
 
 @router.get("/product/{product_id}/reviews", response_model=KokReviewResponse)

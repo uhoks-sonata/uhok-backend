@@ -28,6 +28,16 @@ from services.kok.models.kok_model import (
     KokNotification,
     KokClassify
 )
+from services.kok.schemas.kok_schema import (
+    KokReviewStats,
+    KokReviewDetail,
+    KokReviewResponse,
+    KokProductInfoResponse,
+    KokProductTabsResponse,
+    KokProductDetails,
+    KokDetailInfoItem,
+    KokProductDetailsResponse
+)
 
 logger = get_logger("kok_crud")
 
@@ -182,31 +192,33 @@ async def get_kok_product_seller_details(
     detail_infos = detail_result.scalars().all()
     
     # 3. 응답 데이터 구성
-    seller_info = {
-        "kok_co_ceo": product.kok_co_ceo,
-        "kok_co_reg_no": product.kok_co_reg_no,
-        "kok_co_ec_reg": product.kok_co_ec_reg,
-        "kok_tell": product.kok_tell,
-        "kok_ver_item": product.kok_ver_item,
-        "kok_ver_date": product.kok_ver_date,
-        "kok_co_addr": product.kok_co_addr,
-        "kok_return_addr": product.kok_return_addr,
-    }
+    seller_info_obj = KokProductDetails(
+        kok_co_ceo=product.kok_co_ceo or "",
+        kok_co_reg_no=product.kok_co_reg_no or "",
+        kok_co_ec_reg=product.kok_co_ec_reg or "",
+        kok_tell=product.kok_tell or "",
+        kok_ver_item=product.kok_ver_item or "",
+        kok_ver_date=product.kok_ver_date or "",
+        kok_co_addr=product.kok_co_addr or "",
+        kok_return_addr=product.kok_return_addr or "",
+    )
     
-    detail_info_list = [
-        {
-            "kok_detail_col": detail.kok_detail_col,
-            "kok_detail_val": detail.kok_detail_val,
-        }
+    detail_info_objects = [
+        KokDetailInfoItem(
+            kok_detail_col_id=detail.kok_detail_col_id,
+            kok_product_id=detail.kok_product_id,
+            kok_detail_col=detail.kok_detail_col or "",
+            kok_detail_val=detail.kok_detail_val or "",
+        )
         for detail in detail_infos
     ]
     
-    result = {
-        "seller_info": seller_info,
-        "detail_info": detail_info_list
-    }
+    result = KokProductDetailsResponse(
+        seller_info=seller_info_obj,
+        detail_info=detail_info_objects
+    )
     
-    logger.info(f"상품 판매자 정보 조회 완료: kok_product_id={kok_product_id}, 상세정보 수={len(detail_info_list)}")
+    logger.info(f"상품 판매자 정보 조회 완료: kok_product_id={kok_product_id}, 상세정보 수={len(detail_info_objects)}")
     return result
     
 
@@ -622,13 +634,17 @@ async def get_kok_product_tabs(
     images_result = await db.execute(image_stmt)
     images = images_result.scalars().all()
     
-    return [
-        {
-            "kok_img_id": img.kok_img_id,
-            "kok_img_url": img.kok_img_url
-        }
-        for img in images
-    ]
+    images_list = []
+    for img in images:
+        # None 값 체크 및 기본값 설정
+        if img.kok_img_id is not None:  # 필수 필드 체크
+            images_list.append(KokImageInfo(
+                kok_img_id=img.kok_img_id,
+                kok_product_id=img.kok_product_id or kok_product_id,  # None이면 기본값 사용
+                kok_img_url=img.kok_img_url or ""  # None이면 빈 문자열
+            ))
+    
+    return KokProductTabsResponse(images=images_list)
 
 
 async def get_kok_product_info(
@@ -667,18 +683,17 @@ async def get_kok_product_info(
     
     logger.info(f"상품 기본 정보 조회 완료: kok_product_id={kok_product_id}, user_id={user_id}, is_liked={is_liked}")
     
-    return {
-        "kok_product_id": str(product.kok_product_id),
-        "kok_product_name": product.kok_product_name,
-        "kok_store_name": product.kok_store_name,
-        "kok_thumbnail": product.kok_thumbnail,
-        "kok_product_price": product.kok_product_price,
-        "kok_discount_rate": price.kok_discount_rate if price else 0,
-        "kok_discounted_price": price.kok_discounted_price if price else product.kok_product_price,
-        "kok_review_cnt": product.kok_review_cnt or 0,
-        "kok_review_score": product.kok_review_score or 0.0,
-        "is_liked": is_liked
-    }
+    return KokProductInfoResponse(
+        kok_product_id=product.kok_product_id,
+        kok_product_name=product.kok_product_name or "",
+        kok_store_name=product.kok_store_name or "",
+        kok_thumbnail=product.kok_thumbnail or "",
+        kok_product_price=product.kok_product_price or 0,
+        kok_discount_rate=price.kok_discount_rate if price else 0,
+        kok_discounted_price=price.kok_discounted_price if price else (product.kok_product_price or 0),
+        kok_review_cnt=product.kok_review_cnt or 0,
+        is_liked=is_liked
+    )
 
 
 async def get_kok_review_data(
@@ -710,41 +725,42 @@ async def get_kok_review_data(
     reviews = review_result.scalars().all()
     
     # 3. 응답 데이터 구성
-    stats = {
-        "kok_review_score": product.kok_review_score,
-        "kok_review_cnt": product.kok_review_cnt,
-        "kok_5_ratio": product.kok_5_ratio,
-        "kok_4_ratio": product.kok_4_ratio,
-        "kok_3_ratio": product.kok_3_ratio,
-        "kok_2_ratio": product.kok_2_ratio,
-        "kok_1_ratio": product.kok_1_ratio,
-        "kok_aspect_price": product.kok_aspect_price,
-        "kok_aspect_price_ratio": product.kok_aspect_price_ratio,
-        "kok_aspect_delivery": product.kok_aspect_delivery,
-        "kok_aspect_delivery_ratio": product.kok_aspect_delivery_ratio,
-        "kok_aspect_taste": product.kok_aspect_taste,
-        "kok_aspect_taste_ratio": product.kok_aspect_taste_ratio,
-    }
+    stats = KokReviewStats(
+        kok_review_score=product.kok_review_score or 0.0,
+        kok_review_cnt=product.kok_review_cnt or 0,
+        kok_5_ratio=product.kok_5_ratio or 0,
+        kok_4_ratio=product.kok_4_ratio or 0,
+        kok_3_ratio=product.kok_3_ratio or 0,
+        kok_2_ratio=product.kok_2_ratio or 0,
+        kok_1_ratio=product.kok_1_ratio or 0,
+        kok_aspect_price=product.kok_aspect_price or "",
+        kok_aspect_price_ratio=product.kok_aspect_price_ratio or 0,
+        kok_aspect_delivery=product.kok_aspect_delivery or "",
+        kok_aspect_delivery_ratio=product.kok_aspect_delivery_ratio or 0,
+        kok_aspect_taste=product.kok_aspect_taste or "",
+        kok_aspect_taste_ratio=product.kok_aspect_taste_ratio or 0,
+    )
     
-    review_list = [
-        {
-            "kok_review_id": review.kok_review_id,
-            "kok_product_id": review.kok_product_id,
-            "kok_nickname": review.kok_nickname,
-            "kok_review_date": review.kok_review_date,
-            "kok_review_score": review.kok_review_score,
-            "kok_price_eval": review.kok_price_eval,
-            "kok_delivery_eval": review.kok_delivery_eval,
-            "kok_taste_eval": review.kok_taste_eval,
-            "kok_review_text": review.kok_review_text,
-        }
-        for review in reviews
-    ]
+    review_list = []
+    for review in reviews:
+        # None 값 체크 및 기본값 설정
+        if review.kok_review_id is not None:  # 필수 필드 체크
+            review_list.append(KokReviewDetail(
+                kok_review_id=review.kok_review_id,
+                kok_product_id=review.kok_product_id or kok_product_id,  # None이면 기본값 사용
+                kok_nickname=review.kok_nickname or "",
+                kok_review_date=review.kok_review_date or "",
+                kok_review_score=review.kok_review_score or 0,
+                kok_price_eval=review.kok_price_eval or "",
+                kok_delivery_eval=review.kok_delivery_eval or "",
+                kok_taste_eval=review.kok_taste_eval or "",
+                kok_review_text=review.kok_review_text or "",
+            ))
     
-    return {
-        "stats": stats,
-        "reviews": review_list
-    }
+    return KokReviewResponse(
+        stats=stats,
+        reviews=review_list
+    )
 
 
 async def get_kok_products_by_ingredient(
