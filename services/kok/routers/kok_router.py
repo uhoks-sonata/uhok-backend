@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import pandas as pd
 
 from common.dependencies import (
-    get_current_user, debug_optional_auth, get_current_user_optional
+    get_current_user, get_current_user_optional
 )
 from common.database.mariadb_service import get_maria_service_db
 from common.log_utils import send_user_log
@@ -126,8 +126,8 @@ async def get_discounted_products(
     할인 특가 상품 리스트 조회
     """
     # 공통 디버깅 함수 사용
-    current_user, user_id = await debug_optional_auth(request, "할인 상품 조회")
-    
+    current_user = await get_current_user_optional(request)
+    user_id = current_user.user_id if current_user else None
     logger.info(f"할인 상품 조회 요청: user_id={user_id}, page={page}, size={size}")
     
     products = await get_kok_discounted_products(db, page=page, size=size)
