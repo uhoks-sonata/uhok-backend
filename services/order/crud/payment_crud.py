@@ -16,7 +16,8 @@ from services.order.schemas.payment_schema import PaymentConfirmV1Request, Payme
 from services.order.crud.order_crud import (
     _ensure_order_access, 
     calculate_order_total_price, 
-    _mark_all_children_paid, 
+    _mark_all_children_payment_completed,  # PAYMENT_COMPLETED 상태 변경용
+    _mark_all_children_payment_requested,  # PAYMENT_REQUESTED 상태 변경용
     _post_json, 
     _get_json
 )
@@ -146,7 +147,21 @@ async def confirm_payment_and_update_status_v1(
         logger.error(f"외부 결제 응답에 payment_id 없음: order_id={order_id}, response={create_payload}")
         raise HTTPException(status_code=502, detail="외부 결제 응답에 payment_id가 없습니다.")
 
-    # (4) 상태 폴링
+    # (4) 결제 요청 상태로 변경
+    logger.info(f"주문 상태를 PAYMENT_REQUESTED로 변경 시작: order_id={order_id}")
+    try:
+        await _mark_all_children_payment_requested(
+            db,
+            kok_orders=order_data.get("kok_orders", []),
+            hs_orders=order_data.get("homeshopping_orders", []),
+            user_id=user_id,
+        )
+        logger.info(f"주문 상태를 PAYMENT_REQUESTED로 변경 완료: order_id={order_id}")
+    except Exception as e:
+        logger.error(f"주문 상태 변경 실패: order_id={order_id}, error={str(e)}")
+        # 상태 변경 실패 시에도 결제 진행은 계속 (로깅만 기록)
+    
+    # (5) 상태 폴링
     logger.info(f"결제 상태 폴링 시작: order_id={order_id}, payment_id={payment_id}")
     final_status, status_payload = await _poll_payment_status(payment_id)
     logger.info(f"결제 상태 폴링 완료: order_id={order_id}, final_status={final_status}")
@@ -158,13 +173,13 @@ async def confirm_payment_and_update_status_v1(
         logger.error(f"결제 상태 확인 시간 초과: order_id={order_id}, payment_id={payment_id}")
         raise HTTPException(status_code=408, detail="결제 상태 확인 시간 초과")
 
-    # (5) 완료 → 하위 주문 상태 갱신
+    # (6) 완료 → 하위 주문 상태 갱신
     logger.info(f"하위 주문 상태 갱신 시작: order_id={order_id}")
     kok_orders = order_data.get("kok_orders", [])
     hs_orders = order_data.get("homeshopping_orders", [])
     logger.info(f"하위 주문 정보: order_id={order_id}, kok_count={len(kok_orders)}, hs_count={len(hs_orders)}")
     
-    await _mark_all_children_paid(
+    await _mark_all_children_payment_completed(
         db,
         kok_orders=kok_orders,
         hs_orders=hs_orders,
@@ -172,7 +187,7 @@ async def confirm_payment_and_update_status_v1(
     )
     logger.info(f"하위 주문 상태 갱신 완료: order_id={order_id}")
 
-    # (6) 로그 적재
+    # (7) 로그 적재
     if background_tasks:
         background_tasks.add_task(
             send_user_log,
@@ -187,7 +202,7 @@ async def confirm_payment_and_update_status_v1(
         )
         logger.info(f"백그라운드 로그 적재 예약: order_id={order_id}")
 
-    # (7) 응답 구성
+    # (8) 응답 구성
     response = PaymentConfirmV1Response(
         payment_id=payment_id,
         order_id=order_id,  # 숫자 그대로 사용
@@ -349,7 +364,7 @@ async def apply_payment_webhook_v2(
         hs_orders = order_data.get("homeshopping_orders", [])
 
         # 하위 주문 상태 일괄 갱신 (v1과 동일한 헬퍼)
-        await _mark_all_children_paid(
+        await _mark_all_children_payment_completed(
             db,
             kok_orders=kok_orders,
             hs_orders=hs_orders,
