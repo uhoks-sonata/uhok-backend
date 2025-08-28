@@ -9,8 +9,11 @@
 - 트랜잭션 관리(commit/rollback)를 담당하여 데이터 일관성 보장
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request, status
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
+from pathlib import Path
 from typing import Optional
 from datetime import date
 
@@ -134,48 +137,69 @@ async def get_schedule(
 # ================================
 # 스트리밍 관련 API
 # ================================
+BASE_DIR = Path(__file__).resolve().parent.parent # services/homeshopping
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates")) # services/homeshopping/templates
 
-@router.get("/schedule/live-stream/{homeshopping_id}", response_model=HomeshoppingStreamResponse)
-async def get_stream_info(
-        request: Request,
-        homeshopping_id: int,
-        background_tasks: BackgroundTasks = None,
-        db: AsyncSession = Depends(get_maria_service_db)
+@router.get("/schedule/live-stream", response_class=HTMLResponse)
+async def live_stream_html(
+    request: Request,
+    src: str | None = Query(None, description="직접 재생할 m3u8 URL (바로 재생용)"),
+    homeshopping_url: str | None = Query(None, description="원본 편성/방송 페이지 URL (백엔드에서 스트림 조회용)"),
+    db: AsyncSession = Depends(get_maria_service_db),
 ):
     """
-    홈쇼핑 라이브 영상 URL 조회
+    HLS.js HTML 템플릿 렌더링
+    - src(직접 m3u8) 또는 homeshopping_url(원본 페이지) 중 하나를 받아서 재생 페이지 렌더
+    - homeshopping_url이 주어지면 get_homeshopping_stream_info()로 m3u8 등 실제 스트림을 조회
+    - 비동기 템플릿 렌더링, 인증은 선택적
     """
-    current_user = await get_current_user_optional(request)
-    user_id = current_user.user_id if current_user else None
-    logger.info(f"홈쇼핑 스트리밍 정보 조회 요청: user_id={user_id}, homeshopping_id={homeshopping_id}")
-    
-    try:
-        stream_info = await get_homeshopping_stream_info(db, homeshopping_id)
-        if not stream_info:
+    stream_url = src
+    title = "홈쇼핑 라이브"
+
+    # homeshopping_url이 오면 백엔드에서 실제 스트림 URL 조회
+    if not stream_url and homeshopping_url:
+        info = await get_homeshopping_stream_info(db, homeshopping_url)
+        if not info:
             raise HTTPException(status_code=404, detail="방송을 찾을 수 없습니다.")
-        
-        # 스트리밍 정보 조회 로그 기록 (인증된 사용자인 경우에만)
-        if current_user and background_tasks:
-            background_tasks.add_task(
-                send_user_log, 
-                user_id=current_user.user_id, 
-                event_type="homeshopping_stream_info_view", 
-                event_data={"homeshopping_id": homeshopping_id, "is_live": stream_info["is_live"]}
-            )
-        
-        logger.info(f"홈쇼핑 스트리밍 정보 조회 완료: user_id={user_id}, homeshopping_id={homeshopping_id}")
-        return stream_info
-        
-    except HTTPException:
-        # 404 에러는 그대로 전달
-        raise
-    except Exception as e:
-        logger.error(f"홈쇼핑 스트리밍 정보 조회 실패: homeshopping_id={homeshopping_id}, error={str(e)}")
-        # 기타 에러는 일반적인 500 에러로 처리
-        raise HTTPException(
-            status_code=500, 
-            detail="스트리밍 정보 조회 중 오류가 발생했습니다."
+        stream_url = info.get("stream_url")
+        title = info.get("title") or title
+
+    if not stream_url:
+        raise HTTPException(status_code=400, detail="src 또는 homeshopping_url 중 하나는 필수입니다.")
+
+    # 선택: 사용자 로깅
+    current_user = await get_current_user_optional(request)
+    if current_user:
+        # 비동기 백그라운드 처리: FastAPI BackgroundTasks를 추가 파라미터로 받아 사용해도 됨
+        logger.info(f"[라이브 HTML] user_id={current_user.user_id}, stream={stream_url}")
+        # """사용자 로그 전송(설명) - 스트림 페이지 조회 이벤트를 비동기로 적재한다"""
+        await send_user_log(
+            user_id=current_user.user_id,
+            event_type="homeshopping_live_html_view",
+            event_data={"stream_url": stream_url, "homeshopping_url": homeshopping_url},
         )
+
+    # 템플릿 렌더
+    return templates.TemplateResponse(
+        "live_stream.html",
+        {"request": request, "src": stream_url, "title": title},
+    )
+
+
+@router.get("/schedule/live-stream/info", response_class=JSONResponse)
+async def live_stream_info(
+    homeshopping_url: str = Query(..., description="원본 편성/방송 페이지 URL"),
+    db: AsyncSession = Depends(get_maria_service_db),
+):
+    """
+    라이브 스트림 메타 정보 조회
+    - homeshopping_url을 입력 받아 실제 재생 스트림 URL/타입/제목 등 메타를 반환
+    - 프론트엔드가 먼저 메타를 받고, 별도 플레이어로 재생할 때 사용
+    """
+    info = await get_homeshopping_stream_info(db, homeshopping_url)
+    if not info:
+        raise HTTPException(status_code=404, detail="방송을 찾을 수 없습니다.")
+    return info
 
 
 # ================================
