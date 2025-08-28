@@ -18,6 +18,7 @@ from services.order.crud.order_crud import (
     calculate_order_total_price, 
     _mark_all_children_payment_completed,  # PAYMENT_COMPLETED 상태 변경용
     _mark_all_children_payment_requested,  # PAYMENT_REQUESTED 상태 변경용
+    cancel_order,  # 결제 실패 시 주문 취소용
     _post_json, 
     _get_json
 )
@@ -168,9 +169,22 @@ async def confirm_payment_and_update_status_v1(
 
     if final_status == "PAYMENT_FAILED":
         logger.error(f"결제 실패: order_id={order_id}, payment_id={payment_id}")
+        # 결제 실패 시 주문 취소
+        try:
+            await cancel_order(db, order_id, "결제 실패")
+            logger.info(f"결제 실패로 인한 주문 취소 완료: order_id={order_id}")
+        except Exception as e:
+            logger.error(f"주문 취소 실패: order_id={order_id}, error={str(e)}")
         raise HTTPException(status_code=400, detail="결제가 실패했습니다.")
+    
     if final_status == "TIMEOUT":
         logger.error(f"결제 상태 확인 시간 초과: order_id={order_id}, payment_id={payment_id}")
+        # 결제 시간 초과 시 주문 취소
+        try:
+            await cancel_order(db, order_id, "결제 시간 초과")
+            logger.info(f"결제 시간 초과로 인한 주문 취소 완료: order_id={order_id}")
+        except Exception as e:
+            logger.error(f"주문 취소 실패: order_id={order_id}, error={str(e)}")
         raise HTTPException(status_code=408, detail="결제 상태 확인 시간 초과")
 
     # (6) 완료 → 하위 주문 상태 갱신
@@ -255,9 +269,6 @@ async def confirm_payment_and_update_status_v2(
     # (2) 총액 계산
     total_order_price = await calculate_order_total_price(db, order_id)
 
-    # (선택) 여기서 'PAYMENT_REQUESTED'로 상태 선반영을 원하면 이 지점에서 반영하세요.
-    # 예: await _set_status_payment_requested(db, order_id, user_id); await db.commit()
-
     # (3) tx & callback_url 준비
     tx_id = f"tx_{order_id}_{secrets.token_urlsafe(8)}"
     cb_token = secrets.token_urlsafe(16)
@@ -275,7 +286,21 @@ async def confirm_payment_and_update_status_v2(
     if SERVICE_AUTH_TOKEN:
         headers["Authorization"] = f"Bearer {SERVICE_AUTH_TOKEN}"
 
-    # (4) 결제서버에 시작 요청
+    # (4) 결제 요청 상태로 변경
+    logger.info(f"[v2] 주문 상태를 PAYMENT_REQUESTED로 변경 시작: order_id={order_id}")
+    try:
+        await _mark_all_children_payment_requested(
+            db,
+            kok_orders=order_data.get("kok_orders", []),
+            hs_orders=order_data.get("homeshopping_orders", []),
+            user_id=user_id,
+        )
+        logger.info(f"[v2] 주문 상태를 PAYMENT_REQUESTED로 변경 완료: order_id={order_id}")
+    except Exception as e:
+        logger.error(f"[v2] 주문 상태 변경 실패: order_id={order_id}, error={str(e)}")
+        # 상태 변경 실패 시에도 결제 진행은 계속 (로깅만 기록)
+
+    # (5) 결제서버에 시작 요청
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.post(f"{PAYMENT_SERVER_URL2}/api/v2/payments", json=payload, headers=headers)
@@ -288,10 +313,10 @@ async def confirm_payment_and_update_status_v2(
         logger.error(f"[v2] 결제서버 오류: {e}")
         raise HTTPException(status_code=400, detail="결제 시작 요청 실패")
 
-    # (5) (옵션) tx 메타 저장이 필요하면 별도 테이블/메타 컬럼에 저장
+    # (6) (옵션) tx 메타 저장이 필요하면 별도 테이블/메타 컬럼에 저장
     # await save_payment_tx(db, order_id, tx_id, cb_token); await db.commit()
 
-    # (6) 로그
+    # (7) 로그
     if background_tasks:
         background_tasks.add_task(
             send_user_log,
@@ -379,8 +404,14 @@ async def apply_payment_webhook_v2(
         return {"ok": True, "order_id": order_id, "event": event, "payment_id": payment_id}
 
     elif event in ("payment.failed", "payment.cancelled"):
-        # 실패/취소 반영 로직이 따로 있다면 호출 (예: _mark_payment_failed)
-        # await _mark_payment_failed(db, order_id, reason=failure_reason)
+        # 결제 실패/취소 시 주문 취소
+        try:
+            reason = failure_reason if failure_reason else "결제 실패"
+            await cancel_order(db, order_id, reason)
+            logger.info(f"[v2] 결제실패/취소로 인한 주문 취소 완료: order_id={order_id}, reason={reason}")
+        except Exception as e:
+            logger.error(f"[v2] 주문 취소 실패: order_id={order_id}, error={str(e)}")
+        
         await db.commit()
         logger.info(f"[v2] 결제실패/취소 반영: order_id={order_id}, reason={failure_reason}")
         return {"ok": True, "order_id": order_id, "event": event, "reason": failure_reason}
