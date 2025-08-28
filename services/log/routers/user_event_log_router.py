@@ -12,7 +12,7 @@ from common.errors import BadRequestException, InternalServerErrorException
 from common.log_utils import send_user_log
 from common.logger import get_logger
 
-from services.log.schemas.user_log_schema import UserLogCreate, UserLogRead
+from services.log.schemas.user_event_log_schema import UserEventLogCreate, UserEventLogRead
 from services.log.crud.user_event_log_crud import create_user_log, get_user_logs
 
 logger = get_logger("user_event_log_router")
@@ -30,9 +30,9 @@ async def health_check():
     }
 
 
-@router.post("/", response_model=UserLogRead, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=UserEventLogRead, status_code=status.HTTP_201_CREATED)
 async def write_log(
-        log: UserLogCreate,
+        log: UserEventLogCreate,
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_postgres_log_db)
 ):
@@ -71,7 +71,7 @@ async def write_log(
         raise InternalServerErrorException()
 
 
-@router.get("/user/{user_id}", response_model=List[UserLogRead])
+@router.get("/user/{user_id}", response_model=List[UserEventLogRead])
 async def read_user_logs(
         user_id: int,
         background_tasks: BackgroundTasks = None,

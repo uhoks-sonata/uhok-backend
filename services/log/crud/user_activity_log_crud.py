@@ -11,8 +11,7 @@ from common.logger import get_logger
 from services.log.models.log_model import UserLog
 from services.log.schemas.user_activity_schema import UserActivityLog
 
-logger = get_logger("user_behavior_log_crud")
-
+logger = get_logger("user_activity_log_crud")
 
 async def create_user_activity_log(
     db: AsyncSession,
