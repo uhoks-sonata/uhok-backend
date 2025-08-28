@@ -12,7 +12,9 @@ from sqlalchemy import select, func
 from typing import Optional, List, Tuple
 from datetime import datetime, timedelta
 
+from common.config import get_mariadb_config
 from common.logger import get_logger
+from common.keyword_extraction import load_ing_vocab, extract_ingredient_keywords
 
 from services.order.models.order_model import Order, KokOrder
 from services.kok.models.kok_model import (
@@ -27,7 +29,6 @@ from services.kok.models.kok_model import (
     KokNotification,
     KokClassify
 )
-from common.keyword_extraction import extract_ingredient_keywords
 
 logger = get_logger("kok_crud")
 
@@ -623,10 +624,11 @@ async def get_kok_product_tabs(
     images = images_result.scalars().all()
     
     return [
-        {
-            "kok_img_id": img.kok_img_id,
-            "kok_img_url": img.kok_img_url
-        }
+        KokImageInfo(
+            kok_img_id=img.kok_img_id,
+            kok_product_id=img.kok_product_id,
+            kok_img_url=img.kok_img_url
+        )
         for img in images
     ]
 
@@ -668,7 +670,7 @@ async def get_kok_product_info(
     logger.info(f"상품 기본 정보 조회 완료: kok_product_id={kok_product_id}, user_id={user_id}, is_liked={is_liked}")
     
     return {
-        "kok_product_id": str(product.kok_product_id),
+        "kok_product_id": product.kok_product_id,
         "kok_product_name": product.kok_product_name,
         "kok_store_name": product.kok_store_name,
         "kok_thumbnail": product.kok_thumbnail,
@@ -1330,10 +1332,7 @@ async def get_ingredients_from_cart_product_ids(
 
     logger.info(f"cls_ing이 1인 상품 {len(classified_products)}개 발견")
 
-    # 표준 재료 어휘 로드 (TEST_MTRL.MATERIAL_NAME)
-    from common.keyword_extraction import load_ing_vocab
-    from common.config import get_mariadb_config
-    
+    # 표준 재료 어휘 로드 (TEST_MTRL.MATERIAL_NAME)    
     ing_vocab = set()
     try:
         # 환경변수에서 자동으로 DB 설정을 가져와서 표준 재료 어휘 로드

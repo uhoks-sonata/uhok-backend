@@ -171,7 +171,7 @@ class KokProductDetailResponse(KokProductBase):
 
 class KokProductInfoResponse(BaseModel):
     """상품 기본 정보 응답"""
-    kok_product_id: str
+    kok_product_id: int
     kok_product_name: str
     kok_store_name: str
     kok_thumbnail: str
@@ -186,7 +186,7 @@ class KokProductInfoResponse(BaseModel):
 
 class KokProductTabsResponse(BaseModel):
     """상품 탭 정보 응답"""
-    images: List[dict] = Field(default_factory=list)
+    images: List[KokImageInfo] = Field(default_factory=list)
 
 # -----------------------------
 # 제품 목록 응답 스키마

@@ -185,13 +185,12 @@ class RecipeRecommendationsResponse(BaseModel):
 
 class HomeshoppingStreamResponse(BaseModel):
     """홈쇼핑 라이브 스트리밍 응답"""
-    live_id: int
-    product_id: int
-    stream_url: str
+    homeshopping_id: int
+    live_url: str
     is_live: bool
     live_start_time: Optional[time] = None
     live_end_time: Optional[time] = None
-
+    product_id: int
 
 # -----------------------------
 # 찜 관련 스키마
