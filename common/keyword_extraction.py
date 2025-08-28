@@ -566,7 +566,7 @@ def get_homeshopping_db_config() -> dict[str, Any] | None:
         DB 연결 설정 딕셔너리 또는 None
     """
     settings = get_settings()
-    return parse_mariadb_url(settings.mariadb_auth_dsn)
+    return parse_mariadb_url(settings.mariadb_service_url)
 
 def is_homeshopping_product(product_name: str) -> bool:
     """
