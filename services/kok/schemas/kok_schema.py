@@ -162,12 +162,7 @@ class KokProductBase(BaseModel):
     class Config:
         from_attributes = True
 
-class KokProductDetailResponse(KokProductBase):
-    """제품 상세 응답(이미지, 상세정보, 리뷰, 가격, Q&A 포함)"""
-    images: List[KokImageInfo] = Field(default_factory=list)
-    detail_infos: List[KokDetailInfo] = Field(default_factory=list)
-    review_examples: List[KokReviewExample] = Field(default_factory=list)
-    price_infos: List[KokPriceInfo] = Field(default_factory=list)
+
 
 class KokProductInfoResponse(BaseModel):
     """상품 기본 정보 응답"""
