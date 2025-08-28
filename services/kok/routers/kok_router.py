@@ -28,7 +28,6 @@ from services.homeshopping.schemas.homeshopping_schema import (
 )
 from services.kok.schemas.kok_schema import (
     # 제품 관련 스키마
-    KokProductDetailResponse,
     KokProductInfoResponse,
     KokProductTabsResponse,
 
@@ -70,7 +69,6 @@ from services.homeshopping.crud.homeshopping_crud import (
 )
 from services.kok.crud.kok_crud import (
     # 제품 관련 CRUD
-    get_kok_product_full_detail,
     get_kok_product_info,
     get_kok_product_tabs,
     get_kok_product_seller_details,
@@ -345,35 +343,7 @@ async def get_product_details(
     return product_details
 
 
-@router.get("/product/{product_id}/full-detail", response_model=KokProductDetailResponse)
-async def get_product_detail(
-        request: Request,
-        kok_product_id: int,
-        background_tasks: BackgroundTasks = None,
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    제품 상세 정보 조회
-    """
-    current_user = await get_current_user_optional(request)
-    user_id = current_user.user_id if current_user else None
-    logger.info(f"상품 상세 조회 요청: user_id={user_id}, kok_product_id={kok_product_id}")
-    
-    product = await get_kok_product_full_detail(db, kok_product_id)
-    if not product:
-        raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
-    
-    # 인증된 사용자의 경우에만 로그 기록
-    if current_user and background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="product_view", 
-            event_data={"kok_product_id": kok_product_id, "kok_product_name": product.get("kok_product_name", "")}
-        )
-    
-    logger.info(f"상품 상세 조회 완료: user_id={user_id}, kok_product_id={kok_product_id}")
-    return product
+
 
 
 # ================================

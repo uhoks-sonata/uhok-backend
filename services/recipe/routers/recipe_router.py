@@ -46,7 +46,10 @@ from services.recipe.crud.recipe_crud import (
 
 from ..utils.recommend_service import get_db_vector_searcher
 from ..utils.ports import VectorSearcherPort
-from services.recipe.utils.combination_tracker import combination_tracker
+from services.recipe.utils.combination_tracker import CombinationTracker
+
+# combination_tracker 인스턴스 생성
+combination_tracker = CombinationTracker()
 
 # 로거 초기화
 logger = get_logger("recipe_router")
@@ -97,7 +100,7 @@ async def by_ingredients(
     units_for_hash = unit if unit is not None else [""] * len(ingredient)
     ingredients_hash = combination_tracker.generate_ingredients_hash(ingredient, amounts_for_hash, units_for_hash)
     
-    # 이전 조합들에서 사용된 레시피 ID들 조회
+    # 현재 조합에서 사용된 레시피 ID들 조회 (같은 조합 내에서만 제외)
     excluded_recipe_ids = combination_tracker.get_excluded_recipe_ids(
         current_user.user_id, ingredients_hash, combination_number
     )
@@ -105,7 +108,7 @@ async def by_ingredients(
     # 조합별 레시피 추천
     if combination_number == 1:
         recipes, total = await recommend_recipes_combination_1(
-            db, ingredient, amount, unit, 1, size
+            db, ingredient, amount, unit, 1, size, current_user.user_id
         )
     elif combination_number == 2:
         recipes, total = await recommend_recipes_combination_2(
@@ -125,7 +128,7 @@ async def by_ingredients(
             "has_more_combinations": False
         }
     
-    # 사용된 레시피 ID들을 추적 시스템에 저장
+    # 사용된 레시피 ID들을 추적 시스템에 저장 (현재 조합만)
     if recipes:
         used_recipe_ids = [recipe["recipe_id"] for recipe in recipes]
         combination_tracker.track_used_recipes(
@@ -194,33 +197,7 @@ async def get_combinations_info(
     }
 
 
-@router.delete("/by-ingredients/combinations/clear")
-async def clear_combinations(
-    ingredient: List[str] = Query(..., min_length=3, description="식재료 리스트 (최소 3개)"),
-    amount: Optional[List[float]] = Query(None, description="각 재료별 분량 (amount 또는 unit 중 하나는 필수)"),
-    unit: Optional[List[str]] = Query(None, description="각 재료별 단위 (amount 또는 unit 중 하나는 필수)"),
-    current_user = Depends(get_current_user)
-):
-    """
-    사용자의 특정 재료 조합에 대한 추적 데이터 삭제
-    """
-    # amount 또는 unit 중 하나는 필수
-    if amount is None and unit is None:
-        logger.warning("amount와 unit 모두 제공되지 않음")
-        from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail="amount 또는 unit 중 하나는 반드시 제공해야 합니다.")
-    
-    # 재료 정보 해시 생성 (amount 또는 unit이 None인 경우 기본값 사용)
-    amounts_for_hash = amount if amount is not None else [1.0] * len(ingredient)
-    units_for_hash = unit if unit is not None else [""] * len(ingredient)
-    ingredients_hash = combination_tracker.generate_ingredients_hash(ingredient, amounts_for_hash, units_for_hash)
-    
-    # 추적 데이터 삭제
-    combination_tracker.clear_user_combinations(
-        current_user.user_id, ingredients_hash
-    )
-    
-    return {"message": "조합 추적 데이터가 삭제되었습니다."}
+
 
 
 @router.get("/search")
@@ -589,3 +566,41 @@ async def post_rating(
 #         "page": page,
 #         "total": total
 #     }
+
+
+@router.get("/debug/cache-status")
+async def get_cache_status(
+    current_user = Depends(get_current_user)
+):
+    """
+    디버깅용: 전체 캐시 상태 조회
+    """
+    cache_status = combination_tracker.get_cache_status()
+    return {
+        "user_id": current_user.user_id,
+        "cache_status": cache_status
+    }
+
+
+@router.delete("/debug/clear-cache")
+async def clear_cache(
+    current_user = Depends(get_current_user),
+    ingredient: List[str] = Query(..., min_length=3, description="식재료 리스트 (최소 3개)"),
+    amount: Optional[List[float]] = Query(None, description="각 재료별 분량"),
+    unit: Optional[List[str]] = Query(None, description="각 재료별 단위")
+):
+    """
+    디버깅용: 특정 재료 조합의 캐시 삭제
+    """
+    # 재료 정보 해시 생성
+    amounts_for_hash = amount if amount is not None else [1.0] * len(ingredient)
+    units_for_hash = unit if unit is not None else [""] * len(ingredient)
+    ingredients_hash = combination_tracker.generate_ingredients_hash(ingredient, amounts_for_hash, units_for_hash)
+    
+    # 캐시 삭제
+    combination_tracker.clear_user_combinations(current_user.user_id, ingredients_hash)
+    
+    return {
+        "message": "캐시가 삭제되었습니다.",
+        "ingredients_hash": ingredients_hash
+    }

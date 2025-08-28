@@ -97,21 +97,53 @@ async def recommend_recipes_combination_1(
     amounts: Optional[List[float]] = None,
     units: Optional[List[str]] = None,
     page: int = 1,
-    size: int = 10
+    size: int = 10,
+    user_id: Optional[int] = None
 ) -> Tuple[List[Dict], int]:
     """
     1조합: 전체 레시피 풀에서 가장 많은 재료 사용하는 순으로 선택
+    - 사용자별로 다른 시드를 사용하여 다양한 결과 제공
     """
-    logger.info(f"1조합 레시피 추천 시작: 재료={ingredients}, 분량={amounts}, 단위={units}")
+    logger.info(f"1조합 레시피 추천 시작: 재료={ingredients}, 분량={amounts}, 단위={units}, user_id={user_id}")
     
-    # 전체 레시피 풀 사용 (인기순 정렬)
-    base_stmt = (
-        select(Recipe)
-        .join(Material, Recipe.recipe_id == Material.recipe_id)
-        .where(Material.material_name.in_(ingredients))
-        .group_by(Recipe.recipe_id)
-        .order_by(desc(Recipe.scrap_count))  # 인기순 정렬
-    )
+    # 사용자별로 다른 시드를 사용하여 다양한 결과 제공
+    if user_id:
+        seed = user_id % 3  # 사용자 ID를 3으로 나눈 나머지를 시드로 사용
+    else:
+        import time
+        seed = int(time.time() // 60) % 3  # 시간 기반 시드 (fallback)
+    
+    # 시드 기반으로 정렬 기준 변경
+    if seed == 0:
+        # 인기순 정렬
+        base_stmt = (
+            select(Recipe)
+            .join(Material, Recipe.recipe_id == Material.recipe_id)
+            .where(Material.material_name.in_(ingredients))
+            .group_by(Recipe.recipe_id)
+            .order_by(desc(Recipe.scrap_count))
+        )
+        logger.info(f"1조합: 인기순 정렬 사용 (시드: {seed})")
+    elif seed == 1:
+        # 최신순 정렬 (recipe_id 기준)
+        base_stmt = (
+            select(Recipe)
+            .join(Material, Recipe.recipe_id == Material.recipe_id)
+            .where(Material.material_name.in_(ingredients))
+            .group_by(Recipe.recipe_id)
+            .order_by(desc(Recipe.recipe_id))
+        )
+        logger.info(f"1조합: 최신순 정렬 사용 (시드: {seed})")
+    else:
+        # 조합별 정렬 (재료 개수 + 인기도)
+        base_stmt = (
+            select(Recipe, func.count(Material.material_name).label('material_count'))
+            .join(Material, Recipe.recipe_id == Material.recipe_id)
+            .where(Material.material_name.in_(ingredients))
+            .group_by(Recipe.recipe_id)
+            .order_by(desc(func.count(Material.material_name)), desc(Recipe.scrap_count))
+        )
+        logger.info(f"1조합: 재료 개수 + 인기도 정렬 사용 (시드: {seed})")
     
     return await execute_standard_inventory_algorithm(
         db, base_stmt, ingredients, amounts, units, page, size
