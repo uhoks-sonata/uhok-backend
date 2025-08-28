@@ -12,13 +12,20 @@ from common.log_utils import send_user_log
 from common.logger import get_logger
 
 from services.order.schemas.payment_schema import PaymentConfirmV1Request, PaymentConfirmV1Response
-from services.order.crud.order_crud import _ensure_order_access, calculate_order_total_price, _mark_all_children_paid, _post_json, _get_json
+from services.order.crud.order_crud import (
+    _ensure_order_access, 
+    calculate_order_total_price, 
+    _mark_all_children_paid, 
+    _post_json, 
+    _get_json
+)
 
 logger = get_logger("payment_crud")
 
 load_dotenv()
 pay_api_base = os.getenv("PAY_API_BASE")
 
+# === [v1: Polling-based payment flow] =======================================
 async def _poll_payment_status(
     payment_id: str,
     *,
@@ -191,3 +198,117 @@ async def confirm_payment_and_update_status_v1(
     
     logger.info(f"결제 확인 v1 완료: order_id={order_id}, payment_id={payment_id}")
     return response
+# ===========================================================================
+
+# === [v2: Webhook-based payment flow] =======================================
+import hmac, hashlib, base64, secrets
+from typing import Literal, Optional
+from fastapi import Request
+
+PAYMENT_SERVER_URL = os.getenv("PAYMENT_SERVER_URL")
+PAYMENT_WEBHOOK_SECRET = os.getenv("PAYMENT_WEBHOOK_SECRET")
+
+# 운영서버로 콜백 받을 때 서명을 검증
+def verify_webhook_signature(body_bytes: bytes, signature_b64: str, secret: str) -> bool:
+    mac = hmac.new(secret.encode("utf-8"), body_bytes, hashlib.sha256).digest()
+    expected = base64.b64encode(mac).decode("ascii")
+    # 타이밍 공격 방지 비교
+    return hmac.compare_digest(expected, signature_b64)
+
+async def confirm_payment_and_update_status_v2(
+    db,
+    homeshopping_order_id: int,
+    user_id: int,
+    request: Request,
+) -> dict:
+    """
+    v2(웹훅) 결제 확인 요청 시작:
+    - 주문 상태를 PAYMENT_REQUESTED 로 변경 (v1과 동일)
+    - 결제서버에 '콜백 URL'을 포함해 결제요청 전송
+    - 즉시 응답(PENDING) 반환, 실제 완료는 웹훅 수신 시 최종 반영
+    """
+    # 1) (예) 주문/결제 금액 조회 (기존 v1과 동일하게 필요한 정보 수집)
+    # amount = await get_order_amount(db, homeshopping_order_id)  # 이미 있는 헬퍼 가정
+    amount = 1000  # 예시
+
+    # 2) 상태 → PAYMENT_REQUESTED (기존 v1과 동일)
+    # await set_status_payment_requested(db, homeshopping_order_id, user_id)
+    # await db.commit()
+
+    # 트랜잭션 식별자/토큰 생성
+    tx_id = f"tx_{homeshopping_order_id}_{secrets.token_urlsafe(8)}"
+    token = secrets.token_urlsafe(32)  # 콜백 URL 보호용 토큰 (선택)
+
+    # 3) 웹훅 콜백 URL 생성 (라우터에서 name="payment_webhook_handler_v2" 로 등록 가정)
+    callback_url = str(
+        request.url_for("payment_webhook_handler_v2", tx_id=tx_id)
+    ) + f"?t={token}"
+
+    # 4) 결제서버로 "콜백 URL"을 포함하여 결제요청
+    payload = {
+        "version": "v2",
+        "tx_id": tx_id,
+        "order_id": homeshopping_order_id,
+        "user_id": user_id,
+        "amount": amount,
+        "callback_url": callback_url,
+    }
+
+    # 요청
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.post(
+            f"{PAYMENT_SERVER_URL}/api/v2/payments",
+            json=payload,
+        )
+        r.raise_for_status()
+        init_result = r.json()
+
+    # 5) 로컬에 tx_id, token 등을 저장(필요 시). 예: PAYMENT_TRANSACTIONS 테이블 or ORDERS 메타
+    # await save_tx_metadata(db, homeshopping_order_id, tx_id, token)
+    # await db.commit()
+
+    return {
+        "status": "PENDING",
+        "tx_id": tx_id,
+        "payment_server_ack": init_result,
+    }
+
+async def apply_payment_webhook_v2(
+    db,
+    tx_id: str,
+    raw_body: bytes,
+    signature_b64: str,
+    event: Literal["payment.completed","payment.failed","payment.cancelled"],
+) -> dict:
+    """
+    결제서버 → 운영서버 웹훅 수신 처리
+    - HMAC 서명 검증
+    - event에 따라 주문 상태 최종 업데이트 (PAYMENT_COMPLETED / FAILED 등)
+    """
+    # 1) 서명 검증
+    if not verify_webhook_signature(raw_body, signature_b64, PAYMENT_WEBHOOK_SECRET):
+        return {"ok": False, "reason": "invalid_signature"}
+
+    # 2) 본문 파싱
+    import json
+    payload = json.loads(raw_body.decode("utf-8"))
+
+    order_id = payload.get("order_id")
+    payment_id = payload.get("payment_id")
+    completed_at = payload.get("completed_at")
+    failure_reason = payload.get("failure_reason")
+
+    # 3) 상태 업데이트
+    if event == "payment.completed":
+        # await set_status_payment_completed(db, order_id, payment_id, completed_at)
+        # await add_status_history(...)
+        pass
+    elif event in ("payment.failed", "payment.cancelled"):
+        # await set_status_payment_failed(db, order_id, reason=failure_reason)
+        # await add_status_history(...)
+        pass
+
+    # await db.commit()
+
+    return {"ok": True, "order_id": order_id, "event": event}
+# ===========================================================================

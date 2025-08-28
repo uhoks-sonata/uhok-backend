@@ -3,7 +3,8 @@
 Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입만 담당
 비즈니스 로직은 CRUD 계층에 위임, 직접 DB 처리(트랜잭션)는 하지 않음
 """
-from fastapi import APIRouter, Depends, BackgroundTasks, status
+from fastapi import APIRouter, Depends, BackgroundTasks, status, Request, Header, HTTPException
+from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.database.mariadb_service import get_maria_service_db
@@ -16,6 +17,7 @@ from services.order.crud.payment_crud import confirm_payment_and_update_status_v
 logger = get_logger("payment_router")
 router = APIRouter(prefix="/api/orders/payment", tags=["Orders/Payment"])
 
+# === [v1 routes: polling flow] ============================================
 @router.post("/{order_id}/confirm/v1", response_model=PaymentConfirmV1Response, status_code=status.HTTP_200_OK)
 async def confirm_payment_v1(
     order_id: int,
@@ -52,3 +54,59 @@ async def confirm_payment_v1(
         payment_data=payment_data,
         background_tasks=background_tasks,
     )
+# ===========================================================================
+
+# === [v2 routes: webhook flow] ==============================================
+from services.order.crud.payment_crud import confirm_payment_and_update_status_v2, apply_payment_webhook_v2
+
+@router.post("/payment/v2/confirm/{homeshopping_order_id}")
+async def confirm_payment_v2(
+    homeshopping_order_id: int,
+    request: Request,
+    current_user = Depends(get_current_user),
+    db: AsyncSession = Depends(get_maria_service_db),
+):
+    """
+    v2(웹훅) 결제확인 시작 API
+    - 즉시 PENDING 반환, 실제 완료는 /payment/webhook/v2 로 수신
+    """
+    try:
+        result = await confirm_payment_and_update_status_v2(
+            db=db,
+            homeshopping_order_id=homeshopping_order_id,
+            user_id=current_user.user_id,
+            request=request,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"payment v2 init failed: {e}")
+
+@router.post("/payment/webhook/v2/{tx_id}", name="payment_webhook_handler_v2")
+async def payment_webhook_v2(
+    tx_id: str,
+    request: Request,
+    x_payment_signature: Optional[str] = Header(None, convert_underscores=False),
+    x_payment_event: Optional[str] = Header(None, convert_underscores=False),
+    db: AsyncSession = Depends(get_maria_service_db),
+):
+    """
+    결제서버 웹훅 수신 엔드포인트
+    - 헤더 X-Payment-Signature (base64 HMAC-SHA256)
+    - 헤더 X-Payment-Event (payment.completed | payment.failed | payment.cancelled)
+    - 바디: { "payment_id": "...", "order_id": ..., ... }
+    """
+    if not x_payment_signature or not x_payment_event:
+        raise HTTPException(status_code=400, detail="missing signature or event header")
+
+    body = await request.body()
+    result = await apply_payment_webhook_v2(
+        db=db,
+        tx_id=tx_id,
+        raw_body=body,
+        signature_b64=x_payment_signature,
+        event=x_payment_event,  # type: ignore
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("reason","webhook handling failed"))
+    return {"received": True, **result}
+# ===========================================================================
