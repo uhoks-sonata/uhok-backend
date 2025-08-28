@@ -45,3 +45,36 @@ def get_settings() -> Settings:
     except Exception as e:
         logger.error(f"설정 로드 실패: {str(e)}")
         raise
+
+def get_mariadb_config() -> dict:
+    """
+    MariaDB 연결 설정을 딕셔너리 형태로 반환
+    - TEST_MTRL 테이블이 있는 데이터베이스 연결 정보
+    - 보통 mariadb_service_url을 파싱하여 host, port, user, password, database 추출
+    """
+    from urllib.parse import urlparse
+    
+    settings = get_settings()
+    
+    # mariadb_service_url을 파싱하여 연결 정보 추출
+    # 예: mysql+pymysql://user:password@host:port/database
+    url = urlparse(settings.mariadb_service_url.replace('mysql+pymysql://', ''))
+    
+    # URL에서 사용자명과 비밀번호 추출
+    user_password = url.netloc.split('@')[0]
+    user, password = user_password.split(':') if ':' in user_password else (user_password, '')
+    
+    # 호스트와 포트 추출
+    host_port = url.netloc.split('@')[1] if '@' in url.netloc else url.netloc
+    host, port = host_port.split(':') if ':' in host_port else (host_port, '3306')
+    
+    # 데이터베이스명 추출
+    database = url.path.lstrip('/')
+    
+    return {
+        'host': host,
+        'port': int(port),
+        'user': user,
+        'password': password,
+        'database': database
+    }

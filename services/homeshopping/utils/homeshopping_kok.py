@@ -13,6 +13,9 @@ from collections import Counter
 from dotenv import load_dotenv
 load_dotenv()
 
+# 공통 키워드 추출 함수 import
+from common.keyword_extraction import extract_core_keywords, extract_tail_keywords
+
 # ---- 환경 기본값 ----
 RERANK_MODE_DEFAULT = os.getenv("RERANK_MODE", "off").lower().strip()  # 여기선 기본 off (원하면 "boost"/"strict")
 
@@ -146,29 +149,7 @@ def _expand_variants(core: List[str], variants: Dict[str, List[str]]) -> List[st
     return out
 
 # -------------------- 핵심/루트/테일 키워드 --------------------
-def extract_core_keywords(prod_name: str, max_n: int = 3) -> List[str]:
-    d = load_domain_dicts()
-    roots, strong, variants, stop = d["roots"], d["strong_ngrams"], d["variants"], d["stopwords"]
-
-    s = normalize_name(prod_name)
-    found_ng = [ng for ng in strong if ng and ng in s]
-    raw_toks = tokenize_normalized(s, stop)
-
-    expanded: List[str] = []
-    for t in raw_toks:
-        expanded.extend(_split_by_roots(t, roots))
-        expanded.append(t)
-
-    ordered: List[str] = []
-    for ng in found_ng:
-        if ng not in ordered: ordered.append(ng)
-        for r in _split_by_roots(ng, roots):
-            if r not in ordered: ordered.append(r)
-    for t in expanded:
-        if t not in ordered: ordered.append(t)
-
-    core = ordered[:max_n]
-    return _expand_variants(core, variants)[:max_n]
+# extract_core_keywords와 extract_tail_keywords는 common.keyword_extraction에서 import하여 사용
 
 def roots_in_name(prod_name: str) -> List[str]:
     d = load_domain_dicts()
@@ -182,31 +163,7 @@ def roots_in_name(prod_name: str) -> List[str]:
             out.append(h); seen.add(h)
     return out[:5]
 
-def extract_tail_keywords(prod_name: str, max_n: int = 2) -> List[str]:
-    """뒤쪽 핵심 키워드 중심으로(희소성/변형 고려는 가볍게) 추출."""
-    d = load_domain_dicts()
-    stop, variants, roots = d["stopwords"], d["variants"], d["roots"]
-    s = normalize_name(prod_name)
-    toks = [t for t in s.split() if len(t) >= 2 and not t.isnumeric() and t not in stop and not re.search(r"\d", t)]
-
-    tail_base: List[str] = []
-    for t in reversed(toks):
-        if t not in tail_base:
-            tail_base.append(t)
-        if len(tail_base) >= max_n:
-            break
-    tail_base.reverse()
-
-    expanded = list(tail_base)
-    for t in tail_base:
-        for v in variants.get(t, []):
-            if v not in expanded:
-                expanded.append(v)
-    for t in tail_base:
-        for r in _split_by_roots(t, roots):
-            if r not in expanded:
-                expanded.append(r)
-    return expanded
+# extract_tail_keywords는 common.keyword_extraction에서 import하여 사용
 
 # -------------------- 동적 n-gram --------------------
 def _char_ngrams_windowed(token: str, nmin: int, nmax: int) -> List[str]:
@@ -405,8 +362,8 @@ def recommend_homeshopping_to_kok(
         return []
 
     # 1) 키워드 구성
-    tail_k = extract_tail_keywords(prod_name, max_n=2)          # 뒤쪽 핵심(희소 가능성이 높은 토큰)
-    core_k = extract_core_keywords(prod_name, max_n=3)          # 앞/강한 핵심
+    tail_k = extract_tail_keywords(prod_name, max_n=2, service_type="homeshopping")          # 뒤쪽 핵심(희소 가능성이 높은 토큰)
+    core_k = extract_core_keywords(prod_name, max_n=3, service_type="homeshopping")          # 앞/강한 핵심
     root_k = roots_in_name(prod_name)                           # 루트 힌트(사전 기반)
     ngram_k = infer_terms_from_name_via_ngrams(prod_name, max_terms=DYN_MAX_TERMS)
 

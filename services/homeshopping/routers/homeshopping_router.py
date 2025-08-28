@@ -83,7 +83,7 @@ from services.homeshopping.crud.homeshopping_crud import (
     get_homeshopping_product_name,
     simple_recommend_homeshopping_to_kok
 )
-from services.homeshopping.utils.keyword_extraction import extract_homeshopping_keywords
+from common.keyword_extraction import extract_homeshopping_keywords
 
 from services.recipe.crud.recipe_crud import recommend_by_recipe_pgvector
 

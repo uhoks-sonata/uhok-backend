@@ -27,7 +27,7 @@ from services.kok.models.kok_model import (
     KokNotification,
     KokClassify
 )
-from services.kok.utils.keyword_extraction import extract_ingredient_keywords
+from common.keyword_extraction import extract_ingredient_keywords
 
 logger = get_logger("kok_crud")
 
@@ -1230,10 +1230,14 @@ async def get_ingredients_from_selected_cart_items(
         return []
 
     # 표준 재료 어휘 로드 (TEST_MTRL.MATERIAL_NAME)
+    from common.keyword_extraction import load_ing_vocab
+    from common.config import get_mariadb_config
+    
     ing_vocab = set()
     try:
         # 환경변수에서 자동으로 DB 설정을 가져와서 표준 재료 어휘 로드
-        ing_vocab = load_ing_vocab()
+        db_config = get_mariadb_config()
+        ing_vocab = load_ing_vocab(db_config)
         logger.info(f"표준 재료 어휘 로드 완료: {len(ing_vocab)}개")
     except Exception as e:
         logger.error(f"표준 재료 어휘 로드 실패: {str(e)}")
@@ -1327,10 +1331,14 @@ async def get_ingredients_from_cart_product_ids(
     logger.info(f"cls_ing이 1인 상품 {len(classified_products)}개 발견")
 
     # 표준 재료 어휘 로드 (TEST_MTRL.MATERIAL_NAME)
+    from common.keyword_extraction import load_ing_vocab
+    from common.config import get_mariadb_config
+    
     ing_vocab = set()
     try:
         # 환경변수에서 자동으로 DB 설정을 가져와서 표준 재료 어휘 로드
-        ing_vocab = load_ing_vocab()
+        db_config = get_mariadb_config()
+        ing_vocab = load_ing_vocab(db_config)
         logger.info(f"표준 재료 어휘 로드 완료: {len(ing_vocab)}개")
     except Exception as e:
         logger.error(f"표준 재료 어휘 로드 실패: {str(e)}")

@@ -74,29 +74,6 @@ def pick_id_column(columns: list[str], override: str | None = None) -> str | Non
     return None
 
 # ---- 데이터 로딩 API (캐시는 app.py에서 래핑) ----
-def load_ing_vocab(db_conf: dict) -> set[str]:
-    """
-    레시피 '표준 재료 어휘'를 메모리(set)로 로드. 
-    - TEST_MTRL.MATERIAL_NAME의 DISTINCT 집합을 만들기 위한 쿼리
-    - 여기서는 DISTINCT를 SQL에서 직접 쓰지 않고, 파이썬 set으로 중복 제거
-    """
-    conn = connect_mysql(**db_conf)
-    try:
-        vocab: set[str] = set()
-        sql = """
-            SELECT MATERIAL_NAME
-            FROM TEST_MTRL
-            WHERE MATERIAL_NAME IS NOT NULL AND MATERIAL_NAME <> ''
-        """
-        with conn.cursor() as cur:
-            cur.execute(sql)
-            for (name,) in cur.fetchall():
-                if name:
-                    vocab.add(str(name).strip())
-        return vocab
-    finally:
-        conn.close()
-
 def fetch_products(db_conf: dict, source: str, limit: int, id_override: str | None = None) -> pd.DataFrame:
     conn = connect_mysql(**db_conf)
     try:

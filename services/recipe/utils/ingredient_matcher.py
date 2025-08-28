@@ -78,7 +78,7 @@ class IngredientKeywordExtractor:
     
     def extract_keywords(self, product_name: str) -> List[str]:
         """
-        상품명에서 식재료 키워드를 추출
+        상품명에서 식재료 키워드를 추출 (common.keyword_extraction 사용)
         
         Args:
             product_name: 상품명
@@ -86,36 +86,8 @@ class IngredientKeywordExtractor:
         Returns:
             추출된 식재료 키워드 리스트
         """
-        if not product_name:
-            return []
-        
-        # 소문자 변환 및 특수문자 제거
-        cleaned_name = re.sub(r'[^\w\s가-힣]', ' ', product_name.lower())
-        
-        # 공백으로 분리
-        words = cleaned_name.split()
-        
-        # 식재료 키워드 추출
-        keywords = []
-        for word in words:
-            # 제거할 단어인지 확인
-            if word in self.REMOVE_WORDS:
-                continue
-            
-            # 식재료 별칭에 해당하는지 확인
-            if word in self.reverse_aliases:
-                standard_name = self.reverse_aliases[word]
-                if standard_name not in keywords:
-                    keywords.append(standard_name)
-            
-            # 일반적인 식재료 패턴 확인 (길이가 2글자 이상)
-            elif len(word) >= 2:
-                # 숫자나 단위가 포함된 경우 제외
-                if not re.search(r'\d', word):
-                    keywords.append(word)
-        
-        logger.debug(f"상품명 '{product_name}'에서 추출된 키워드: {keywords}")
-        return keywords
+        from common.keyword_extraction import extract_recipe_keywords
+        return extract_recipe_keywords(product_name)
     
     def calculate_match_score(self, material_name: str, product_keywords: List[str]) -> float:
         """
@@ -350,8 +322,9 @@ class IngredientStatusMatcher:
 # 편의 함수들
 def extract_ingredient_keywords(product_name: str) -> List[str]:
     """상품명에서 식재료 키워드 추출 (간편 함수)"""
-    extractor = IngredientKeywordExtractor()
-    return extractor.extract_keywords(product_name)
+    from common.keyword_extraction import extract_recipe_keywords
+    result = extract_recipe_keywords(product_name)
+    return result.get("keywords", [])
 
 
 def calculate_ingredient_match(material_name: str, product_name: str) -> float:
