@@ -592,13 +592,14 @@ async def add_cart_item(
     """
     장바구니에 상품 추가
     """
-    logger.info(f"장바구니 추가 요청: user_id={current_user.user_id}, kok_product_id={cart_data.kok_product_id}, kok_quantity={cart_data.kok_quantity}, recipe_id={cart_data.recipe_id}")
+    logger.info(f"장바구니 추가 요청: user_id={current_user.user_id}, kok_product_id={cart_data.kok_product_id}, kok_price_id={cart_data.kok_price_id}, kok_quantity={cart_data.kok_quantity}, recipe_id={cart_data.recipe_id}")
     
     try:
         result = await add_kok_cart(
             db,
             current_user.user_id,
             cart_data.kok_product_id,
+            cart_data.kok_price_id,
             cart_data.kok_quantity,
             cart_data.recipe_id,
         )
@@ -607,7 +608,8 @@ async def add_cart_item(
         # commit 후에 새로 생성된 cart_id를 조회
         stmt = select(KokCart).where(
             KokCart.user_id == current_user.user_id,
-            KokCart.kok_product_id == cart_data.kok_product_id
+            KokCart.kok_product_id == cart_data.kok_product_id,
+            KokCart.kok_price_id == cart_data.kok_price_id
         ).order_by(KokCart.kok_cart_id.desc()).limit(1)
         
         cart_result = await db.execute(stmt)
@@ -624,6 +626,7 @@ async def add_cart_item(
                 event_type="cart_add", 
                 event_data={
                     "kok_product_id": cart_data.kok_product_id,
+                    "kok_price_id": cart_data.kok_price_id,
                     "kok_quantity": cart_data.kok_quantity,
                     "kok_cart_id": actual_cart_id,
                     "recipe_id": cart_data.recipe_id
