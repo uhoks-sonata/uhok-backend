@@ -15,7 +15,7 @@ from services.log.schemas.user_activity_schema import UserActivityLog
 from services.log.crud.user_activity_log_crud import create_user_activity_log
 
 logger = get_logger("user_activity_log_router")
-router = APIRouter(prefix="/user-activity-log", tags=["UserActivityLog"])
+router = APIRouter(prefix="/user/activity-log", tags=["UserActivityLog"])
 
 
 @router.post("/", response_model=Dict[str, Any], status_code=status.HTTP_201_CREATED)
