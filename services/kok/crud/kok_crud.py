@@ -12,9 +12,7 @@ from sqlalchemy import select, func
 from typing import Optional, List, Tuple
 from datetime import datetime, timedelta
 
-from common.config import get_mariadb_config
 from common.logger import get_logger
-from common.keyword_extraction import load_ing_vocab, extract_ingredient_keywords
 
 from services.order.models.order_model import Order, KokOrder
 from services.kok.models.kok_model import (
@@ -29,10 +27,127 @@ from services.kok.models.kok_model import (
     KokNotification,
     KokClassify
 )
+from services.kok.utils.keyword_extraction import extract_ingredient_keywords
 
 logger = get_logger("kok_crud")
 
-
+async def get_kok_product_full_detail(
+        db: AsyncSession,
+        kok_product_id: int
+) -> Optional[dict]:
+    """
+    주어진 product_id에 해당하는 콕 제품 상세정보와 관련 정보를 반환
+    """
+    logger.info(f"상품 상세 정보 조회 시작: kok_product_id={kok_product_id}")
+    
+    stmt = (
+        select(KokProductInfo).where(KokProductInfo.kok_product_id == kok_product_id)
+    )
+    result = await db.execute(stmt)
+    product = result.scalar_one_or_none()
+    if not product:
+        logger.warning(f"상품을 찾을 수 없음: kok_product_id={kok_product_id}")
+        return None
+    
+    # 이미지 정보 조회
+    img_stmt = (
+        select(KokImageInfo).where(KokImageInfo.kok_product_id == kok_product_id)
+    )
+    images = (await db.execute(img_stmt)).scalars().all()
+    
+    # 상세 정보 조회
+    detail_stmt = (
+        select(KokDetailInfo).where(KokDetailInfo.kok_product_id == kok_product_id)
+    )
+    detail_infos = (await db.execute(detail_stmt)).scalars().all()
+    
+    # 리뷰 예시 조회
+    review_stmt = (
+        select(KokReviewExample).where(KokReviewExample.kok_product_id == kok_product_id)
+    )
+    review_examples = (await db.execute(review_stmt)).scalars().all()
+    
+    # 가격 정보 조회
+    price_stmt = (
+        select(KokPriceInfo).where(KokPriceInfo.kok_product_id == kok_product_id)
+    )
+    price_infos = (await db.execute(price_stmt)).scalars().all()
+    
+    # 할인율과 할인가격은 price_infos에서 가져오기
+    discount_rate = price_infos[0].kok_discount_rate if price_infos else None
+    discounted_price = price_infos[0].kok_discounted_price if price_infos else None
+    
+    return {
+        "kok_product_id": product.kok_product_id,
+        "kok_product_name": product.kok_product_name,
+        "kok_store_name": product.kok_store_name,
+        "kok_thumbnail": product.kok_thumbnail,
+        "kok_product_price": product.kok_product_price,
+        "kok_discount_rate": discount_rate,
+        "kok_discounted_price": discounted_price,
+        "kok_review_cnt": product.kok_review_cnt,
+        "kok_review_score": product.kok_review_score,
+        "kok_5_ratio": product.kok_5_ratio,
+        "kok_4_ratio": product.kok_4_ratio,
+        "kok_3_ratio": product.kok_3_ratio,
+        "kok_2_ratio": product.kok_2_ratio,
+        "kok_1_ratio": product.kok_1_ratio,
+        "kok_aspect_price": product.kok_aspect_price,
+        "kok_aspect_price_ratio": product.kok_aspect_price_ratio,
+        "kok_aspect_delivery": product.kok_aspect_delivery,
+        "kok_aspect_delivery_ratio": product.kok_aspect_delivery_ratio,
+        "kok_aspect_taste": product.kok_aspect_taste,
+        "kok_aspect_taste_ratio": product.kok_aspect_taste_ratio,
+        "kok_seller": product.kok_seller,
+        "kok_co_ceo": product.kok_co_ceo,
+        "kok_co_reg_no": product.kok_co_reg_no,
+        "kok_co_ec_reg": product.kok_co_ec_reg,
+        "kok_tell": product.kok_tell,
+        "kok_ver_item": product.kok_ver_item,
+        "kok_ver_date": product.kok_ver_date,
+        "kok_co_addr": product.kok_co_addr,
+        "kok_return_addr": product.kok_return_addr,
+        "kok_exchange_addr": product.kok_exchange_addr,
+        "images": [
+            {
+                "kok_img_id": img.kok_img_id,
+                "kok_product_id": img.kok_product_id,
+                "kok_img_url": img.kok_img_url
+            } for img in images
+        ],
+        "detail_infos": [
+            {
+                "kok_detail_col_id": detail.kok_detail_col_id,
+                "kok_product_id": detail.kok_product_id,
+                "kok_detail_col": detail.kok_detail_col,
+                "kok_detail_val": detail.kok_detail_val
+            } for detail in detail_infos
+        ],
+        "review_examples": [
+            {
+                "kok_review_id": review.kok_review_id,
+                "kok_product_id": review.kok_product_id,
+                "kok_nickname": review.kok_nickname,
+                "kok_review_text": review.kok_review_text,
+                "kok_review_date": review.kok_review_date,
+                "kok_review_score": review.kok_review_score,
+                "kok_price_eval": review.kok_price_eval,
+                "kok_delivery_eval": review.kok_delivery_eval,
+                "kok_taste_eval": review.kok_taste_eval
+            } for review in review_examples
+        ],
+        "price_infos": [
+            {
+                "kok_price_id": price.kok_price_id,
+                "kok_product_id": price.kok_product_id,
+                "kok_discount_rate": price.kok_discount_rate,
+                "kok_discounted_price": price.kok_discounted_price
+            } for price in price_infos
+        ],
+    }
+    
+    logger.info(f"상품 상세 정보 조회 완료: kok_product_id={kok_product_id}, 이미지 수={len(images)}, 상세정보 수={len(detail_infos)}")
+    return result
 
 
 async def get_kok_product_seller_details(
@@ -508,11 +623,10 @@ async def get_kok_product_tabs(
     images = images_result.scalars().all()
     
     return [
-        KokImageInfo(
-            kok_img_id=img.kok_img_id,
-            kok_product_id=img.kok_product_id,
-            kok_img_url=img.kok_img_url
-        )
+        {
+            "kok_img_id": img.kok_img_id,
+            "kok_img_url": img.kok_img_url
+        }
         for img in images
     ]
 
@@ -554,7 +668,7 @@ async def get_kok_product_info(
     logger.info(f"상품 기본 정보 조회 완료: kok_product_id={kok_product_id}, user_id={user_id}, is_liked={is_liked}")
     
     return {
-        "kok_product_id": product.kok_product_id,
+        "kok_product_id": str(product.kok_product_id),
         "kok_product_name": product.kok_product_name,
         "kok_store_name": product.kok_store_name,
         "kok_thumbnail": product.kok_thumbnail,
@@ -1116,14 +1230,10 @@ async def get_ingredients_from_selected_cart_items(
         return []
 
     # 표준 재료 어휘 로드 (TEST_MTRL.MATERIAL_NAME)
-    from common.keyword_extraction import load_ing_vocab
-    from common.config import get_mariadb_config
-    
     ing_vocab = set()
     try:
         # 환경변수에서 자동으로 DB 설정을 가져와서 표준 재료 어휘 로드
-        db_config = get_mariadb_config()
-        ing_vocab = load_ing_vocab(db_config)
+        ing_vocab = load_ing_vocab()
         logger.info(f"표준 재료 어휘 로드 완료: {len(ing_vocab)}개")
     except Exception as e:
         logger.error(f"표준 재료 어휘 로드 실패: {str(e)}")
@@ -1216,12 +1326,11 @@ async def get_ingredients_from_cart_product_ids(
 
     logger.info(f"cls_ing이 1인 상품 {len(classified_products)}개 발견")
 
-    # 표준 재료 어휘 로드 (TEST_MTRL.MATERIAL_NAME)    
+    # 표준 재료 어휘 로드 (TEST_MTRL.MATERIAL_NAME)
     ing_vocab = set()
     try:
         # 환경변수에서 자동으로 DB 설정을 가져와서 표준 재료 어휘 로드
-        db_config = get_mariadb_config()
-        ing_vocab = load_ing_vocab(db_config)
+        ing_vocab = load_ing_vocab()
         logger.info(f"표준 재료 어휘 로드 완료: {len(ing_vocab)}개")
     except Exception as e:
         logger.error(f"표준 재료 어휘 로드 실패: {str(e)}")
@@ -1303,3 +1412,4 @@ async def get_cart_product_names_by_ids(
     product_names = [row[0] for row in result.fetchall() if row[0]]
     
     return product_names
+    
