@@ -194,33 +194,7 @@ async def get_combinations_info(
     }
 
 
-@router.delete("/by-ingredients/combinations/clear")
-async def clear_combinations(
-    ingredient: List[str] = Query(..., min_length=3, description="식재료 리스트 (최소 3개)"),
-    amount: Optional[List[float]] = Query(None, description="각 재료별 분량 (amount 또는 unit 중 하나는 필수)"),
-    unit: Optional[List[str]] = Query(None, description="각 재료별 단위 (amount 또는 unit 중 하나는 필수)"),
-    current_user = Depends(get_current_user)
-):
-    """
-    사용자의 특정 재료 조합에 대한 추적 데이터 삭제
-    """
-    # amount 또는 unit 중 하나는 필수
-    if amount is None and unit is None:
-        logger.warning("amount와 unit 모두 제공되지 않음")
-        from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail="amount 또는 unit 중 하나는 반드시 제공해야 합니다.")
-    
-    # 재료 정보 해시 생성 (amount 또는 unit이 None인 경우 기본값 사용)
-    amounts_for_hash = amount if amount is not None else [1.0] * len(ingredient)
-    units_for_hash = unit if unit is not None else [""] * len(ingredient)
-    ingredients_hash = combination_tracker.generate_ingredients_hash(ingredient, amounts_for_hash, units_for_hash)
-    
-    # 추적 데이터 삭제
-    combination_tracker.clear_user_combinations(
-        current_user.user_id, ingredients_hash
-    )
-    
-    return {"message": "조합 추적 데이터가 삭제되었습니다."}
+
 
 
 @router.get("/search")
