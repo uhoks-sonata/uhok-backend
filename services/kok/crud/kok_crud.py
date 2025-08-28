@@ -13,7 +13,7 @@ from typing import Optional, List, Tuple
 from datetime import datetime, timedelta
 
 from common.logger import get_logger
-from common.utils import load_ing_vocab, extract_ingredient_keywords
+from common.keyword_extraction import load_ing_vocab, extract_ingredient_keywords
 
 from services.order.models.order_model import Order, KokOrder
 from services.kok.models.kok_model import (
