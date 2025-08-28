@@ -147,7 +147,7 @@ async def create_orders_from_selected_carts(
         
         # KokCart의 kok_price_id를 직접 사용
         if not cart.kok_price_id:
-            logger.warning(f"장바구니에 가격 정보가 없음: cart_id={cart.kok_cart_id}, user_id={user_id}")
+            logger.warning(f"장바구니에 가격 정보가 없음: kok_cart_id={cart.kok_cart_id}, user_id={user_id}")
             continue
 
         # 주문 금액 계산 (별도 함수 사용)
@@ -201,7 +201,7 @@ async def create_orders_from_selected_carts(
     await db.flush()
 
     # 선택된 장바구니 삭제
-    await db.execute(delete(KokCart).where(KokCart.kok_cart_id.in_(cart_ids)))
+    await db.execute(delete(KokCart).where(KokCart.kok_cart_id.in_(kok_cart_ids)))
     await db.commit()
 
     return {
@@ -697,33 +697,33 @@ async def get_kok_order_notifications_history(
 #         logger.error(f"주문 생성 실패: {str(e)}")
 #         raise e
 
-async def debug_cart_status(db: AsyncSession, user_id: int, cart_ids: List[int]) -> dict:
+async def debug_cart_status(db: AsyncSession, user_id: int, kok_cart_ids: List[int]) -> dict:
     """
     장바구니 상태를 디버깅하기 위한 함수
     
     Args:
         db: 데이터베이스 세션
         user_id: 사용자 ID
-        cart_ids: 확인할 장바구니 ID 목록
+        kok_cart_ids: 확인할 장바구니 ID 목록
     
     Returns:
         dict: 디버깅 정보
     """
     debug_info = {
         "user_id": user_id,
-        "requested_cart_ids": cart_ids,
+        "requested_cart_ids": kok_cart_ids,
         "cart_status": {},
         "database_tables": {}
     }
     
     # 1. 장바구니 테이블 상태 확인
-    for cart_id in cart_ids:
-        cart_stmt = select(KokCart).where(KokCart.kok_cart_id == cart_id)
+    for kok_cart_id in kok_cart_ids:
+        cart_stmt = select(KokCart).where(KokCart.kok_cart_id == kok_cart_id)
         cart_result = await db.execute(cart_stmt)
         cart = cart_result.scalars().first()
         
         if cart:
-            debug_info["cart_status"][cart_id] = {
+            debug_info["cart_status"][kok_cart_id] = {
                 "exists": True,
                 "kok_product_id": cart.kok_product_id,
                 "recipe_id": cart.recipe_id,
@@ -737,13 +737,13 @@ async def debug_cart_status(db: AsyncSession, user_id: int, cart_ids: List[int])
                 product = product_result.scalars().first()
                 
                 if product:
-                    debug_info["cart_status"][cart_id]["product"] = {
+                    debug_info["cart_status"][kok_cart_id]["product"] = {
                         "exists": True,
                         "name": product.kok_product_name,
                         "description": product.kok_product_description
                     }
                 else:
-                    debug_info["cart_status"][cart_id]["product"] = {"exists": False}
+                    debug_info["cart_status"][kok_cart_id]["product"] = {"exists": False}
                 
                 # 가격 정보 확인
                 price_stmt = select(KokPriceInfo).where(KokPriceInfo.kok_product_id == cart.kok_product_id)
@@ -751,15 +751,15 @@ async def debug_cart_status(db: AsyncSession, user_id: int, cart_ids: List[int])
                 price = price_result.scalars().all()
                 
                 if price:
-                    debug_info["cart_status"][cart_id]["price"] = {
+                    debug_info["cart_status"][kok_cart_id]["price"] = {
                         "exists": True,
                         "count": len(price),
                         "price_ids": [p.kok_price_id for p in price]
                     }
                 else:
-                    debug_info["cart_status"][cart_id]["price"] = {"exists": False}
+                    debug_info["cart_status"][kok_cart_id]["price"] = {"exists": False}
         else:
-            debug_info["cart_status"][cart_id] = {"exists": False}
+            debug_info["cart_status"][kok_cart_id] = {"exists": False}
     
     # 2. 사용자의 전체 장바구니 항목 확인
     all_carts_stmt = select(KokCart).where(KokCart.user_id == user_id)
