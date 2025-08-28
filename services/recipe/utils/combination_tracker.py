@@ -50,11 +50,32 @@ class CombinationTracker:
     def _save_cache_to_file(self):
         """메모리 캐시 데이터를 파일에 저장합니다."""
         try:
+            # 캐시 디렉토리 확인
+            if not os.path.exists(self.cache_dir):
+                os.makedirs(self.cache_dir, exist_ok=True)
+                self.logger.info(f"캐시 디렉토리 재생성: {self.cache_dir}")
+            
+            # 저장할 데이터 준비
+            save_data = {}
+            for cache_key, cache_data in self.memory_cache.items():
+                save_data[cache_key] = {}
+                for key, value in cache_data.items():
+                    if isinstance(value, datetime):
+                        save_data[cache_key][key] = value.isoformat()
+                    else:
+                        save_data[cache_key][key] = value
+            
+            # 파일에 저장
             with open(self.cache_file, 'w', encoding='utf-8') as f:
-                json.dump(self.memory_cache, f, indent=4, ensure_ascii=False)
-            self.logger.info(f"캐시 데이터 파일에 저장: {self.cache_file}")
+                json.dump(save_data, f, indent=4, ensure_ascii=False)
+            
+            self.logger.info(f"캐시 데이터 파일에 저장 완료: {self.cache_file}")
+            self.logger.info(f"저장된 데이터 크기: {len(save_data)}개 키")
+            
         except Exception as e:
             self.logger.error(f"캐시 데이터 파일 저장 중 오류 발생: {e}")
+            self.logger.error(f"캐시 파일 경로: {self.cache_file}")
+            self.logger.error(f"현재 작업 디렉토리: {os.getcwd()}")
     
     def generate_ingredients_hash(self, ingredients: List[str], amounts: List[float], units: List[str]) -> str:
         """재료 정보를 해시로 변환하여 캐시 키 생성"""

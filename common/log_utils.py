@@ -1,4 +1,4 @@
-"""
+h"""
 BackgroundTasks용 로그 API 호출 함수 (.env config 사용)
 """
 import requests
