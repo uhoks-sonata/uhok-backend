@@ -273,10 +273,11 @@ async def get_homeshopping_product_detail(
     """
     logger.info(f"홈쇼핑 상품 상세 조회 시작: live_id={live_id}, user_id={user_id}")
     
-    # live_id로 방송 정보 조회
+    # live_id로 방송 정보 조회 (채널 정보 포함)
     stmt = (
-        select(HomeshoppingList, HomeshoppingProductInfo)
+        select(HomeshoppingList, HomeshoppingProductInfo, HomeshoppingInfo)
         .join(HomeshoppingProductInfo, HomeshoppingList.product_id == HomeshoppingProductInfo.product_id)
+        .join(HomeshoppingInfo, HomeshoppingList.homeshopping_id == HomeshoppingInfo.homeshopping_id)
         .where(HomeshoppingList.live_id == live_id)
     )
     
@@ -287,7 +288,7 @@ async def get_homeshopping_product_detail(
         logger.warning(f"상품을 찾을 수 없음: live_id={live_id}")
         return None
     
-    live, product = product_data
+    live, product, homeshopping = product_data
     
     # 찜 상태 확인
     is_liked = False
@@ -317,7 +318,7 @@ async def get_homeshopping_product_detail(
     img_result = await db.execute(img_stmt)
     images = img_result.scalars().all()
     
-    # 응답 데이터 구성
+    # 응답 데이터 구성 (채널 정보 포함)
     product_detail = {
         "product": {
             "product_id": live.product_id,
@@ -330,7 +331,14 @@ async def get_homeshopping_product_detail(
             "live_start_time": live.live_start_time,
             "live_end_time": live.live_end_time,
             "thumb_img_url": live.thumb_img_url,
-            "is_liked": is_liked
+            "is_liked": is_liked,
+            
+            # 채널 정보 추가
+            "homeshopping_id": homeshopping.homeshopping_id if homeshopping else None,
+            "homeshopping_name": homeshopping.homeshopping_name if homeshopping else None,
+            "homeshopping_channel": homeshopping.homeshopping_channel if homeshopping else None,
+            "homeshopping_channel_name": f"채널 {homeshopping.homeshopping_channel}" if homeshopping and homeshopping.homeshopping_channel else None,
+            "homeshopping_channel_image": f"/images/channels/channel_{homeshopping.homeshopping_channel}.jpg" if homeshopping and homeshopping.homeshopping_channel else None
         },
         "detail_infos": [
             {
@@ -1056,7 +1064,6 @@ async def get_kok_product_infos(
                 "kok_store_name": f"콕 스토어 {i+1}"
             })
         return fallback_products
-
 
 async def get_pgvector_topk_within(
     db: AsyncSession,

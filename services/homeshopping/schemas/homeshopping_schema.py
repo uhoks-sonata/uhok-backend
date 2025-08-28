@@ -127,6 +127,13 @@ class HomeshoppingProductDetail(BaseModel):
     thumb_img_url: str
     is_liked: bool = False
     
+    # 채널 정보 추가
+    homeshopping_id: Optional[int] = None
+    homeshopping_name: Optional[str] = None
+    homeshopping_channel: Optional[int] = None
+    homeshopping_channel_name: Optional[str] = None
+    homeshopping_channel_image: Optional[str] = None
+    
     class Config:
         from_attributes = True
 
