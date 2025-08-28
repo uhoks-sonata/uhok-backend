@@ -97,7 +97,11 @@ from services.kok.crud.kok_crud import (
     search_kok_products,
     get_kok_search_history,
     add_kok_search_history,
-    delete_kok_search_history
+    delete_kok_search_history,
+
+    # 장바구니 관련 CRUD
+    get_cart_product_names_by_ids,
+    get_ingredients_from_cart_product_ids
 )
 from services.kok.utils.kok_homeshopping import (
     get_recommendation_strategy
