@@ -211,7 +211,7 @@ async def get_store_best_items(
 # 상품 상세 설명
 # ================================
 
-@router.get("/product/{product_id}/info", response_model=KokProductInfoResponse)
+@router.get("/product/{kok_product_id}/info", response_model=KokProductInfoResponse)
 async def get_product_info(
         request: Request,
         kok_product_id: int,
@@ -242,7 +242,7 @@ async def get_product_info(
     return product
 
 
-@router.get("/product/{product_id}/tabs", response_model=KokProductTabsResponse)
+@router.get("/product/{kok_product_id}/tabs", response_model=KokProductTabsResponse)
 async def get_product_tabs(
         request: Request,
         kok_product_id: int,
@@ -273,7 +273,7 @@ async def get_product_tabs(
     return images_response
 
 
-@router.get("/product/{product_id}/reviews", response_model=KokReviewResponse)
+@router.get("/product/{kok_product_id}/reviews", response_model=KokReviewResponse)
 async def get_product_reviews(
         request: Request,
         kok_product_id: int,
@@ -310,7 +310,7 @@ async def get_product_reviews(
 # 제품 상세 정보
 # ================================
 
-@router.get("/product/{product_id}/seller-details", response_model=KokProductDetailsResponse)
+@router.get("/product/{kok_product_id}/seller-details", response_model=KokProductDetailsResponse)
 async def get_product_details(
         request: Request,
         kok_product_id: int,
