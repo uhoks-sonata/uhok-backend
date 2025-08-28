@@ -129,6 +129,53 @@ async def get_schedule(
     logger.info(f"홈쇼핑 편성표 조회 완료: user_id={user_id}, 결과 수={len(schedules)}")
     return {"schedules": schedules}
 
+
+# ================================
+# 스트리밍 관련 API
+# ================================
+
+@router.get("/schedule/live-stream/{homeshopping_id}", response_model=HomeshoppingStreamResponse)
+async def get_stream_info(
+        homeshopping_id: int,
+        current_user: UserOut = Depends(get_current_user_optional),
+        background_tasks: BackgroundTasks = None,
+        db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    홈쇼핑 라이브 영상 URL 조회
+    """
+    user_id = current_user.user_id if current_user else None
+    logger.info(f"홈쇼핑 스트리밍 정보 조회 요청: user_id={user_id}, homeshopping_id={homeshopping_id}")
+    
+    try:
+        stream_info = await get_homeshopping_stream_info(db, homeshopping_id)
+        if not stream_info:
+            raise HTTPException(status_code=404, detail="방송을 찾을 수 없습니다.")
+        
+        # 스트리밍 정보 조회 로그 기록 (인증된 사용자인 경우에만)
+        if current_user and background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="homeshopping_stream_info_view", 
+                event_data={"homeshopping_id": homeshopping_id, "is_live": stream_info["is_live"]}
+            )
+        
+        logger.info(f"홈쇼핑 스트리밍 정보 조회 완료: user_id={user_id}, homeshopping_id={homeshopping_id}")
+        return stream_info
+        
+    except HTTPException:
+        # 404 에러는 그대로 전달
+        raise
+    except Exception as e:
+        logger.error(f"홈쇼핑 스트리밍 정보 조회 실패: homeshopping_id={homeshopping_id}, error={str(e)}")
+        # 기타 에러는 일반적인 500 에러로 처리
+        raise HTTPException(
+            status_code=500, 
+            detail="스트리밍 정보 조회 중 오류가 발생했습니다."
+        )
+
+
 # ================================
 # 상품 상세 관련 API
 # ================================
@@ -240,51 +287,6 @@ async def check_product_ingredient(
     except Exception as e:
         logger.error(f"홈쇼핑 상품 식재료 여부 확인 실패: homeshopping_product_id={homeshopping_product_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail="상품 식재료 여부 확인 중 오류가 발생했습니다.")
-
-# ================================
-# 스트리밍 관련 API
-# ================================
-
-@router.get("/product/{live_id}/stream", response_model=HomeshoppingStreamResponse)
-async def get_stream_info(
-        live_id: int,
-        current_user: UserOut = Depends(get_current_user_optional),
-        background_tasks: BackgroundTasks = None,
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    홈쇼핑 라이브 영상 URL 조회
-    """
-    user_id = current_user.user_id if current_user else None
-    logger.info(f"홈쇼핑 스트리밍 정보 조회 요청: user_id={user_id}, live_id={live_id}")
-    
-    try:
-        stream_info = await get_homeshopping_stream_info(db, live_id)
-        if not stream_info:
-            raise HTTPException(status_code=404, detail="방송을 찾을 수 없습니다.")
-        
-        # 스트리밍 정보 조회 로그 기록 (인증된 사용자인 경우에만)
-        if current_user and background_tasks:
-            background_tasks.add_task(
-                send_user_log, 
-                user_id=current_user.user_id, 
-                event_type="homeshopping_stream_info_view", 
-                event_data={"live_id": live_id, "is_live": stream_info["is_live"]}
-            )
-        
-        logger.info(f"홈쇼핑 스트리밍 정보 조회 완료: user_id={user_id}, live_id={live_id}")
-        return stream_info
-        
-    except HTTPException:
-        # 404 에러는 그대로 전달
-        raise
-    except Exception as e:
-        logger.error(f"홈쇼핑 스트리밍 정보 조회 실패: live_id={live_id}, error={str(e)}")
-        # 기타 에러는 일반적인 500 에러로 처리
-        raise HTTPException(
-            status_code=500, 
-            detail="스트리밍 정보 조회 중 오류가 발생했습니다."
-        )
 
 
 # ================================

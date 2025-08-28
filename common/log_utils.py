@@ -11,6 +11,10 @@ settings = get_settings()
 logger = get_logger("log_utils")
 api_url = settings.log_api_url   # .env에서 불러옴
 
+# 디버그: 실제 설정된 URL 확인
+logger.info(f"LOG_API_URL 설정값: {api_url}")
+logger.info(f"환경변수 LOG_API_URL: {settings.log_api_url}")
+
 
 def serialize_datetime(obj):
     """
@@ -30,8 +34,13 @@ def check_log_service_health():
     로그 서비스 상태 확인 (선택적)
     """
     try:
-        # 헬스체크 엔드포인트가 있다면 사용
-        health_url = api_url.replace('/user-event-log', '/user-event-log/health')
+        # 환경변수에서 가져온 URL을 기반으로 헬스체크 URL 생성
+        if api_url.endswith('/'):
+            health_url = api_url + "health"
+        else:
+            health_url = api_url + "/health"
+            
+        logger.debug(f"헬스체크 URL: {health_url}")
         response = requests.get(health_url, timeout=3)  # 3초로 단축
         if response.status_code == 200:
             logger.debug("로그 서비스 헬스체크 성공")

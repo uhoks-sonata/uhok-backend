@@ -343,9 +343,6 @@ async def get_product_details(
     return product_details
 
 
-
-
-
 # ================================
 # 검색 관련 API
 # ================================
