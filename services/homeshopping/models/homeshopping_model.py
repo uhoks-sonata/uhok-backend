@@ -34,7 +34,7 @@ class HomeshoppingList(MariaBase):
     """홈쇼핑 라이브 목록 테이블"""
     __tablename__ = "FCT_HOMESHOPPING_LIST"
     
-    live_id = Column("LIVE_ID", Integer, primary_key=True, autoincrement=True, comment="라이브 인덱스")
+    live_id = Column("LIVE_ID", Integer, primary_key=True, comment="라이브 인덱스")
     homeshopping_id = Column("HOMESHOPPING_ID", SMALLINT, ForeignKey("HOMESHOPPING_INFO.HOMESHOPPING_ID"), comment="홈쇼핑 인덱스")
     live_date = Column("LIVE_DATE", Date, comment="방영일")
     live_start_time = Column("LIVE_START_TIME", Time, comment="방영 시작 시간")
@@ -43,6 +43,7 @@ class HomeshoppingList(MariaBase):
     product_id = Column("PRODUCT_ID", BigInteger, comment="제품 코드")
     product_name = Column("PRODUCT_NAME", Text, comment="제품명")
     thumb_img_url = Column("THUMB_IMG_URL", Text, comment="썸네일 URL")
+    scheduled_or_cancelled = Column("SCHEDULED_OR_CANCELLED", Integer, nullable=False, default=1, comment="방송 예정 또는 취소 여부 (1: 예정, 0: 취소)")
 
     # 홈쇼핑 정보와 N:1 관계 설정
     homeshopping_info = relationship(

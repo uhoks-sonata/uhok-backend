@@ -82,7 +82,7 @@ async def order_from_selected_carts(
             db, current_user.user_id, [i.model_dump() for i in request.selected_items]
         )
 
-        logger.info(f"장바구니 주문 완료: user_id={current_user.user_id}, order_id={result['order_id']}, order_count={result['order_count']}")
+        logger.info(f"장바구니 주문 생성 완료: user_id={current_user.user_id}, order_id={result['order_id']}, order_count={result['order_count']}")
 
         if background_tasks:
             background_tasks.add_task(
