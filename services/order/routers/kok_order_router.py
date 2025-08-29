@@ -31,7 +31,8 @@ from services.order.crud.kok_order_crud import (
     get_kok_order_with_current_status,
     get_kok_order_status_history,
     start_auto_kok_order_status_update,
-    get_kok_order_notifications_history
+    get_kok_order_notifications_history,
+    debug_cart_status
 )
 
 logger = get_logger("kok_order_router")
@@ -65,7 +66,7 @@ async def order_from_selected_carts(
     Note:
         - Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
         - 비즈니스 로직은 CRUD 계층에 위임
-        - 선택된 장바구니 항목들을 기반으로 주문 생성
+        - 선택된 장바구니 항목들을 기반으로 주문 생성 (kok_cart_id 사용)
         - 주문 생성 후 사용자 행동 로그 기록
         - 단일 상품 주문 대신 멀티 카트 주문 방식 사용
     """

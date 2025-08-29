@@ -41,123 +41,39 @@ from services.kok.schemas.kok_schema import (
 
 logger = get_logger("kok_crud")
 
-async def get_kok_product_full_detail(
+
+async def get_latest_kok_price_id(
         db: AsyncSession,
         kok_product_id: int
-) -> Optional[dict]:
+) -> Optional[int]:
     """
-    주어진 product_id에 해당하는 콕 제품 상세정보와 관련 정보를 반환
-    """
-    logger.info(f"상품 상세 정보 조회 시작: kok_product_id={kok_product_id}")
+    주어진 kok_product_id에 대한 최신 가격 ID를 반환
     
-    stmt = (
-        select(KokProductInfo).where(KokProductInfo.kok_product_id == kok_product_id)
-    )
-    result = await db.execute(stmt)
-    product = result.scalar_one_or_none()
-    if not product:
-        logger.warning(f"상품을 찾을 수 없음: kok_product_id={kok_product_id}")
+    Args:
+        db: 데이터베이스 세션
+        kok_product_id: 상품 ID
+        
+    Returns:
+        최신 가격 ID 또는 None
+    """
+    try:
+        stmt = (
+            select(func.max(KokPriceInfo.kok_price_id))
+            .where(KokPriceInfo.kok_product_id == kok_product_id)
+        )
+        result = await db.execute(stmt)
+        latest_price_id = result.scalar_one_or_none()
+        
+        if latest_price_id:
+            logger.info(f"최신 가격 ID 조회 완료: kok_product_id={kok_product_id}, latest_kok_price_id={latest_price_id}")
+            return latest_price_id
+        else:
+            logger.warning(f"가격 정보를 찾을 수 없음: kok_product_id={kok_product_id}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"최신 가격 ID 조회 중 오류 발생: kok_product_id={kok_product_id}, error={str(e)}")
         return None
-    
-    # 이미지 정보 조회
-    img_stmt = (
-        select(KokImageInfo).where(KokImageInfo.kok_product_id == kok_product_id)
-    )
-    images = (await db.execute(img_stmt)).scalars().all()
-    
-    # 상세 정보 조회
-    detail_stmt = (
-        select(KokDetailInfo).where(KokDetailInfo.kok_product_id == kok_product_id)
-    )
-    detail_infos = (await db.execute(detail_stmt)).scalars().all()
-    
-    # 리뷰 예시 조회
-    review_stmt = (
-        select(KokReviewExample).where(KokReviewExample.kok_product_id == kok_product_id)
-    )
-    review_examples = (await db.execute(review_stmt)).scalars().all()
-    
-    # 가격 정보 조회
-    price_stmt = (
-        select(KokPriceInfo).where(KokPriceInfo.kok_product_id == kok_product_id)
-    )
-    price_infos = (await db.execute(price_stmt)).scalars().all()
-    
-    # 할인율과 할인가격은 price_infos에서 가져오기
-    discount_rate = price_infos[0].kok_discount_rate if price_infos else None
-    discounted_price = price_infos[0].kok_discounted_price if price_infos else None
-    
-    return {
-        "kok_product_id": product.kok_product_id,
-        "kok_product_name": product.kok_product_name,
-        "kok_store_name": product.kok_store_name,
-        "kok_thumbnail": product.kok_thumbnail,
-        "kok_product_price": product.kok_product_price,
-        "kok_discount_rate": discount_rate,
-        "kok_discounted_price": discounted_price,
-        "kok_review_cnt": product.kok_review_cnt,
-        "kok_review_score": product.kok_review_score,
-        "kok_5_ratio": product.kok_5_ratio,
-        "kok_4_ratio": product.kok_4_ratio,
-        "kok_3_ratio": product.kok_3_ratio,
-        "kok_2_ratio": product.kok_2_ratio,
-        "kok_1_ratio": product.kok_1_ratio,
-        "kok_aspect_price": product.kok_aspect_price,
-        "kok_aspect_price_ratio": product.kok_aspect_price_ratio,
-        "kok_aspect_delivery": product.kok_aspect_delivery,
-        "kok_aspect_delivery_ratio": product.kok_aspect_delivery_ratio,
-        "kok_aspect_taste": product.kok_aspect_taste,
-        "kok_aspect_taste_ratio": product.kok_aspect_taste_ratio,
-        "kok_seller": product.kok_seller,
-        "kok_co_ceo": product.kok_co_ceo,
-        "kok_co_reg_no": product.kok_co_reg_no,
-        "kok_co_ec_reg": product.kok_co_ec_reg,
-        "kok_tell": product.kok_tell,
-        "kok_ver_item": product.kok_ver_item,
-        "kok_ver_date": product.kok_ver_date,
-        "kok_co_addr": product.kok_co_addr,
-        "kok_return_addr": product.kok_return_addr,
-        "kok_exchange_addr": product.kok_exchange_addr,
-        "images": [
-            {
-                "kok_img_id": img.kok_img_id,
-                "kok_product_id": img.kok_product_id,
-                "kok_img_url": img.kok_img_url
-            } for img in images
-        ],
-        "detail_infos": [
-            {
-                "kok_detail_col_id": detail.kok_detail_col_id,
-                "kok_product_id": detail.kok_product_id,
-                "kok_detail_col": detail.kok_detail_col,
-                "kok_detail_val": detail.kok_detail_val
-            } for detail in detail_infos
-        ],
-        "review_examples": [
-            {
-                "kok_review_id": review.kok_review_id,
-                "kok_product_id": review.kok_product_id,
-                "kok_nickname": review.kok_nickname,
-                "kok_review_text": review.kok_review_text,
-                "kok_review_date": review.kok_review_date,
-                "kok_review_score": review.kok_review_score,
-                "kok_price_eval": review.kok_price_eval,
-                "kok_delivery_eval": review.kok_delivery_eval,
-                "kok_taste_eval": review.kok_taste_eval
-            } for review in review_examples
-        ],
-        "price_infos": [
-            {
-                "kok_price_id": price.kok_price_id,
-                "kok_product_id": price.kok_product_id,
-                "kok_discount_rate": price.kok_discount_rate,
-                "kok_discounted_price": price.kok_discounted_price
-            } for price in price_infos
-        ],
-    }
-    
-    logger.info(f"상품 상세 정보 조회 완료: kok_product_id={kok_product_id}, 이미지 수={len(images)}, 상세정보 수={len(detail_infos)}")
-    return result
 
 
 async def get_kok_product_seller_details(
@@ -331,27 +247,37 @@ async def get_kok_discounted_products(
     # KokProductInfo와 KokPriceInfo를 JOIN해서 할인율 정보 가져오기
     offset = (page - 1) * size
     stmt = (
-        select(KokProductInfo, KokPriceInfo)
+        select(KokProductInfo, func.max(KokPriceInfo.kok_price_id))
         .join(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
         .where(KokPriceInfo.kok_discount_rate > 0)
-        .order_by(KokPriceInfo.kok_discount_rate.desc())
+        .group_by(KokProductInfo.kok_product_id)
+        .order_by(func.max(KokPriceInfo.kok_discount_rate).desc())
         .offset(offset)
         .limit(size)
     )
     results = (await db.execute(stmt)).all()
     
     discounted_products = []
-    for product, price_info in results:
-        discounted_products.append({
-            "kok_product_id": product.kok_product_id,
-            "kok_thumbnail": product.kok_thumbnail,
-            "kok_discount_rate": price_info.kok_discount_rate,
-            "kok_discounted_price": price_info.kok_discounted_price,
-            "kok_product_name": product.kok_product_name,
-            "kok_store_name": product.kok_store_name,
-            "kok_review_cnt": product.kok_review_cnt,
-            "kok_review_score": product.kok_review_score,
-        })
+    for product, max_price_id in results:
+        # 최신 가격 정보 조회
+        latest_price_info = await get_latest_kok_price_id(db, product.kok_product_id)
+        if latest_price_info:
+            # 최신 가격 정보로 상세 정보 조회
+            price_stmt = select(KokPriceInfo).where(KokPriceInfo.kok_price_id == latest_price_info)
+            price_result = await db.execute(price_stmt)
+            price_info = price_result.scalar_one_or_none()
+            
+            if price_info:
+                discounted_products.append({
+                    "kok_product_id": product.kok_product_id,
+                    "kok_thumbnail": product.kok_thumbnail,
+                    "kok_discount_rate": price_info.kok_discount_rate,
+                    "kok_discounted_price": price_info.kok_discounted_price,
+                    "kok_product_name": product.kok_product_name,
+                    "kok_store_name": product.kok_store_name,
+                    "kok_review_cnt": product.kok_review_cnt,
+                    "kok_review_score": product.kok_review_score,
+                })
     
     logger.info(f"할인 상품 조회 완료: page={page}, size={size}, 결과 수={len(discounted_products)}")
     return discounted_products
@@ -374,15 +300,14 @@ async def get_kok_top_selling_products(
     """
     logger.info(f"인기 상품 조회 시작: page={page}, size={size}, sort_by={sort_by}")
     
-    # KokProductInfo와 KokPriceInfo를 LEFT JOIN해서 할인율 정보 가져오기
+    # KokProductInfo만 조회하고 나중에 최신 가격 정보를 가져오기
     offset = (page - 1) * size
     
     # 정렬 기준에 따라 쿼리 구성
     if sort_by == "rating":
         # 별점 평균 순으로 정렬 (리뷰가 있는 상품만)
         stmt = (
-            select(KokProductInfo, KokPriceInfo)
-            .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
+            select(KokProductInfo)
             .where(KokProductInfo.kok_review_cnt > 0)
             .where(KokProductInfo.kok_review_score > 0)
             .order_by(KokProductInfo.kok_review_score.desc(), KokProductInfo.kok_review_cnt.desc())
@@ -392,28 +317,35 @@ async def get_kok_top_selling_products(
     else:
         # 기본값: 리뷰 개수 순으로 정렬
         stmt = (
-            select(KokProductInfo, KokPriceInfo)
-            .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
+            select(KokProductInfo)
             .where(KokProductInfo.kok_review_cnt > 0)
             .order_by(KokProductInfo.kok_review_cnt.desc(), KokProductInfo.kok_review_score.desc())
             .offset(offset)
             .limit(size)
         )
     
-    results = (await db.execute(stmt)).all()
+    results = (await db.execute(stmt)).scalars().all()
     
     top_selling_products = []
-    for product, price_info in results:
-        top_selling_products.append({
-            "kok_product_id": product.kok_product_id,
-            "kok_thumbnail": product.kok_thumbnail,
-            "kok_discount_rate": price_info.kok_discount_rate if price_info else 0,
-            "kok_discounted_price": price_info.kok_discounted_price if price_info else product.kok_product_price,
-            "kok_product_name": product.kok_product_name,
-            "kok_store_name": product.kok_store_name,
-            "kok_review_cnt": product.kok_review_cnt,
-            "kok_review_score": product.kok_review_score,
-        })
+    for product in results:
+        # 최신 가격 정보 조회
+        latest_price_id = await get_latest_kok_price_id(db, product.kok_product_id)
+        if latest_price_id:
+            # 최신 가격 정보로 상세 정보 조회
+            price_stmt = select(KokPriceInfo).where(KokPriceInfo.kok_price_id == latest_price_id)
+            price_result = await db.execute(price_stmt)
+            price_info = price_result.scalar_one_or_none()
+            
+            top_selling_products.append({
+                "kok_product_id": product.kok_product_id,
+                "kok_thumbnail": product.kok_thumbnail,
+                "kok_discount_rate": price_info.kok_discount_rate if price_info else 0,
+                "kok_discounted_price": price_info.kok_discounted_price if price_info else product.kok_product_price,
+                "kok_product_name": product.kok_product_name,
+                "kok_store_name": product.kok_store_name,
+                "kok_review_cnt": product.kok_review_cnt,
+                "kok_review_score": product.kok_review_score,
+            })
     
     logger.info(f"인기 상품 조회 완료: sort_by={sort_by}, 결과 수={len(top_selling_products)}")
     return top_selling_products
@@ -530,8 +462,7 @@ async def get_kok_store_best_items(
         if sort_by == "rating":
             # 별점 평균 순으로 정렬 (리뷰가 있는 상품만)
             store_best_stmt = (
-                select(KokProductInfo, KokPriceInfo)
-                .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
+                select(KokProductInfo)
                 .where(KokProductInfo.kok_store_name.in_(store_names))
                 .where(KokProductInfo.kok_review_cnt > 0)
                 .where(KokProductInfo.kok_review_score > 0)
@@ -541,8 +472,7 @@ async def get_kok_store_best_items(
         else:
             # 기본값: 리뷰 개수 순으로 정렬
             store_best_stmt = (
-                select(KokProductInfo, KokPriceInfo)
-                .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
+                select(KokProductInfo)
                 .where(KokProductInfo.kok_store_name.in_(store_names))
                 .where(KokProductInfo.kok_review_cnt > 0)
                 .order_by(KokProductInfo.kok_review_cnt.desc(), KokProductInfo.kok_review_score.desc())
@@ -555,8 +485,7 @@ async def get_kok_store_best_items(
         if sort_by == "rating":
             # 별점 평균 순으로 정렬 (리뷰가 있는 상품만)
             store_best_stmt = (
-                select(KokProductInfo, KokPriceInfo)
-                .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
+                select(KokProductInfo)
                 .where(KokProductInfo.kok_review_cnt > 0)
                 .where(KokProductInfo.kok_review_score > 0)
                 .order_by(KokProductInfo.kok_review_score.desc(), KokProductInfo.kok_review_cnt.desc())
@@ -566,32 +495,39 @@ async def get_kok_store_best_items(
         else:
             # 기본값: 리뷰 개수 순으로 정렬
             store_best_stmt = (
-                select(KokProductInfo, KokPriceInfo)
-                .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
+                select(KokProductInfo)
                 .where(KokProductInfo.kok_review_cnt > 0)
                 .order_by(KokProductInfo.kok_review_cnt.desc(), KokProductInfo.kok_review_score.desc())
                 .limit(10)
             )
             logger.debug("정렬 기준: 리뷰 개수 순 → 별점 순")
     
-    store_results = (await db.execute(store_best_stmt)).all()
+    store_results = (await db.execute(store_best_stmt)).scalars().all()
     
     logger.info(f"해당 판매자들의 현재 판매 상품 수: {len(store_results)}")
     if store_results:
-        logger.debug(f"첫 번째 상품 정보: {store_results[0][0].kok_product_name}, 판매자: {store_results[0][0].kok_store_name}, 리뷰 수: {store_results[0][0].kok_review_cnt}")
+        logger.debug(f"첫 번째 상품 정보: {store_results[0].kok_product_name}, 판매자: {store_results[0].kok_store_name}, 리뷰 수: {store_results[0].kok_review_cnt}")
     
     store_best_products = []
-    for product, price_info in store_results:
-        store_best_products.append({
-            "kok_product_id": product.kok_product_id,
-            "kok_thumbnail": product.kok_thumbnail,
-            "kok_discount_rate": price_info.kok_discount_rate if price_info else 0,
-            "kok_discounted_price": price_info.kok_discounted_price if price_info else product.kok_product_price,
-            "kok_product_name": product.kok_product_name,
-            "kok_store_name": product.kok_store_name,
-            "kok_review_cnt": product.kok_review_cnt,
-            "kok_review_score": product.kok_review_score,
-        })
+    for product in store_results:
+        # 최신 가격 정보 조회
+        latest_price_id = await get_latest_kok_price_id(db, product.kok_product_id)
+        if latest_price_id:
+            # 최신 가격 정보로 상세 정보 조회
+            price_stmt = select(KokPriceInfo).where(KokPriceInfo.kok_price_id == latest_price_id)
+            price_result = await db.execute(price_stmt)
+            price_info = price_result.scalar_one_or_none()
+            
+            store_best_products.append({
+                "kok_product_id": product.kok_product_id,
+                "kok_thumbnail": product.kok_thumbnail,
+                "kok_discount_rate": price_info.kok_discount_rate if price_info else 0,
+                "kok_discounted_price": price_info.kok_discounted_price if price_info else product.kok_product_price,
+                "kok_product_name": product.kok_product_name,
+                "kok_store_name": product.kok_store_name,
+                "kok_review_cnt": product.kok_review_cnt,
+                "kok_review_score": product.kok_review_score,
+            })
     
     logger.info(f"스토어 베스트 상품 조회 완료: user_id={user_id}, sort_by={sort_by}, 결과 수={len(store_best_products)}")
     
@@ -658,18 +594,25 @@ async def get_kok_product_info(
     logger.info(f"상품 기본 정보 조회 시작: kok_product_id={kok_product_id}, user_id={user_id}")
     
     stmt = (
-        select(KokProductInfo, KokPriceInfo)
-        .join(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
+        select(KokProductInfo)
         .where(KokProductInfo.kok_product_id == kok_product_id)
     )
     result = await db.execute(stmt)
-    row = result.first()
+    product = result.scalar_one_or_none()
     
-    if not row:
+    if not product:
         logger.warning(f"상품을 찾을 수 없음: kok_product_id={kok_product_id}")
         return None
     
-    product, price = row
+    # 최신 가격 정보 조회
+    latest_price_id = await get_latest_kok_price_id(db, kok_product_id)
+    if latest_price_id:
+        # 최신 가격 정보로 상세 정보 조회
+        price_stmt = select(KokPriceInfo).where(KokPriceInfo.kok_price_id == latest_price_id)
+        price_result = await db.execute(price_stmt)
+        price = price_result.scalar_one_or_none()
+    else:
+        price = None
     
     # 찜 상태 확인
     is_liked = False
@@ -772,8 +715,7 @@ async def get_kok_products_by_ingredient(
     ingredient(예: 고춧가루)로 콕 상품을 LIKE 검색, 필드명 model 변수명과 100% 일치
     """
     stmt = (
-        select(KokProductInfo, KokPriceInfo)
-        .outerjoin(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
+        select(KokProductInfo)
         .where(KokProductInfo.kok_product_name.ilike(f"%{ingredient}%"))
         .limit(limit)
     )
@@ -781,23 +723,31 @@ async def get_kok_products_by_ingredient(
     results = result.all()
 
     products = []
-    for p, price in results:
-        products.append({
-            "kok_product_id": p.kok_product_id,
-            "kok_product_name": p.kok_product_name,
-            "kok_thumbnail": p.kok_thumbnail,
-            "kok_store_name": p.kok_store_name,
-            "kok_product_price": p.kok_product_price,
-            "kok_discount_rate": price.kok_discount_rate if price else 0,
-            "kok_discounted_price": (
-                price.kok_discounted_price
-                if price and price.kok_discounted_price
-                else p.kok_product_price
-            ),
-            "kok_review_score": p.kok_review_score,
-            "kok_review_cnt": p.kok_review_cnt,
-            # 필요시 model에 정의된 추가 필드도 동일하게 추출
-        })
+    for product in results:
+        # 최신 가격 정보 조회
+        latest_price_id = await get_latest_kok_price_id(db, product.kok_product_id)
+        if latest_price_id:
+            # 최신 가격 정보로 상세 정보 조회
+            price_stmt = select(KokPriceInfo).where(KokPriceInfo.kok_price_id == latest_price_id)
+            price_result = await db.execute(price_stmt)
+            price_info = price_result.scalar_one_or_none()
+            
+            products.append({
+                "kok_product_id": product.kok_product_id,
+                "kok_product_name": product.kok_product_name,
+                "kok_thumbnail": product.kok_thumbnail,
+                "kok_store_name": product.kok_store_name,
+                "kok_product_price": product.kok_product_price,
+                "kok_discount_rate": price_info.kok_discount_rate if price_info else 0,
+                "kok_discounted_price": (
+                    price_info.kok_discounted_price
+                    if price_info and price_info.kok_discounted_price
+                    else product.kok_product_price
+                ),
+                "kok_review_score": product.kok_review_score,
+                "kok_review_cnt": product.kok_review_cnt,
+                # 필요시 model에 정의된 추가 필드도 동일하게 추출
+            })
     
     return products
 
@@ -853,9 +803,8 @@ async def get_kok_liked_products(
     사용자가 찜한 상품 목록 조회
     """
     stmt = (
-        select(KokLikes, KokProductInfo, KokPriceInfo)
+        select(KokLikes, KokProductInfo)
         .join(KokProductInfo, KokLikes.kok_product_id == KokProductInfo.kok_product_id)
-        .join(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id, isouter=True)
         .where(KokLikes.user_id == user_id)
         .order_by(KokLikes.kok_created_at.desc())
         .limit(limit)
@@ -864,16 +813,24 @@ async def get_kok_liked_products(
     results = (await db.execute(stmt)).all()
     
     liked_products = []
-    for like, product, price in results:
-        liked_products.append({
-            "kok_product_id": product.kok_product_id,
-            "kok_product_name": product.kok_product_name,
-            "kok_thumbnail": product.kok_thumbnail,
-            "kok_product_price": product.kok_product_price,
-            "kok_discount_rate": price.kok_discount_rate if price else 0,
-            "kok_discounted_price": price.kok_discounted_price if price else product.kok_product_price,
-            "kok_store_name": product.kok_store_name,
-        })
+    for like, product in results:
+        # 최신 가격 정보 조회
+        latest_price_id = await get_latest_kok_price_id(db, product.kok_product_id)
+        if latest_price_id:
+            # 최신 가격 정보로 상세 정보 조회
+            price_stmt = select(KokPriceInfo).where(KokPriceInfo.kok_price_id == latest_price_id)
+            price_result = await db.execute(price_stmt)
+            price = price_result.scalar_one_or_none()
+            
+            liked_products.append({
+                "kok_product_id": product.kok_product_id,
+                "kok_product_name": product.kok_product_name,
+                "kok_thumbnail": product.kok_thumbnail,
+                "kok_product_price": product.kok_product_price,
+                "kok_discount_rate": price.kok_discount_rate if price else 0,
+                "kok_discounted_price": price.kok_discounted_price if price else product.kok_product_price,
+                "kok_store_name": product.kok_store_name,
+            })
     
     return liked_products
 
@@ -925,36 +882,31 @@ async def add_kok_cart(
     db: AsyncSession,
     user_id: int,
     kok_product_id: int,
-    kok_price_id: int,
     kok_quantity: int = 1,
     recipe_id: Optional[int] = None
 ) -> dict:
     """
-    장바구니에 상품 추가
+    장바구니에 상품 추가 (자동으로 최신 가격 ID 사용)
     """
-    logger.info(f"장바구니 추가 시작: user_id={user_id}, kok_product_id={kok_product_id}, kok_price_id={kok_price_id}, kok_quantity={kok_quantity}, recipe_id={recipe_id}")
+    logger.info(f"장바구니 추가 시작: user_id={user_id}, kok_product_id={kok_product_id}, kok_quantity={kok_quantity}, recipe_id={recipe_id}")
     
     # recipe_id가 0이면 None으로 처리 (외래키 제약 조건 위반 방지)
     if recipe_id == 0:
         recipe_id = None
         logger.info(f"recipe_id가 0이므로 None으로 처리")
     
-    # kok_price_id가 유효한지 확인
-    price_stmt = (
-        select(KokPriceInfo.kok_price_id)
-        .where(KokPriceInfo.kok_price_id == kok_price_id)
-        .where(KokPriceInfo.kok_product_id == kok_product_id)
-    )
-    price_result = await db.execute(price_stmt)
-    if not price_result.scalar_one_or_none():
-        logger.warning(f"유효하지 않은 가격 ID: kok_price_id={kok_price_id}, kok_product_id={kok_product_id}")
-        raise ValueError("유효하지 않은 가격 ID입니다.")
+    # 최신 가격 ID 자동 조회
+    latest_price_id = await get_latest_kok_price_id(db, kok_product_id)
+    if not latest_price_id:
+        logger.warning(f"가격 정보를 찾을 수 없음: kok_product_id={kok_product_id}")
+        raise ValueError("상품의 가격 정보를 찾을 수 없습니다.")
     
-    # 기존 장바구니 항목 확인 (product_id와 price_id 모두 고려)
+    logger.info(f"최신 가격 ID 사용: kok_product_id={kok_product_id}, latest_kok_price_id={latest_price_id}")
+    
+    # 기존 장바구니 항목 확인 (product_id만 고려)
     stmt = select(KokCart).where(
         KokCart.user_id == user_id,
-        KokCart.kok_product_id == kok_product_id,
-        KokCart.kok_price_id == kok_price_id
+        KokCart.kok_product_id == kok_product_id
     )
     result = await db.execute(stmt)
     existing_cart = result.scalar_one_or_none()
@@ -974,7 +926,7 @@ async def add_kok_cart(
         new_cart = KokCart(
             user_id=user_id,
             kok_product_id=kok_product_id,
-            kok_price_id=kok_price_id,
+            kok_price_id=latest_price_id,
             kok_quantity=kok_quantity,
             kok_created_at=created_at,
             recipe_id=recipe_id
@@ -984,7 +936,7 @@ async def add_kok_cart(
         # refresh는 commit 후에 호출해야 하므로 여기서는 제거
         # await db.refresh(new_cart)
         
-        logger.info(f"장바구니 새 항목 추가 완료: user_id={user_id}, kok_product_id={kok_product_id}, kok_price_id={kok_price_id}")
+        logger.info(f"장바구니 새 항목 추가 완료: user_id={user_id}, kok_product_id={kok_product_id}, kok_price_id={latest_price_id}")
         return {
             "kok_cart_id": 0,  # commit 후에 실제 ID를 얻을 수 있음
             "message": "장바구니에 상품이 추가되었습니다."
@@ -1080,8 +1032,7 @@ async def search_kok_products(
         
         # 검색 쿼리
         stmt = (
-            select(KokProductInfo, KokPriceInfo)
-            .join(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id, isouter=True)
+            select(KokProductInfo)
             .where(
                 KokProductInfo.kok_product_name.ilike(f"%{keyword}%") |
                 KokProductInfo.kok_store_name.ilike(f"%{keyword}%")
@@ -1091,7 +1042,7 @@ async def search_kok_products(
             .limit(size)
         )
         
-        results = (await db.execute(stmt)).all()
+        results = (await db.execute(stmt)).scalars().all()
         
         # 총 개수 조회
         count_stmt = (
@@ -1105,18 +1056,26 @@ async def search_kok_products(
         
         # 결과 변환
         products = []
-        for product, price in results:
-            products.append({
-                "kok_product_id": product.kok_product_id,
-                "kok_product_name": product.kok_product_name,
-                "kok_store_name": product.kok_store_name,
-                "kok_thumbnail": product.kok_thumbnail,
-                "kok_product_price": product.kok_product_price,
-                "kok_discount_rate": price.kok_discount_rate if price else 0,
-                "kok_discounted_price": price.kok_discounted_price if price else product.kok_product_price,
-                "kok_review_cnt": product.kok_review_cnt,
-                "kok_review_score": product.kok_review_score,
-            })
+        for product in results:
+            # 최신 가격 정보 조회
+            latest_price_id = await get_latest_kok_price_id(db, product.kok_product_id)
+            if latest_price_id:
+                # 최신 가격 정보로 상세 정보 조회
+                price_stmt = select(KokPriceInfo).where(KokPriceInfo.kok_price_id == latest_price_id)
+                price_result = await db.execute(price_stmt)
+                price = price_result.scalar_one_or_none()
+                
+                products.append({
+                    "kok_product_id": product.kok_product_id,
+                    "kok_product_name": product.kok_product_name,
+                    "kok_store_name": product.kok_store_name,
+                    "kok_thumbnail": product.kok_thumbnail,
+                    "kok_product_price": product.kok_product_price,
+                    "kok_discount_rate": price.kok_discount_rate if price else 0,
+                    "kok_discounted_price": price.kok_discounted_price if price else product.kok_product_price,
+                    "kok_review_cnt": product.kok_review_cnt,
+                    "kok_review_score": product.kok_review_score,
+                })
         
         logger.info(f"상품 검색 완료: keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
         return products, total

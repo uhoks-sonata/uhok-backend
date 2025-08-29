@@ -29,7 +29,7 @@ async def get_current_user(
         
         payload = verify_token(token)
         if payload is None:
-            # logger.warning("토큰 검증 실패: 유효하지 않은 토큰")
+            logger.warning("토큰 검증 실패: 유효하지 않은 토큰")
             raise InvalidTokenException()
 
         # 토큰이 블랙리스트에 있는지 확인
@@ -39,18 +39,18 @@ async def get_current_user(
 
         user_id_raw = payload.get("sub")
         if not user_id_raw:
-            # logger.warning("토큰 페이로드에 사용자 ID 누락")
+            logger.warning("토큰 페이로드에 사용자 ID 누락")
             raise InvalidTokenException("토큰에 사용자 정보가 없습니다.")
         
         try:
             user_id = int(user_id_raw)
         except (ValueError, TypeError):
-            # logger.error(f"토큰의 사용자 ID가 유효하지 않음: {user_id_raw}")
+            logger.error(f"토큰의 사용자 ID가 유효하지 않음: {user_id_raw}")
             raise InvalidTokenException("토큰의 사용자 ID가 유효하지 않습니다.")
 
         user = await get_user_by_id(db, user_id)
         if user is None:
-            # logger.warning(f"사용자를 찾을 수 없음: user_id={user_id}")
+            logger.warning(f"사용자를 찾을 수 없음: user_id={user_id}")
             raise NotFoundException("사용자")
 
         # SQLAlchemy ORM 객체를 Pydantic 모델로 변환하여 직렬화 문제 해결
@@ -65,10 +65,10 @@ async def get_current_user(
         return user_out
         
     except Exception as e:
-        # logger.error(f"인증 실패: {str(e)}")
-        # logger.error(f"인증 실패 상세: {type(e).__name__}: {e}")
+        logger.error(f"인증 실패: {str(e)}")
+        logger.error(f"인증 실패 상세: {type(e).__name__}: {e}")
         import traceback
-        # logger.error(f"스택 트레이스: {traceback.format_exc()}")
+        logger.error(f"스택 트레이스: {traceback.format_exc()}")
         raise
 
 
@@ -82,7 +82,7 @@ async def get_current_user_optional(
     # logger.info(f"Authorization 헤더: {authorization}")
     
     if not authorization:
-        # logger.info("Authorization 헤더가 없습니다.")
+        logger.info("Authorization 헤더가 없습니다.")
         return None
     
     try:
@@ -104,7 +104,7 @@ async def get_current_user_optional(
         # logger.info(f"verify_token 결과: {payload}")
         
         if not payload:
-            # logger.warning("JWT 페이로드가 없습니다.")
+            logger.warning("JWT 페이로드가 없습니다.")
             # 추가 디버깅: 직접 JWT 디코딩 시도
             try:
                 settings = get_settings()
@@ -115,21 +115,21 @@ async def get_current_user_optional(
                 direct_payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
                 # logger.info(f"직접 디코딩 결과: {direct_payload}")
             except Exception as direct_error:
-                # logger.error(f"직접 디코딩 실패: {str(direct_error)}")
+                logger.error(f"직접 디코딩 실패: {str(direct_error)}")
                 pass
             
             return None
         
         user_id_raw = payload.get("sub")
         if not user_id_raw:
-            # logger.warning("user_id가 유효하지 않습니다.")
+            logger.warning("user_id가 유효하지 않습니다.")
             return None
         
         try:
             user_id = int(user_id_raw)
             # logger.info(f"추출된 user_id: {user_id}")
         except (ValueError, TypeError):
-            # logger.error(f"토큰의 사용자 ID가 유효하지 않음: {user_id_raw}")
+            logger.error(f"토큰의 사용자 ID가 유효하지 않음: {user_id_raw}")
             return None
         
         # 데이터베이스에서 실제 사용자 정보 조회
@@ -138,7 +138,7 @@ async def get_current_user_optional(
         async with SessionLocal() as db:
             user = await get_user_by_id(db, user_id)
             if user is None:
-                # logger.warning(f"사용자를 찾을 수 없음: user_id={user_id}")
+                logger.warning(f"사용자를 찾을 수 없음: user_id={user_id}")
                 return None
             
             # SQLAlchemy ORM 객체를 Pydantic 모델로 변환
@@ -153,7 +153,7 @@ async def get_current_user_optional(
         
     except Exception as e:
         # 인증 실패 시 None 반환 (에러 발생하지 않음)
-        # logger.error(f"JWT 토큰 처리 중 오류 발생: {str(e)}")
+        logger.error(f"JWT 토큰 처리 중 오류 발생: {str(e)}")
         return None
 
 

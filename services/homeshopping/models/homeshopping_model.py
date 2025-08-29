@@ -20,7 +20,8 @@ class HomeshoppingInfo(MariaBase):
     homeshopping_id = Column("HOMESHOPPING_ID", SMALLINT, primary_key=True, comment="홈쇼핑 인덱스")
     homeshopping_name = Column("HOMESHOPPING_NAME", String(20), comment="홈쇼핑명")
     homeshopping_channel = Column("HOMESHOPPING_CHANNEL", SMALLINT, comment="홈쇼핑 채널")
-
+    homeshopping_url = Column("HOMESHOPPING_URL", String(255), comment="홈쇼핑 URL")
+    
     # 홈쇼핑 라이브 목록과 1:N 관계 설정
     live_lists = relationship(
         "HomeshoppingList",

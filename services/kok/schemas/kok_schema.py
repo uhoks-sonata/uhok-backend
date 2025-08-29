@@ -371,7 +371,6 @@ class KokCart(BaseModel):
 class KokCartAddRequest(BaseModel):
     """장바구니 추가 요청"""
     kok_product_id: int
-    kok_price_id: int = Field(description="가격 정보 ID")
     kok_quantity: int = Field(1, ge=1, description="추가할 수량")
     recipe_id: Optional[int] = Field(None, description="레시피ID (레시피 상세에서 유입된 경우)")
 
@@ -399,7 +398,7 @@ class KokCartItem(BaseModel):
     """장바구니 상품 정보"""
     kok_cart_id: int
     kok_product_id: int
-    kok_price_id: int  # 최신 가격 ID 추가
+    kok_price_id: int  # 자동으로 최신 가격 ID 사용
     recipe_id: Optional[int] = None
     kok_product_name: Optional[str] = None
     kok_thumbnail: Optional[str] = None

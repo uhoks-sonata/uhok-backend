@@ -23,6 +23,112 @@ from services.order.crud.order_common import (
 
 logger = get_logger("hs_order_crud")
 
+
+async def create_homeshopping_order(
+    db: AsyncSession,
+    user_id: int,
+    product_id: int,
+    quantity: int = 1  # 기본값을 1로 설정
+) -> dict:
+    """
+    홈쇼핑 주문 생성 (단건 주문)
+    
+    Args:
+        db: 데이터베이스 세션
+        user_id: 주문하는 사용자 ID
+        product_id: 상품 ID
+        quantity: 수량 (기본값: 1)
+    
+    Returns:
+        dict: 주문 생성 결과 (order_id, homeshopping_order_id, product_id, product_name, quantity, dc_price, order_price, order_time, message)
+        
+    Note:
+        - CRUD 계층: 트랜잭션 단위 책임
+        - 주문 금액 자동 계산 (calculate_homeshopping_order_price 함수 사용)
+        - 주문 접수 상태로 초기화
+        - 주문 생성 알림 자동 생성
+        - 트랜잭션으로 처리하여 일관성 보장
+    """
+    logger.info(f"홈쇼핑 주문 생성 시작: user_id={user_id}, product_id={product_id}, quantity={quantity}")
+    
+    try:
+        # 1. 주문 금액 계산 (별도 함수 사용)
+        price_info = await calculate_homeshopping_order_price(db, product_id, quantity)
+        dc_price = price_info["dc_price"]
+        order_price = price_info["order_price"]
+        product_name = price_info["product_name"]
+        
+        # 2. 주문 생성 (ORDERS 테이블)
+        order_time = datetime.now()
+        new_order = Order(
+            user_id=user_id,
+            order_time=order_time
+        )
+        
+        db.add(new_order)
+        await db.flush()  # order_id 생성
+        
+        # 3. 홈쇼핑 주문 상세 생성 (HOMESHOPPING_ORDERS 테이블)
+        new_homeshopping_order = HomeShoppingOrder(
+            order_id=new_order.order_id,
+            product_id=product_id,
+            dc_price=dc_price,
+            quantity=quantity,
+            order_price=order_price
+        )
+        
+        db.add(new_homeshopping_order)
+        await db.flush()  # homeshopping_order_id 생성
+        
+        # 4. 주문 상태 이력 생성 (초기 상태: 주문접수)
+        # STATUS_MASTER에서 'ORDER_RECEIVED' 상태 ID 조회
+        status_stmt = select(StatusMaster).where(
+            StatusMaster.status_code == "ORDER_RECEIVED"
+        )
+        status_result = await db.execute(status_stmt)
+        status = status_result.scalar_one_or_none()
+        
+        if status:
+            new_status_history = HomeShoppingOrderStatusHistory(
+                homeshopping_order_id=new_homeshopping_order.homeshopping_order_id,
+                status_id=status.status_id,
+                changed_at=order_time,
+                changed_by=user_id
+            )
+            db.add(new_status_history)
+        
+        # 5. 홈쇼핑 알림 생성
+        new_notification = HomeshoppingNotification(
+            user_id=user_id,
+            homeshopping_order_id=new_homeshopping_order.homeshopping_order_id,
+            status_id=status.status_id if status else 1,  # 기본값
+            title="주문 생성",
+            message="주문이 성공적으로 접수되었습니다."
+        )
+        
+        db.add(new_notification)
+        await db.commit()
+        
+        logger.info(f"홈쇼핑 주문 생성 완료: user_id={user_id}, order_id={new_order.order_id}, homeshopping_order_id={new_homeshopping_order.homeshopping_order_id}")
+        
+        return {
+            "order_id": new_order.order_id,
+            "homeshopping_order_id": new_homeshopping_order.homeshopping_order_id,
+            "product_id": product_id,
+            "product_name": product_name,
+            "quantity": quantity,
+            "dc_price": dc_price,
+            "order_price": order_price,
+            "order_time": order_time,
+            "message": "주문이 성공적으로 생성되었습니다."
+        }
+        
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"홈쇼핑 주문 생성 실패: user_id={user_id}, product_id={product_id}, error={str(e)}")
+        raise
+
+
 async def get_hs_current_status(
     db: AsyncSession, 
     homeshopping_order_id: int
@@ -716,109 +822,4 @@ async def calculate_homeshopping_order_price(
         
     except Exception as e:
         logger.error(f"홈쇼핑 주문 금액 계산 실패: product_id={product_id}, error={str(e)}")
-        raise
-
-
-async def create_homeshopping_order(
-    db: AsyncSession,
-    user_id: int,
-    product_id: int,
-    quantity: int = 1  # 기본값을 1로 설정
-) -> dict:
-    """
-    홈쇼핑 주문 생성 (단건 주문)
-    
-    Args:
-        db: 데이터베이스 세션
-        user_id: 주문하는 사용자 ID
-        product_id: 상품 ID
-        quantity: 수량 (기본값: 1)
-    
-    Returns:
-        dict: 주문 생성 결과 (order_id, homeshopping_order_id, product_id, product_name, quantity, dc_price, order_price, order_time, message)
-        
-    Note:
-        - CRUD 계층: 트랜잭션 단위 책임
-        - 주문 금액 자동 계산 (calculate_homeshopping_order_price 함수 사용)
-        - 주문 접수 상태로 초기화
-        - 주문 생성 알림 자동 생성
-        - 트랜잭션으로 처리하여 일관성 보장
-    """
-    logger.info(f"홈쇼핑 주문 생성 시작: user_id={user_id}, product_id={product_id}, quantity={quantity}")
-    
-    try:
-        # 1. 주문 금액 계산 (별도 함수 사용)
-        price_info = await calculate_homeshopping_order_price(db, product_id, quantity)
-        dc_price = price_info["dc_price"]
-        order_price = price_info["order_price"]
-        product_name = price_info["product_name"]
-        
-        # 2. 주문 생성 (ORDERS 테이블)
-        order_time = datetime.now()
-        new_order = Order(
-            user_id=user_id,
-            order_time=order_time
-        )
-        
-        db.add(new_order)
-        await db.flush()  # order_id 생성
-        
-        # 3. 홈쇼핑 주문 상세 생성 (HOMESHOPPING_ORDERS 테이블)
-        new_homeshopping_order = HomeShoppingOrder(
-            order_id=new_order.order_id,
-            product_id=product_id,
-            dc_price=dc_price,
-            quantity=quantity,
-            order_price=order_price
-        )
-        
-        db.add(new_homeshopping_order)
-        await db.flush()  # homeshopping_order_id 생성
-        
-        # 4. 주문 상태 이력 생성 (초기 상태: 주문접수)
-        # STATUS_MASTER에서 'ORDER_RECEIVED' 상태 ID 조회
-        status_stmt = select(StatusMaster).where(
-            StatusMaster.status_code == "ORDER_RECEIVED"
-        )
-        status_result = await db.execute(status_stmt)
-        status = status_result.scalar_one_or_none()
-        
-        if status:
-            new_status_history = HomeShoppingOrderStatusHistory(
-                homeshopping_order_id=new_homeshopping_order.homeshopping_order_id,
-                status_id=status.status_id,
-                changed_at=order_time,
-                changed_by=user_id
-            )
-            db.add(new_status_history)
-        
-        # 5. 홈쇼핑 알림 생성
-        new_notification = HomeshoppingNotification(
-            user_id=user_id,
-            homeshopping_order_id=new_homeshopping_order.homeshopping_order_id,
-            status_id=status.status_id if status else 1,  # 기본값
-            title="주문 생성",
-            message="주문이 성공적으로 접수되었습니다."
-        )
-        
-        db.add(new_notification)
-        await db.commit()
-        
-        logger.info(f"홈쇼핑 주문 생성 완료: user_id={user_id}, order_id={new_order.order_id}, homeshopping_order_id={new_homeshopping_order.homeshopping_order_id}")
-        
-        return {
-            "order_id": new_order.order_id,
-            "homeshopping_order_id": new_homeshopping_order.homeshopping_order_id,
-            "product_id": product_id,
-            "product_name": product_name,
-            "quantity": quantity,
-            "dc_price": dc_price,
-            "order_price": order_price,
-            "order_time": order_time,
-            "message": "주문이 성공적으로 생성되었습니다."
-        }
-        
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"홈쇼핑 주문 생성 실패: user_id={user_id}, product_id={product_id}, error={str(e)}")
         raise
