@@ -626,7 +626,7 @@ async def get_homeshopping_liked_products(
     limit: int = 50
 ) -> List[dict]:
     """
-    홈쇼핑 찜한 상품 목록 조회
+    홈쇼핑 찜한 상품 목록 조회 (중복 제거)
     """
     logger.info(f"홈쇼핑 찜한 상품 조회 시작: user_id={user_id}, limit={limit}")
     
@@ -636,28 +636,48 @@ async def get_homeshopping_liked_products(
         return []
     
     stmt = (
-        select(HomeshoppingLikes, HomeshoppingList, HomeshoppingProductInfo)
+        select(
+            HomeshoppingLikes.product_id,
+            HomeshoppingLikes.homeshopping_like_created_at,
+            HomeshoppingList.product_name,
+            HomeshoppingList.thumb_img_url,
+            HomeshoppingProductInfo.store_name,
+            HomeshoppingProductInfo.dc_price,
+            HomeshoppingProductInfo.dc_rate
+        )
+        .select_from(HomeshoppingLikes)
         .join(HomeshoppingList, HomeshoppingLikes.product_id == HomeshoppingList.product_id)
         .join(HomeshoppingProductInfo, HomeshoppingList.product_id == HomeshoppingProductInfo.product_id)
         .where(HomeshoppingLikes.user_id == user_id)
-        .order_by(HomeshoppingLikes.homeshopping_like_created_at.desc())
-        .limit(limit)
+        .order_by(
+            HomeshoppingLikes.homeshopping_like_created_at.desc(),
+            HomeshoppingLikes.product_id
+        )
     )
     
     results = await db.execute(stmt)
-    liked_products = results.all()
+    all_liked_products = results.all()
     
+    # Python에서 중복 제거 (product_id 기준)
+    seen_products = set()
     product_list = []
-    for like, live, product in liked_products:
-        product_list.append({
-            "product_id": live.product_id,
-            "product_name": live.product_name,
-            "store_name": product.store_name if product.store_name else None,
-            "dc_price": product.dc_price if product.dc_price else None,
-            "dc_rate": product.dc_rate if product.dc_rate else None,
-            "thumb_img_url": live.thumb_img_url,
-            "homeshopping_like_created_at": like.homeshopping_like_created_at
-        })
+    
+    for row in all_liked_products:
+        if row.product_id not in seen_products:
+            seen_products.add(row.product_id)
+            product_list.append({
+                "product_id": row.product_id,
+                "product_name": row.product_name,
+                "store_name": row.store_name if row.store_name else None,
+                "dc_price": row.dc_price if row.dc_price else None,
+                "dc_rate": row.dc_rate if row.dc_rate else None,
+                "thumb_img_url": row.thumb_img_url,
+                "homeshopping_like_created_at": row.homeshopping_like_created_at
+            })
+            
+            # limit에 도달하면 중단
+            if len(product_list) >= limit:
+                break
     
     logger.info(f"홈쇼핑 찜한 상품 조회 완료: user_id={user_id}, 결과 수={len(product_list)}")
     return product_list
