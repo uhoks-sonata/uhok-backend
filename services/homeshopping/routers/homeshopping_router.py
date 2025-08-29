@@ -354,7 +354,8 @@ async def get_recipe_recommendations_for_product(
             logger.info(f"상품이 식재료가 아님: product_id={product_id}")
             return RecipeRecommendationsResponse(
                 recipes=[],
-                is_ingredient=False
+                is_ingredient=False,
+                extracted_keywords=[]
             )
         
         # 4. 키워드 추출을 위한 표준 재료 어휘 로드 (MariaDB)
@@ -377,7 +378,8 @@ async def get_recipe_recommendations_for_product(
             logger.info(f"추출된 키워드가 없음: product_id={product_id}")
             return RecipeRecommendationsResponse(
                 recipes=[],
-                is_ingredient=True
+                is_ingredient=True,
+                extracted_keywords=[]
             )
         
         # 7. 키워드를 쉼표로 구분하여 레시피 추천 요청
@@ -414,7 +416,7 @@ async def get_recipe_recommendations_for_product(
                     "recipe_id": int(row.get("RECIPE_ID", 0)),
                     "recipe_name": str(row.get("RECIPE_TITLE", "")),
                     "cooking_time": "30분",  # 기본값, 실제로는 DB에서 가져와야 함
-                    "difficulty": "중급",     # 기본값, 실제로는 DB에서 가져와야 함
+                    "scrap_count": int(row.get("SCRAP_COUNT", 0)) if row.get("SCRAP_COUNT") else None,
                     "ingredients": [],
                     "description": str(row.get("COOKING_INTRODUCTION", "")),
                     "recipe_image_url": str(row.get("THUMBNAIL_URL", "")) if row.get("THUMBNAIL_URL") else None
@@ -448,7 +450,8 @@ async def get_recipe_recommendations_for_product(
         
         return RecipeRecommendationsResponse(
             recipes=recipes,
-            is_ingredient=True
+            is_ingredient=True,
+            extracted_keywords=extracted_keywords
         )
         
     except HTTPException:
