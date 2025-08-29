@@ -417,7 +417,7 @@ async def get_recipe_recommendations_for_product(
                     "difficulty": "중급",     # 기본값, 실제로는 DB에서 가져와야 함
                     "ingredients": [],
                     "description": str(row.get("COOKING_INTRODUCTION", "")),
-                    "recipe_image_url": str(row.get("RECIPE_IMAGE_URL", "")) if row.get("RECIPE_IMAGE_URL") else None
+                    "recipe_image_url": str(row.get("THUMBNAIL_URL", "")) if row.get("THUMBNAIL_URL") else None
                 }
                 
                 # 재료 정보가 있는 경우 추가
