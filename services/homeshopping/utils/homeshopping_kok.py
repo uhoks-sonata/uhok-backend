@@ -274,17 +274,27 @@ def filter_tail_and_ngram_and(details: List[dict], prod_name: str) -> List[dict]
     d = load_domain_dicts()
     stop = d["stopwords"]
 
-    cand_names = [f"{r.get('KOK_PRODUCT_NAME','')} {r.get('KOK_STORE_NAME','')}" for r in details]
+    cand_names = [f"{r.get('kok_product_name','')} {r.get('kok_store_name','')}" for r in details]
     tails = set(_dynamic_tail_terms(prod_name, cand_names, stop))
+    
+    # 디버깅: 필터링 파라미터 로깅
+    print(f"[DEBUG] filter_tail_and_ngram_and - prod_name: '{prod_name}', candidates: {len(cand_names)}, tails: {tails}")
 
     out = []
-    for r in details:
-        name = f"{r.get('KOK_PRODUCT_NAME','')} {r.get('KOK_STORE_NAME','')}"
+    for i, r in enumerate(details):
+        name = f"{r.get('kok_product_name','')} {r.get('kok_store_name','')}"
         toks = set(tokenize_normalized(name, stop))
         tail_hits = len(tails & toks)
         ngram_hits = _ngram_overlap_count(prod_name, name, n=NGRAM_N)
+        
+        # 디버깅: 각 후보별 상세 정보 (처음 3개만)
+        if i < 3:
+            print(f"[DEBUG] Candidate {i}: '{name}' -> tail_hits: {tail_hits}, ngram_hits: {ngram_hits}, tokens: {toks}")
+        
         if tail_hits >= 1 and ngram_hits >= 1:
             out.append(r)
+    
+    print(f"[DEBUG] filter_tail_and_ngram_and 결과: {len(out)}/{len(details)} 통과")
     return out
 
 def filter_tail_and_ngram_or(details: List[dict], prod_name: str) -> List[dict]:
@@ -298,12 +308,12 @@ def filter_tail_and_ngram_or(details: List[dict], prod_name: str) -> List[dict]:
     d = load_domain_dicts()
     stop = d["stopwords"]
 
-    cand_names = [f"{r.get('KOK_PRODUCT_NAME','')} {r.get('KOK_STORE_NAME','')}" for r in details]
+    cand_names = [f"{r.get('kok_product_name','')} {r.get('kok_store_name','')}" for r in details]
     tails = set(_dynamic_tail_terms(prod_name, cand_names, stop))
 
     out = []
     for r in details:
-        name = f"{r.get('KOK_PRODUCT_NAME','')} {r.get('KOK_STORE_NAME','')}"
+        name = f"{r.get('kok_product_name','')} {r.get('kok_store_name','')}"
         toks = set(tokenize_normalized(name, stop))
         tail_hits = len(tails & toks)
         ngram_hits = _ngram_overlap_count(prod_name, name, n=NGRAM_N)
@@ -318,7 +328,7 @@ def fetch_homeshopping_prod_name(product_id: Union[int, str]) -> str:
 
 def fetch_kok_prod_infos(product_ids: List[int]) -> List[dict]:
     """콕 상품 정보 조회 (더미 구현)"""
-    return [{"KOK_PRODUCT_ID": pid, "KOK_PRODUCT_NAME": f"콕상품_{pid}", "KOK_STORE_NAME": f"스토어_{pid % 10}"} for pid in product_ids]
+    return [{"kok_product_id": pid, "kok_product_name": f"콕상품_{pid}", "kok_store_name": f"스토어_{pid % 10}"} for pid in product_ids]
 
 def pgvector_topk_within(product_id: Union[int, str], candidate_ids: List[int], k: int) -> List[Tuple[Union[int, str], float]]:
     """pgvector 유사도 정렬 (더미 구현)"""
@@ -370,9 +380,9 @@ def kok_candidates_by_keywords_gated(
     if not must_kws and not optional_kws:
         return []
 
-    cols = ["i.KOK_PRODUCT_NAME"]
+    cols = ["i.kok_product_name"]
     if GATE_COMPARE_STORE:
-        cols.append("i.KOK_STORE_NAME")
+        cols.append("i.kok_store_name")
 
     def _run(sql: str, params: List[str]) -> List[int]:
         with connect_mariadb() as conn:
@@ -383,14 +393,14 @@ def kok_candidates_by_keywords_gated(
     ids: List[int] = []
     if must_kws:
         cond_or = _sql_like_or(cols, len(must_kws))
-        sql_or = f"SELECT DISTINCT i.KOK_PRODUCT_ID FROM {KOK_PROD_INFO} i WHERE ({cond_or}) LIMIT %s"
+        sql_or = f"SELECT DISTINCT i.kok_product_id FROM {KOK_PROD_INFO} i WHERE ({cond_or}) LIMIT %s"
         params_or = [f"%{k}%" for k in must_kws for _ in cols]
         ids = _run(sql_or, params_or)
 
     if len(ids) < min_if_all_fail and must_kws:
         use = must_kws[:2]
         cond_and = _sql_like_and(cols, len(use))
-        sql_and = f"SELECT DISTINCT i.KOK_PRODUCT_ID FROM {KOK_PROD_INFO} i WHERE ({cond_and}) LIMIT %s"
+        sql_and = f"SELECT DISTINCT i.kok_product_id FROM {KOK_PROD_INFO} i WHERE ({cond_and}) LIMIT %s"
         params_and = [f"%{k}%" for k in use for _ in cols]
         ids = _run(sql_and, params_and)
         if len(ids) < min_if_all_fail:
@@ -398,7 +408,7 @@ def kok_candidates_by_keywords_gated(
 
     if len(ids) < min_if_all_fail and optional_kws:
         cond_opt = _sql_like_or(cols, len(optional_kws))
-        sql_opt = f"SELECT DISTINCT i.KOK_PRODUCT_ID FROM {KOK_PROD_INFO} i WHERE ({cond_opt}) LIMIT %s"
+        sql_opt = f"SELECT DISTINCT i.kok_product_id FROM {KOK_PROD_INFO} i WHERE ({cond_opt}) LIMIT %s"
         params_opt = [f"%{k}%" for k in optional_kws for _ in cols]
         more = _run(sql_opt, params_opt)
         ids = list(dict.fromkeys(ids + more))[:limit]
@@ -463,7 +473,7 @@ def recommend_homeshopping_to_kok(
     if not details:
         return []
     for d in details:
-        d["distance"] = dist_map.get(d["KOK_PRODUCT_ID"])
+        d["distance"] = dist_map.get(d["kok_product_id"])
 
     # 5) (옵션) 리랭크 or 거리 정렬
     ranked = sorted(details, key=lambda x: x.get("distance", 1e9))  # 기본: 거리 오름차순

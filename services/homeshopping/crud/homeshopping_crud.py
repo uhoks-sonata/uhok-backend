@@ -1290,7 +1290,7 @@ from ..utils.homeshopping_kok import (
     DYN_NGRAM_MIN, DYN_NGRAM_MAX,
     DYN_COUNT_MIN, DYN_COUNT_MAX,
     extract_core_keywords, extract_tail_keywords, roots_in_name,
-    infer_terms_from_name_via_ngrams, filter_tail_and_ngram_or,
+    infer_terms_from_name_via_ngrams, filter_tail_and_ngram_and, filter_tail_and_ngram_or,
     load_domain_dicts, normalize_name, tokenize_normalized
 )
 
@@ -1363,6 +1363,10 @@ async def recommend_homeshopping_to_kok(
 
         must_kws = list(dict.fromkeys([*tail_k, *core_k, *root_k]))[:12]
         optional_kws = list(dict.fromkeys([*ngram_k]))[:DYN_MAX_TERMS]
+        
+        # 디버깅: 키워드 추출 결과 로깅
+        logger.info(f"키워드 추출 결과 - tail: {tail_k}, core: {core_k}, root: {root_k}, ngram: {ngram_k}")
+        logger.info(f"최종 키워드 - must: {must_kws}, optional: {optional_kws}")
 
         # 2) 키워드 게이트로 후보
         cand_ids = await kok_candidates_by_keywords_gated(
@@ -1401,8 +1405,15 @@ async def recommend_homeshopping_to_kok(
 
         # 6) 최종 필터 적용
         logger.info(f"필터링 시작: prod_name='{prod_name}', ranked_count={len(ranked)}")
-        filtered = filter_tail_and_ngram_or(ranked, prod_name)
+        filtered = filter_tail_and_ngram_and(ranked, prod_name)
         logger.info(f"필터링 완료: filtered_count={len(filtered)}")
+        
+        # 디버깅: 필터링 전후 상세 정보
+        if ranked:
+            sample_before = ranked[0] if len(ranked) > 0 else {}
+            sample_after = filtered[0] if len(filtered) > 0 else {}
+            logger.info(f"필터링 전 샘플: {sample_before.get('kok_product_name', 'N/A')}")
+            logger.info(f"필터링 후 샘플: {sample_after.get('kok_product_name', 'N/A')}")
 
         # 7) 최대 k개까지 반환
         final_result = filtered[:k]
@@ -1733,3 +1744,148 @@ async def get_homeshopping_cart_items(
     except Exception as e:
         logger.error(f"홈쇼핑 장바구니 조회 실패: user_id={user_id}, error={str(e)}")
         return []
+
+# ================================
+# 추천 필터링 함수들
+# ================================
+
+import re
+from collections import Counter
+
+# 기본 stopwords와 root hints
+DEFAULT_STOPWORDS = set("""
+세트 선물세트 모음 모음전 구성 증정 행사 정품 정기 무료 특가 사은품 선물 혼합 혼합세트 묶음 총 택
+옵션 국내산 수입산 무료배송 당일 당일발송 예약 신상 히트 인기 추천 기획 기획세트 명품 프리미엄 리미티드
+한정 본품 리뉴얼 정가 정상가 행사상품 대용량 소용량 박스 리필 업소용 가정용 편의점 오리지널 리얼 신제품 공식 단독
+정기구독 구독 사은 혜택 특전 한정판 고당도 산지 당일 당일직송 직송 손질 세척 냉동 냉장 생물 해동 숙성
+팩 봉 포 개 입 병 캔 스틱 정 포기 세트구성 골라담기 택1 택일 실속 못난이 파우치 슬라이스 인분
+""".split())
+
+DEFAULT_ROOT_HINTS = [
+    "육수","다시","사골","곰탕","장국","티백","멸치","황태","디포리","가쓰오","가다랭이",
+    "주꾸미","쭈꾸미","오징어","한치","문어","낙지","새우","꽃게","홍게","대게","게",
+    "김치","포기김치","열무김치","갓김치","동치미","만두","교자","왕교자","라면","우동","국수","칼국수","냉면",
+    "사리","메밀","막국수","어묵","오뎅","두부","순두부","유부","우유","치즈","요거트","버터",
+    "닭","닭가슴살","닭다리","닭안심","돼지","돼지고기","삼겹살","목살","소고기","한우","양지","사태","갈비","차돌",
+    "식용유","참기름","들기름","설탕","소금","고추장","된장","간장","쌈장","고춧가루","카레","짜장","분말",
+    "명란","명란젓","젓갈","어란","창란","창란젓","오징어젓","낙지젓",
+]
+
+# 정규식 패턴
+_MEAS1 = re.compile(r"\d+(?:\.\d+)?\s*(?:g|kg|ml|l|L)?\s*(?:[xX×＊*]\s*\d+)?", re.I)
+_MEAS2 = re.compile(r"\b\d+[a-zA-Z]+\b")
+_ONLYNUM = re.compile(r"\b\d+\b")
+_HANGUL_ONLY = re.compile(r"^[가-힣]{2,}$")
+
+def normalize_name(name: str) -> str:
+    """상품명 정규화"""
+    if not isinstance(name, str):
+        return ""
+    s = re.sub(r"\[[^\]]*\]", " ", name)
+    s = re.sub(r"\([^)]*\)", " ", s)
+    s = _MEAS1.sub(" ", s)
+    s = _MEAS2.sub(" ", s)
+    s = _ONLYNUM.sub(" ", s)
+    s = re.sub(r"[^\w가-힣]+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+def tokenize_normalized(text: str, stopwords: set) -> list:
+    """정규화된 텍스트를 토큰화"""
+    s = normalize_name(text)
+    return [t for t in s.split() if len(t) >= 2 and not t.isnumeric() and t not in stopwords]
+
+def _char_ngrams_raw(s: str, n: int = 2) -> set:
+    """문자 n-gram 생성"""
+    s2 = normalize_name(s).replace(" ", "")
+    if len(s2) < n:
+        return set()
+    return {s2[i:i+n] for i in range(len(s2)-n+1)}
+
+def _ngram_overlap_count(a: str, b: str, n: int = 2) -> int:
+    """두 문자열 간 n-gram 겹침 개수 계산"""
+    return len(_char_ngrams_raw(a, n) & _char_ngrams_raw(b, n))
+
+def _dynamic_tail_terms(query_name: str, candidate_names: list, stopwords: set) -> list:
+    """후보 집합에서 희소한 쿼리 토큰만 tail로 선정"""
+    q_toks = set(tokenize_normalized(query_name, stopwords))
+    if not q_toks or not candidate_names:
+        return list(q_toks)[:1]  # 폴백
+
+    df = Counter()
+    for name in candidate_names:
+        df.update(set(tokenize_normalized(name, stopwords)))
+
+    total_docs = max(1, len(candidate_names))
+    tail = [t for t in q_toks if (df.get(t, 0) / total_docs) <= 0.35]  # TAIL_MAX_DF_RATIO = 0.35
+    tail.sort(key=lambda t: df.get(t, 0))  # 희소한 순
+    if not tail:
+        tail = list(q_toks)[:1]
+    return tail[:max(1, 3)]  # TAIL_MAX_TERMS = 3
+
+def filter_tail_and_ngram_and(details: list, prod_name: str) -> list:
+    """
+    AND 조건:
+      - tail 토큰 일치 ≥ 1
+      - n-gram 겹침 ≥ 1 (기본 bi-gram)
+    들어온 순서를 보존(이미 정렬되어 있다고 가정).
+    """
+    if not details:
+        return []
+    
+    stopwords = DEFAULT_STOPWORDS
+    
+    # 디버깅: 첫 번째 상품의 구조 확인
+    if details:
+        logger.info(f"첫 번째 상품 구조: {list(details[0].keys())}")
+        logger.info(f"첫 번째 상품 데이터: {details[0]}")
+    
+    cand_names = [f"{r.get('kok_product_name','')} {r.get('kok_store_name','')}" for r in details]
+    
+    # 디버깅: 생성된 상품명들 확인
+    logger.info(f"생성된 상품명들 (처음 5개): {cand_names[:5]}")
+    
+    tails = set(_dynamic_tail_terms(prod_name, cand_names, stopwords))
+    logger.info(f"동적 tail 토큰: {tails}")
+
+    out = []
+    for i, r in enumerate(details):
+        name = f"{r.get('kok_product_name','')} {r.get('kok_store_name','')}"
+        toks = set(tokenize_normalized(name, stopwords))
+        tail_hits = len(tails & toks)
+        ngram_hits = _ngram_overlap_count(prod_name, name, n=2)  # NGRAM_N = 2
+        
+        # 디버깅: 처음 5개 상품의 필터링 과정
+        if i < 5:
+            logger.info(f"상품 {i+1}: '{name}' -> tail_hits={tail_hits}, ngram_hits={ngram_hits}")
+            logger.info(f"  토큰: {toks}")
+            logger.info(f"  tail 토큰: {tails}")
+        
+        if tail_hits >= 1 and ngram_hits >= 1:
+            out.append(r)
+    
+    logger.info(f"필터링 결과: {len(out)}개 상품 통과 (전체: {len(details)}개)")
+    return out
+
+def filter_tail_and_ngram_or(details: list, prod_name: str) -> list:
+    """
+    OR 조건:
+      - tail 토큰 일치 ≥ 1 OR n-gram 겹침 ≥ 1 (기본 bi-gram)
+    들어온 순서를 보존(이미 정렬되어 있다고 가정).
+    """
+    if not details:
+        return []
+    
+    stopwords = DEFAULT_STOPWORDS
+    cand_names = [f"{r.get('kok_product_name','')} {r.get('kok_store_name','')}" for r in details]
+    tails = set(_dynamic_tail_terms(prod_name, cand_names, stopwords))
+
+    out = []
+    for r in details:
+        name = f"{r.get('kok_product_name','')} {r.get('kok_store_name','')}"
+        toks = set(tokenize_normalized(name, stopwords))
+        tail_hits = len(tails & toks)
+        ngram_hits = _ngram_overlap_count(prod_name, name, n=2)  # NGRAM_N = 2
+        if tail_hits >= 1 or ngram_hits >= 1:  # OR 조건으로 변경
+            out.append(r)
+    return out
