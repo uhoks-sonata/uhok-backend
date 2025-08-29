@@ -8,9 +8,16 @@
 
 from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, Path, Body
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional
+from typing import List, Optional, Dict, Set, Any
 import pandas as pd
 import time
+import re
+import os
+import yaml
+from collections import Counter
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from common.dependencies import get_current_user
 from common.database.mariadb_service import get_maria_service_db
@@ -57,6 +64,382 @@ combination_tracker = CombinationTracker()
 logger = get_logger("recipe_router")
 router = APIRouter(prefix="/api/recipes", tags=["Recipe"])
 
+# ============================================================================
+# KOK 홈쇼핑 추천 로직 (kok_homeshopping.py에서 이식)
+# ============================================================================
+
+# -------------------- 동적 파라미터 --------------------
+def _env_int(key: str, default: int) -> int:
+    try:
+        return int(os.getenv(key, str(default)))
+    except Exception:
+        return default
+
+# LIKE 검색/키워드 확장 파라미터(외부에서도 import해 사용)
+DYN_MAX_TERMS   = _env_int("DYN_MAX_TERMS", 32)
+DYN_MAX_EXTRAS  = _env_int("DYN_MAX_EXTRAS", 20)
+DYN_SAMPLE_ROWS = _env_int("DYN_SAMPLE_ROWS", 4000)
+
+# Tail / n-gram 필터 동작 파라미터
+TAIL_MAX_DF_RATIO = float(os.getenv("TAIL_MAX_DF_RATIO", "0.35"))  # 희소 토큰 판정 기준(문서비율 ≤ 0.35)
+TAIL_MAX_TERMS    = _env_int("TAIL_MAX_TERMS", 3)                   # tail 후보로 쓸 최대 토큰 수
+NGRAM_N           = _env_int("NGRAM_N", 2)                          # bi-gram 기본
+
+# n-gram 생성 범위
+DYN_NGRAM_MIN  = _env_int("DYN_NGRAM_MIN", 2)
+DYN_NGRAM_MAX  = max(DYN_NGRAM_MIN, _env_int("DYN_NGRAM_MAX", 4))
+
+# (참고용) 선택 규칙/카운트 범위가 필요하면 여기에 추가해 사용
+DYN_COUNT_MIN  = _env_int("DYN_COUNT_MIN", 3)
+DYN_COUNT_MAX  = _env_int("DYN_COUNT_MAX", 30000)
+
+# -------------------- 사전/패턴 --------------------
+DEFAULT_STOPWORDS: Set[str] = set("""
+세트 선물세트 모음 모음전 구성 증정 행사 정품 정기 무료 특가 사은품 선물 혼합 혼합세트 묶음 총 택
+옵션 국내산 수입산 무료배송 당일 당일발송 예약 신상 히트 인기 추천 기획 기획세트 명품 프리미엄 리미티드
+한정 본품 리뉴얼 정가 정상가 행사상품 대용량 소용량 박스 리필 업소용 가정용 편의점 오리지널 리얼 신제품 공식 단독
+정기구독 구독 사은 혜택 특전 한정판 고당도 산지 당일 당일직송 직송 손질 세척 냉동 냉장 생물 해동 숙성
+팩 봉 포 개 입 병 캔 스틱 정 포기 세트구성 골라담기 택1 택일 실속 못난이 파우치 슬라이스 인분 종
+""".split())
+
+DEFAULT_ROOT_HINTS = [
+    "육수","다시","사골","곰탕","장국","티백","멸치","황태","디포리","가쓰오","가다랭이",
+    "주꾸미","쭈꾸미","오징어","한치","문어","낙지","새우","꽃게","홍게","대게","게",
+    "김치","포기김치","열무김치","갓김치","동치미","만두","교자","왕교자","라면","우동","국수","칼국수","냉면",
+    "사리","메밀","막국수","어묵","오뎅","두부","순두부","유부","우유","치즈","요거트","버터",
+    "닭","닭가슴살","닭다리","닭안심","돼지","돼지고기","삼겹살","목살","소고기","한우","양지","사태","갈비","차돌",
+    "식용유","참기름","들기름","설탕","소금","고추장","된장","간장","쌈장","고춧가루","카레","짜장","분말",
+    "명란","명란젓","젓갈","어란","창란","창란젓","오징어젓","낙지젓",
+]
+DEFAULT_STRONG_NGRAMS = ["사골곰탕","포기김치","왕교자","어묵탕","갈비탕","육개장","사골국물","황태채","국물티백"]
+DEFAULT_VARIANTS = {
+    "주꾸미": ["쭈꾸미"],
+    "가쓰오": ["가츠오","가쓰오부시","가츠오부시"],
+    "명태":   ["북어"],
+    "어묵":   ["오뎅"],
+    "백명란": ["명란","명란젓"],
+}
+
+_MEAS1   = re.compile(r"\d+(?:\.\d+)?\s*(?:g|kg|ml|l|L)?\s*(?:[xX×＊*]\s*\d+)?", re.I)
+_MEAS2   = re.compile(r"\b\d+[a-zA-Z]+\b")
+_ONLYNUM = re.compile(r"\b\d+\b")
+_HANGUL_ONLY = re.compile(r"^[가-힣]{2,}$")
+
+def _load_yaml(path: str) -> dict:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+
+def load_domain_dicts() -> Dict:
+    """CATEGORY_DICT_PATH/KEYWORDS_DICT_PATH가 있으면 결합하여 로딩."""
+    cat_path = os.getenv("CATEGORY_DICT_PATH", "").strip()
+    key_path = os.getenv("KEYWORDS_DICT_PATH", "").strip()
+
+    roots = set(DEFAULT_ROOT_HINTS)
+    strong = set(DEFAULT_STRONG_NGRAMS)
+    variants = {k:list(v) for k,v in DEFAULT_VARIANTS.items()}
+    stopwords = set(DEFAULT_STOPWORDS)
+
+    if cat_path and os.path.exists(cat_path):
+        cat = _load_yaml(cat_path)
+        for _, rule in (cat.get("categories") or {}).items():
+            detect = rule.get("detect") or rule.get("match") or []
+            like   = rule.get("candidate_like") or rule.get("like_extra") or []
+            excl   = rule.get("exclude") or []
+            roots.update(detect); roots.update(like); stopwords.update(excl)
+
+    if key_path and os.path.exists(key_path):
+        kd = _load_yaml(key_path)
+        roots.update(kd.get("roots", []) or [])
+        strong.update(kd.get("strong_ngrams", []) or [])
+        stopwords.update(kd.get("stopwords", []) or [])
+        for k, arr in (kd.get("variants") or {}).items():
+            vs = variants.get(k, [])
+            for v in arr or []:
+                if v not in vs: vs.append(v)
+            variants[k] = vs
+
+    return {
+        "roots": sorted(roots, key=len, reverse=True),
+        "strong_ngrams": sorted(strong, key=len, reverse=True),
+        "variants": variants,
+        "stopwords": stopwords,
+    }
+
+# -------------------- 전처리/토큰화 --------------------
+def normalize_name(name: str) -> str:
+    if not isinstance(name, str):
+        return ""
+    s = re.sub(r"\[[^\]]*\]", " ", name)
+    s = re.sub(r"\([^)]*\)", " ", s)
+    s = _MEAS1.sub(" ", s); s = _MEAS2.sub(" ", s); s = _ONLYNUM.sub(" ", s)
+    s = re.sub(r"[^\w가-힣]+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+def tokenize_normalized(text: str, stopwords: Set[str]) -> List[str]:
+    s = normalize_name(text)
+    return [t for t in s.split() if len(t) >= 2 and not t.isnumeric() and t not in stopwords]
+
+def _split_by_roots(token: str, roots: List[str]) -> List[str]:
+    return [r for r in roots if r and r in token and token != r]
+
+def _expand_variants(core: List[str], variants: Dict[str, List[str]]) -> List[str]:
+    out: List[str] = []
+    seen = set()
+    for k in core:
+        if k not in seen:
+            out.append(k); seen.add(k)
+        for v in variants.get(k, []):
+            if v not in seen:
+                out.append(v); seen.add(v)
+    return out
+
+# -------------------- 핵심/루트/테일 키워드 --------------------
+def extract_core_keywords(prod_name: str, max_n: int = 3) -> List[str]:
+    d = load_domain_dicts()
+    roots, strong, variants, stop = d["roots"], d["strong_ngrams"], d["variants"], d["stopwords"]
+
+    s = normalize_name(prod_name)
+    found_ng = [ng for ng in strong if ng and ng in s]
+    raw_toks = tokenize_normalized(s, stop)
+
+    expanded: List[str] = []
+    for t in raw_toks:
+        expanded.extend(_split_by_roots(t, roots))
+        expanded.append(t)
+
+    ordered: List[str] = []
+    for ng in found_ng:
+        if ng not in ordered: ordered.append(ng)
+        for r in _split_by_roots(ng, roots):
+            if r not in ordered: ordered.append(r)
+    for t in expanded:
+        if t not in ordered: ordered.append(t)
+
+    core = ordered[:max_n]
+    return _expand_variants(core, variants)[:max_n]
+
+def roots_in_name(prod_name: str) -> List[str]:
+    d = load_domain_dicts()
+    s = normalize_name(prod_name)
+    hits = [r for r in d["roots"] if len(r) >= 2 and (r in s) and (r not in d["stopwords"])]
+    # 중복 제거 순서 보존
+    out = []
+    seen = set()
+    for h in hits:
+        if h not in seen:
+            out.append(h); seen.add(h)
+    return out[:5]
+
+def extract_tail_keywords(prod_name: str, max_n: int = 2) -> List[str]:
+    """뒤쪽 핵심 키워드 중심으로(희소성/변형 고려는 가볍게) 추출."""
+    d = load_domain_dicts()
+    stop, variants, roots = d["stopwords"], d["variants"], d["roots"]
+    s = normalize_name(prod_name)
+    toks = [t for t in s.split() if len(t) >= 2 and not t.isnumeric() and t not in stop and not re.search(r"\d", t)]
+
+    tail_base: List[str] = []
+    for t in reversed(toks):
+        if t not in tail_base:
+            tail_base.append(t)
+        if len(tail_base) >= max_n:
+            break
+    tail_base.reverse()
+
+    expanded = list(tail_base)
+    for t in tail_base:
+        for v in variants.get(t, []):
+            if v not in expanded:
+                expanded.append(v)
+    for t in tail_base:
+        for r in _split_by_roots(t, roots):
+            if r not in expanded:
+                expanded.append(r)
+    return expanded
+
+# -------------------- 동적 n-gram --------------------
+def _char_ngrams_windowed(token: str, nmin: int, nmax: int) -> List[str]:
+    out = []
+    L = len(token)
+    for n in range(nmin, min(nmax, L) + 1):
+        for i in range(0, L - n + 1):
+            out.append(token[i:i+n])
+    return out
+
+def infer_terms_from_name_via_ngrams(prod_name: str, max_terms: int = DYN_MAX_TERMS) -> List[str]:
+    d = load_domain_dicts()
+    stop = d["stopwords"]
+
+    toks = tokenize_normalized(prod_name, stop)
+    toks = [t for t in toks if _HANGUL_ONLY.fullmatch(t)]
+
+    cand = []
+    for t in toks:
+        cand.extend(_char_ngrams_windowed(t, DYN_NGRAM_MIN, DYN_NGRAM_MAX))
+    cand.extend([t for t in toks if len(t) >= DYN_NGRAM_MIN])
+
+    cand = [c for c in cand if _HANGUL_ONLY.fullmatch(c) and c not in stop]
+    cand = list(dict.fromkeys(cand))[:max_terms]
+    return cand
+
+# -------------------- tail + n-gram AND 필터 --------------------
+def _char_ngrams_raw(s: str, n: int = 2) -> Set[str]:
+    s2 = normalize_name(s).replace(" ", "")
+    if len(s2) < n:
+        return set()
+    return {s2[i:i+n] for i in range(len(s2)-n+1)}
+
+def _ngram_overlap_count(a: str, b: str, n: int = 2) -> int:
+    return len(_char_ngrams_raw(a, n) & _char_ngrams_raw(b, n))
+
+def _dynamic_tail_terms(query_name: str, candidate_names: List[str], stopwords: Set[str]) -> List[str]:
+    """후보 집합에서 희소한 쿼리 토큰만 tail로 선정."""
+    q_toks = set(tokenize_normalized(query_name, stopwords))
+    if not q_toks or not candidate_names:
+        return list(q_toks)[:1]  # 폴백
+
+    df = Counter()
+    for name in candidate_names:
+        df.update(set(tokenize_normalized(name, stopwords)))
+
+    total_docs = max(1, len(candidate_names))
+    tail = [t for t in q_toks if (df.get(t, 0) / total_docs) <= TAIL_MAX_DF_RATIO]
+    tail.sort(key=lambda t: df.get(t, 0))  # 희소한 순
+    if not tail:
+        tail = list(q_toks)[:1]
+    return tail[:max(1, TAIL_MAX_TERMS)]
+
+def filter_tail_and_ngram_and(details: List[dict], prod_name: str) -> List[dict]:
+    """
+    AND 조건:
+      - tail 토큰 일치 ≥ 1
+      - n-gram 겹침 ≥ 1 (기본 bi-gram)
+    들어온 순서를 보존(이미 정렬되어 있다고 가정).
+    """
+    if not details:
+        return []
+    d = load_domain_dicts()
+    stop = d["stopwords"]
+
+    cand_names = [f"{r.get('KOK_PRODUCT_NAME','')} {r.get('KOK_STORE_NAME','')}" for r in details]
+    tails = set(_dynamic_tail_terms(prod_name, cand_names, stop))
+
+    out = []
+    for r in details:
+        name = f"{r.get('KOK_PRODUCT_NAME','')} {r.get('KOK_STORE_NAME','')}"
+        toks = set(tokenize_normalized(name, stop))
+        tail_hits = len(tails & toks)
+        ngram_hits = _ngram_overlap_count(prod_name, name, n=NGRAM_N)
+        if tail_hits >= 1 and ngram_hits >= 1:
+            out.append(r)
+    return out
+
+# -------------------- 마지막 의미 토큰 추출 --------------------
+def last_meaningful_token(text: str) -> str:
+    """
+    정규화 + stopwords 기반 토크나이즈 후,
+    포장/수량성 토큰(종, 세트, 팩 등)은 건너뛰고 마지막 의미 토큰을 반환.
+    """
+    d = load_domain_dicts()
+    stop = d["stopwords"]
+    toks = tokenize_normalized(text, stop)
+
+    # 마지막 위치에서부터 의미 토큰만 선택
+    SKIP_LAST = {
+        "종", "세트", "세트구성", "박스", "구성", "혼합", "모음", "모음전", "구독",
+        "택", "택일", "포기", "인분",
+        "팩", "봉", "포", "입", "병", "캔", "스틱", "정",
+        "대용량", "소용량"
+    }
+    for t in reversed(toks):
+        if t not in SKIP_LAST:
+            return t
+    return ""  # 전부 스킵되면 빈 문자열 반환
+
+# -------------------- 추천 전략 --------------------
+def recommend_by_last_word(kok_product_name: str, k: int = 5) -> List[str]:
+    """마지막 의미 토큰 기반 추천"""
+    last = last_meaningful_token(kok_product_name)
+    if not last:
+        return []
+    
+    # 마지막 토큰이 포함된 검색어 반환
+    return [last]
+
+def recommend_by_core_keywords(kok_product_name: str, k: int = 5) -> List[str]:
+    """핵심 키워드 기반 추천"""
+    core_keywords = extract_core_keywords(kok_product_name, max_n=k)
+    return core_keywords
+
+def recommend_by_tail_keywords(kok_product_name: str, k: int = 5) -> List[str]:
+    """Tail 키워드 기반 추천"""
+    tail_keywords = extract_tail_keywords(kok_product_name, max_n=k)
+    return tail_keywords
+
+def get_recommendation_strategy(kok_product_name: str, k: int = 5) -> Dict[str, Any]:
+    """추천 전략 선택 및 실행"""
+    if not kok_product_name:
+        return {
+            "algorithm": "none",
+            "status": "failed",
+            "search_terms": [],
+            "message": "상품명이 없습니다."
+        }
+    
+    # 1. 마지막 의미 토큰 전략
+    last_word_results = recommend_by_last_word(kok_product_name, k)
+    if last_word_results:
+        return {
+            "algorithm": "last_meaningful_token",
+            "status": "success",
+            "search_terms": last_word_results,
+            "message": "마지막 의미 토큰 기반 추천"
+        }
+    
+    # 2. 핵심 키워드 전략
+    core_results = recommend_by_core_keywords(kok_product_name, k)
+    if core_results:
+        return {
+            "algorithm": "core_keywords",
+            "status": "success",
+            "search_terms": core_results,
+            "message": "핵심 키워드 기반 추천"
+        }
+    
+    # 3. Tail 키워드 전략
+    tail_results = recommend_by_tail_keywords(kok_product_name, k)
+    if tail_results:
+        return {
+            "algorithm": "tail_keywords",
+            "status": "success",
+            "search_terms": tail_results,
+            "message": "Tail 키워드 기반 추천"
+        }
+    
+    # 4. 폴백: 상품명의 일부 사용
+    normalized = normalize_name(kok_product_name)
+    tokens = tokenize_normalized(normalized, DEFAULT_STOPWORDS)
+    if tokens:
+        return {
+            "algorithm": "fallback_tokens",
+            "status": "success",
+            "search_terms": tokens[:k],
+            "message": "폴백 토큰 기반 추천"
+        }
+    
+    return {
+        "algorithm": "none",
+        "status": "failed",
+        "search_terms": [],
+        "message": "적절한 추천 전략을 찾을 수 없습니다."
+    }
+
+# ============================================================================
+# 1. 재료 기반 레시피 추천 API
+# ============================================================================
 @router.get("/by-ingredients", response_model=RecipeByIngredientsListResponse)
 async def by_ingredients(
     ingredient: List[str] = Query(..., min_length=3, description="식재료 리스트 (최소 3개)"),
@@ -164,13 +547,9 @@ async def by_ingredients(
         "has_more_combinations": combination_number < 3
     }
 
-
-
-
-
-
-
-
+# ============================================================================
+# 2. 레시피 검색 API
+# ============================================================================
 @router.get("/search")
 async def search_recipe(
     recipe: str = Query(..., description="레시피명 또는 식재료 키워드"),
@@ -246,6 +625,228 @@ async def search_recipe(
         "total": total_approx,
     }
 
+# ============================================================================
+# 3. 레시피 상세 정보 API
+# ============================================================================
+@router.get("/{recipe_id}", response_model=RecipeDetailResponse)
+async def get_recipe(
+        current_user = Depends(get_current_user),
+        recipe_id: int = Path(..., description="레시피 ID"),
+        background_tasks: BackgroundTasks = None,
+        db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    레시피 상세 정보 + 재료 리스트 + 만개의레시피 url 조회
+    """
+    logger.info(f"레시피 상세 조회 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}")
+    result = await get_recipe_detail(db, recipe_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="레시피가 존재하지 않습니다.")
+    
+    # 레시피 상세 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="recipe_detail_view", 
+            event_data={
+                "recipe_id": recipe_id,
+                "recipe_name": result.get("cooking_name") or result.get("recipe_title")
+            }
+        )
+    
+    return result
+
+# ============================================================================
+# 4. 레시피 URL API
+# ============================================================================
+@router.get("/{recipe_id}/url", response_model=RecipeUrlResponse)
+async def get_recipe_url_api(
+    current_user = Depends(get_current_user),
+    recipe_id: int = Path(..., description="레시피 ID"),
+    background_tasks: BackgroundTasks = None
+):
+    """
+    만개의 레시피 URL 동적 생성하여 반환
+    """
+    logger.info(f"만개의 레시피 URL 조회 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}")
+    url = get_recipe_url(recipe_id)
+    
+    # 레시피 URL 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="recipe_url_view", 
+            event_data={"recipe_id": recipe_id}
+        )
+    
+    return {"url": url}
+
+# ============================================================================
+# 5. 레시피 별점 조회 API
+# ============================================================================
+@router.get("/{recipe_id}/rating", response_model=RecipeRatingResponse)
+async def get_rating(
+        current_user: UserOut = Depends(get_current_user),
+        recipe_id: int = Path(..., description="레시피 ID"),
+        background_tasks: BackgroundTasks = None,
+        db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    레시피 별점 평균 조회
+    """
+    logger.info(f"레시피 별점 조회 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}")
+    rating = await get_recipe_rating(db, recipe_id)
+    
+    # 레시피 별점 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="recipe_rating_view", 
+            event_data={"recipe_id": recipe_id, "rating": rating}
+        )
+    
+    return {"recipe_id": recipe_id, "rating": rating}
+
+# ============================================================================
+# 6. 레시피 별점 등록 API
+# ============================================================================
+@router.post("/{recipe_id}/rating", response_model=RecipeRatingResponse)
+async def post_rating(
+        current_user: UserOut = Depends(get_current_user),
+        recipe_id: int = Path(..., description="레시피 ID"),
+        req: RecipeRatingCreate = Body(...),
+        db: AsyncSession = Depends(get_maria_service_db),
+        background_tasks: BackgroundTasks = None
+):
+    """
+    레시피 별점 등록 (0~5 정수만 허용)
+    """
+    logger.info(f"레시피 별점 등록 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}, rating={req.rating}")
+    
+    try:
+        # 실제 서비스에서는 user_id를 인증에서 추출
+        rating = await set_recipe_rating(db, recipe_id, user_id=current_user.user_id, rating=int(req.rating))
+        
+        # 트랜잭션 커밋
+        await db.commit()
+        
+        # 레시피 별점 등록 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="recipe_rating_create", 
+                event_data={
+                    "recipe_id": recipe_id,
+                    "rating": int(req.rating)
+                }
+            )
+        
+        logger.info(f"레시피 별점 등록 완료: recipe_id={recipe_id}, rating={rating}")
+        return {"recipe_id": recipe_id, "rating": rating}
+        
+    except Exception as e:
+        # 트랜잭션 롤백
+        await db.rollback()
+        logger.error(f"레시피 별점 등록 실패: recipe_id={recipe_id}, user_id={current_user.user_id}, error={e}")
+        raise HTTPException(status_code=500, detail="레시피 별점 등록 중 오류가 발생했습니다.")
+
+# ============================================================================
+# 7. 레시피 식재료 상태 API
+# ============================================================================
+@router.get("/{recipe_id}/status", response_model=RecipeIngredientStatusResponse)
+async def get_recipe_ingredients_status_handler(
+    recipe_id: int = Path(..., description="레시피 ID"),
+    current_user: UserOut = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    레시피 상세페이지에서 사용자의 식재료 보유/장바구니/미보유 상태 조회
+    
+    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+    비즈니스 로직은 CRUD 계층에 위임
+    """
+    logger.info(f"레시피 식재료 상태 조회 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}")
+    
+    # CRUD 계층에 식재료 상태 조회 위임
+    result = await get_recipe_ingredients_status(db, current_user.user_id, recipe_id)
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="레시피를 찾을 수 없거나 식재료 정보가 없습니다.")
+    
+    # 레시피 식재료 상태 조회 로그 기록
+    if background_tasks:
+        background_tasks.add_task(
+            send_user_log, 
+            user_id=current_user.user_id, 
+            event_type="recipe_ingredients_status_view", 
+            event_data={
+                "recipe_id": recipe_id,
+                "total_ingredients": result["summary"]["total_ingredients"],
+                "owned_count": result["summary"]["owned_count"],
+                "cart_count": result["summary"]["cart_count"],
+                "not_owned_count": result["summary"]["not_owned_count"]
+            }
+        )
+    
+    return RecipeIngredientStatusResponse(**result)
+
+# ============================================================================
+# 8. 식재료 상품 추천 API
+# ============================================================================
+@router.get("/{ingredient}/product-recommend", response_model=ProductRecommendResponse)
+async def get_ingredient_product_recommendations(
+    ingredient: str = Path(..., description="추천받을 식재료명"),
+    current_user: UserOut = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_maria_service_db)
+):
+    """
+    특정 식재료에 대한 콕 상품과 홈쇼핑 상품 추천
+    
+    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
+    비즈니스 로직은 product_recommend 모듈에 위임
+    """
+    logger.info(f"식재료 상품 추천 API 호출: user_id={current_user.user_id}, ingredient={ingredient}")
+    
+    try:
+        # 상품 추천 로직 실행 (SQLAlchemy 세션 사용)
+        recommendations = await recommend_for_ingredient(db, ingredient, max_total=5, max_home=2)
+        
+        # 상품 추천 로그 기록
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log, 
+                user_id=current_user.user_id, 
+                event_type="ingredient_product_recommend", 
+                event_data={
+                    "ingredient": ingredient,
+                    "recommendation_count": len(recommendations)
+                }
+            )
+        
+        logger.info(f"식재료 상품 추천 완료: ingredient={ingredient}, 추천 상품 수={len(recommendations)}")
+        
+        return ProductRecommendResponse(
+            ingredient=ingredient,
+            recommendations=recommendations,
+            total_count=len(recommendations)
+        )
+        
+    except Exception as e:
+        logger.error(f"식재료 상품 추천 실패: ingredient={ingredient}, user_id={current_user.user_id}, error={e}")
+        raise HTTPException(
+            status_code=500, 
+            detail="상품 추천 중 오류가 발생했습니다."
+        )
+
+# ============================================================================
+# 주석 처리된 기존 API들 (참고용)
+# ============================================================================
 
 # @router.get("/kok")
 # async def get_kok_products(
@@ -317,214 +918,6 @@ async def search_recipe(
 #             status_code=500, 
 #             detail="홈쇼핑 상품 검색 중 오류가 발생했습니다."
 #         )
-
-
-@router.get("/{recipe_id}", response_model=RecipeDetailResponse)
-async def get_recipe(
-        current_user = Depends(get_current_user),
-        recipe_id: int = Path(..., description="레시피 ID"),
-        background_tasks: BackgroundTasks = None,
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    레시피 상세 정보 + 재료 리스트 + 만개의레시피 url 조회
-    """
-    logger.info(f"레시피 상세 조회 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}")
-    result = await get_recipe_detail(db, recipe_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="레시피가 존재하지 않습니다.")
-    
-    # 레시피 상세 조회 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="recipe_detail_view", 
-            event_data={
-                "recipe_id": recipe_id,
-                "recipe_name": result.get("cooking_name") or result.get("recipe_title")
-            }
-        )
-    
-    return result
-
-
-@router.get("/{recipe_id}/url", response_model=RecipeUrlResponse)
-async def get_recipe_url_api(
-    current_user = Depends(get_current_user),
-    recipe_id: int = Path(..., description="레시피 ID"),
-    background_tasks: BackgroundTasks = None
-):
-    """
-    만개의 레시피 URL 동적 생성하여 반환
-    """
-    logger.info(f"만개의 레시피 URL 조회 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}")
-    url = get_recipe_url(recipe_id)
-    
-    # 레시피 URL 조회 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="recipe_url_view", 
-            event_data={"recipe_id": recipe_id}
-        )
-    
-    return {"url": url}
-
-# 라우터 함수: 이름을 handler로 변경
-@router.get("/{recipe_id}/status", response_model=RecipeIngredientStatusResponse)
-async def get_recipe_ingredients_status_handler(
-    recipe_id: int = Path(..., description="레시피 ID"),
-    current_user: UserOut = Depends(get_current_user),
-    background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    레시피 상세페이지에서 사용자의 식재료 보유/장바구니/미보유 상태 조회
-    
-    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
-    비즈니스 로직은 CRUD 계층에 위임
-    """
-    logger.info(f"레시피 식재료 상태 조회 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}")
-    
-    # CRUD 계층에 식재료 상태 조회 위임
-    result = await get_recipe_ingredients_status(db, current_user.user_id, recipe_id)
-    
-    if not result:
-        raise HTTPException(status_code=404, detail="레시피를 찾을 수 없거나 식재료 정보가 없습니다.")
-    
-    # 레시피 식재료 상태 조회 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="recipe_ingredients_status_view", 
-            event_data={
-                "recipe_id": recipe_id,
-                "total_ingredients": result["summary"]["total_ingredients"],
-                "owned_count": result["summary"]["owned_count"],
-                "cart_count": result["summary"]["cart_count"],
-                "not_owned_count": result["summary"]["not_owned_count"]
-            }
-        )
-    
-    return RecipeIngredientStatusResponse(**result)
-
-
-@router.get("/{ingredient}/product-recommend", response_model=ProductRecommendResponse)
-async def get_ingredient_product_recommendations(
-    ingredient: str = Path(..., description="추천받을 식재료명"),
-    current_user: UserOut = Depends(get_current_user),
-    background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    특정 식재료에 대한 콕 상품과 홈쇼핑 상품 추천
-    
-    Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
-    비즈니스 로직은 product_recommend 모듈에 위임
-    """
-    logger.info(f"식재료 상품 추천 API 호출: user_id={current_user.user_id}, ingredient={ingredient}")
-    
-    try:
-        # 상품 추천 로직 실행 (SQLAlchemy 세션 사용)
-        recommendations = await recommend_for_ingredient(db, ingredient, max_total=5, max_home=2)
-        
-        # 상품 추천 로그 기록
-        if background_tasks:
-            background_tasks.add_task(
-                send_user_log, 
-                user_id=current_user.user_id, 
-                event_type="ingredient_product_recommend", 
-                event_data={
-                    "ingredient": ingredient,
-                    "recommendation_count": len(recommendations)
-                }
-            )
-        
-        logger.info(f"식재료 상품 추천 완료: ingredient={ingredient}, 추천 상품 수={len(recommendations)}")
-        
-        return ProductRecommendResponse(
-            ingredient=ingredient,
-            recommendations=recommendations,
-            total_count=len(recommendations)
-        )
-        
-    except Exception as e:
-        logger.error(f"식재료 상품 추천 실패: ingredient={ingredient}, user_id={current_user.user_id}, error={e}")
-        raise HTTPException(
-            status_code=500, 
-            detail="상품 추천 중 오류가 발생했습니다."
-        )
-
-
-@router.get("/{recipe_id}/rating", response_model=RecipeRatingResponse)
-async def get_rating(
-        current_user: UserOut = Depends(get_current_user),
-        recipe_id: int = Path(..., description="레시피 ID"),
-        background_tasks: BackgroundTasks = None,
-        db: AsyncSession = Depends(get_maria_service_db)
-):
-    """
-    레시피 별점 평균 조회
-    """
-    logger.info(f"레시피 별점 조회 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}")
-    rating = await get_recipe_rating(db, recipe_id)
-    
-    # 레시피 별점 조회 로그 기록
-    if background_tasks:
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=current_user.user_id, 
-            event_type="recipe_rating_view", 
-            event_data={"recipe_id": recipe_id, "rating": rating}
-        )
-    
-    return {"recipe_id": recipe_id, "rating": rating}
-
-
-@router.post("/{recipe_id}/rating", response_model=RecipeRatingResponse)
-async def post_rating(
-        current_user: UserOut = Depends(get_current_user),
-        recipe_id: int = Path(..., description="레시피 ID"),
-        req: RecipeRatingCreate = Body(...),
-        db: AsyncSession = Depends(get_maria_service_db),
-        background_tasks: BackgroundTasks = None
-):
-    """
-    레시피 별점 등록 (0~5 정수만 허용)
-    """
-    logger.info(f"레시피 별점 등록 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}, rating={req.rating}")
-    
-    try:
-        # 실제 서비스에서는 user_id를 인증에서 추출
-        rating = await set_recipe_rating(db, recipe_id, user_id=current_user.user_id, rating=int(req.rating))
-        
-        # 트랜잭션 커밋
-        await db.commit()
-        
-        # 레시피 별점 등록 로그 기록
-        if background_tasks:
-            background_tasks.add_task(
-                send_user_log, 
-                user_id=current_user.user_id, 
-                event_type="recipe_rating_create", 
-                event_data={
-                    "recipe_id": recipe_id,
-                    "rating": int(req.rating)
-                }
-            )
-        
-        logger.info(f"레시피 별점 등록 완료: recipe_id={recipe_id}, rating={rating}")
-        return {"recipe_id": recipe_id, "rating": rating}
-        
-    except Exception as e:
-        # 트랜잭션 롤백
-        await db.rollback()
-        logger.error(f"레시피 별점 등록 실패: recipe_id={recipe_id}, user_id={current_user.user_id}, error={e}")
-        raise HTTPException(status_code=500, detail="레시피 별점 등록 중 오류가 발생했습니다.")
-
 
 ###########################################################
 # @router.get("/{recipe_id}/comments", response_model=RecipeCommentListResponse)

@@ -9,8 +9,7 @@ from typing import Dict, List, Set, Any
 from dotenv import load_dotenv
 load_dotenv()
 
-# 공통 키워드 추출 함수 import
-from common.keyword_extraction import extract_core_keywords, extract_tail_keywords
+# 공통 키워드 추출 함수는 이 파일 내에서 직접 정의하여 사용
 
 # -------------------- 기본 설정값 --------------------
 DEFAULT_STOPWORDS: Set[str] = set("""
@@ -81,12 +80,37 @@ def _expand_variants(core: List[str], variants: Dict[str, List[str]]) -> List[st
     return out
 
 # -------------------- 핵심/루트/테일 키워드 --------------------
-# extract_core_keywords와 extract_tail_keywords는 common.keyword_extraction에서 import하여 사용
+def extract_core_keywords(prod_name: str, max_n: int = 3) -> List[str]:
+    """핵심 키워드 추출"""
+    roots = DEFAULT_ROOT_HINTS
+    strong = DEFAULT_STRONG_NGRAMS
+    variants = DEFAULT_VARIANTS
+    stop = DEFAULT_STOPWORDS
+
+    s = normalize_name(prod_name)
+    found_ng = [ng for ng in strong if ng and ng in s]
+    raw_toks = tokenize_normalized(s, stop)
+
+    expanded: List[str] = []
+    for t in raw_toks:
+        expanded.extend(_split_by_roots(t, roots))
+        expanded.append(t)
+
+    ordered: List[str] = []
+    for ng in found_ng:
+        if ng not in ordered: ordered.append(ng)
+        for r in _split_by_roots(ng, roots):
+            if r not in ordered: ordered.append(r)
+    for t in expanded:
+        if t not in ordered: ordered.append(t)
+
+    core = ordered[:max_n]
+    return _expand_variants(core, variants)[:max_n]
 
 def roots_in_name(prod_name: str) -> List[str]:
-    d = load_domain_dicts()
+    """상품명에서 루트 힌트 찾기"""
     s = normalize_name(prod_name)
-    hits = [r for r in d["roots"] if len(r) >= 2 and (r in s) and (r not in d["stopwords"])]
+    hits = [r for r in DEFAULT_ROOT_HINTS if len(r) >= 2 and (r in s) and (r not in DEFAULT_STOPWORDS)]
     # 중복 제거 순서 보존
     out = []
     seen = set()
@@ -95,7 +119,32 @@ def roots_in_name(prod_name: str) -> List[str]:
             out.append(h); seen.add(h)
     return out[:5]
 
-# extract_tail_keywords는 common.keyword_extraction에서 import하여 사용
+def extract_tail_keywords(prod_name: str, max_n: int = 2) -> List[str]:
+    """뒤쪽 핵심 키워드 중심으로 추출"""
+    stop, variants, roots = DEFAULT_STOPWORDS, DEFAULT_VARIANTS, DEFAULT_ROOT_HINTS
+    s = normalize_name(prod_name)
+    toks = [t for t in s.split() if len(t) >= 2 and not t.isnumeric() and t not in stop and not re.search(r"\d", t)]
+
+    tail_base: List[str] = []
+    for t in reversed(toks):
+        if t not in tail_base:
+            tail_base.append(t)
+        if len(tail_base) >= max_n:
+            break
+    tail_base.reverse()
+
+    expanded = list(tail_base)
+    for t in tail_base:
+        for v in variants.get(t, []):
+            if v not in expanded:
+                expanded.append(v)
+    for t in tail_base:
+        for r in _split_by_roots(t, roots):
+            if r not in expanded:
+                expanded.append(r)
+    return expanded
+
+# extract_tail_keywords는 이제 이 파일 내에서 직접 정의하여 사용
 
 def last_meaningful_token(text: str) -> str:
     """정규화 + stopwords 기반 토크나이즈 후, 포장/수량성 토큰은 건너뛰고 마지막 의미 토큰을 반환"""

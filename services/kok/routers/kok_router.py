@@ -68,6 +68,15 @@ from services.homeshopping.crud.homeshopping_crud import (
     get_homeshopping_recommendations_by_kok, 
     get_homeshopping_recommendations_fallback
 )
+from services.kok.utils.kok_homeshopping import (
+    get_recommendation_strategy,
+    recommend_by_last_word,
+    recommend_by_core_keywords,
+    recommend_by_tail_keywords,
+    last_meaningful_token,
+    normalize_name,
+    tokenize_normalized
+)
 from services.kok.crud.kok_crud import (
     # 제품 관련 CRUD
     get_kok_product_info,
@@ -874,8 +883,8 @@ async def recommend_recipes_from_cart_items(
 # 홈쇼핑 추천 API (KOK utils 사용)
 # ================================
 
-@router.get("/product/homeshopping-recommendations")
-async def get_homeshopping_recommendations(
+@router.get("/product/homeshopping-recommend")
+async def get_homeshopping_recommend(
     k: int = Query(5, ge=1, le=20, description="추천 상품 개수"),
     background_tasks: BackgroundTasks = None,
     current_user: UserOut = Depends(get_current_user),
@@ -917,9 +926,17 @@ async def get_homeshopping_recommendations(
                 if kok_product_name:
                     kok_product_names.append(kok_product_name)
                     # 각 상품명에서 추천 키워드 추출
-                    search_terms = get_recommendation_strategy(kok_product_name, 5) # 각 상품당 최대 5개
-                    if search_terms:
-                        all_search_terms.update(search_terms)
+                    try:
+                        recommendation_result = get_recommendation_strategy(kok_product_name, 5) # 각 상품당 최대 5개
+                        if recommendation_result and recommendation_result.get("status") == "success":
+                            search_terms = recommendation_result.get("search_terms", [])
+                            all_search_terms.update(search_terms)
+                            logger.info(f"상품 '{kok_product_name}'에서 추출된 키워드: {search_terms}")
+                        else:
+                            logger.warning(f"상품 '{kok_product_name}'에서 키워드 추출 실패: {recommendation_result}")
+                    except Exception as e:
+                        logger.error(f"상품 '{kok_product_name}' 키워드 추출 중 오류: {str(e)}")
+                        continue
             except Exception as e:
                 logger.warning(f"상품 ID {product_id} 조회 실패: {str(e)}")
                 continue
@@ -940,9 +957,15 @@ async def get_homeshopping_recommendations(
                 
             try:
                 # 각 상품명에서 추천 키워드 추출
-                search_terms = get_recommendation_strategy(product_name, 5)  # 각 상품당 최대 5개
-                if not search_terms:
+                recommendation_result = get_recommendation_strategy(product_name, 5)  # 각 상품당 최대 5개
+                if not recommendation_result or recommendation_result.get("status") != "success":
+                    logger.warning(f"상품 '{product_name}'에서 키워드 추출 실패: {recommendation_result}")
                     continue
+                search_terms = recommendation_result.get("search_terms", [])
+                if not search_terms:
+                    logger.warning(f"상품 '{product_name}'에서 추출된 키워드가 없음")
+                    continue
+                logger.info(f"상품 '{product_name}'에서 추출된 키워드: {search_terms}")
                 
                 # 검색 조건을 더 유연하게 구성
                 search_conditions = []
