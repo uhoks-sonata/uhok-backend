@@ -145,6 +145,7 @@ async def live_stream_html(
     request: Request,
     homeshopping_id: int | None = Query(None, description="홈쇼핑 ID (백엔드에서 m3u8 스트림 조회용)"),
     src: str | None = Query(None, description="직접 재생할 m3u8 URL (바로 재생용)"),
+    background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db),
 ):
     """
@@ -169,14 +170,16 @@ async def live_stream_html(
     # 선택: 사용자 로깅
     current_user = await get_current_user_optional(request)
     if current_user:
-        # 비동기 백그라운드 처리: FastAPI BackgroundTasks를 추가 파라미터로 받아 사용해도 됨
+        # 비동기 백그라운드 처리: FastAPI BackgroundTasks를 사용
         logger.info(f"[라이브 HTML] user_id={current_user.user_id}, stream={stream_url}")
-        # """사용자 로그 전송(설명) - 스트림 페이지 조회 이벤트를 비동기로 적재한다"""
-        await send_user_log(
-            user_id=current_user.user_id,
-            event_type="homeshopping_live_html_view",
-            event_data={"stream_url": stream_url, "homeshopping_id": homeshopping_id},
-        )
+        # 사용자 로그 전송을 백그라운드 태스크로 처리
+        if background_tasks:
+            background_tasks.add_task(
+                send_user_log,
+                user_id=current_user.user_id,
+                event_type="homeshopping_live_html_view",
+                event_data={"stream_url": stream_url, "homeshopping_id": homeshopping_id},
+            )
 
     # 템플릿 렌더
     return templates.TemplateResponse(
