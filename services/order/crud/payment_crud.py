@@ -344,20 +344,17 @@ async def confirm_payment_and_update_status_v2(
     if order_data.get("homeshopping_orders"):
         hs_order_id = order_data["homeshopping_orders"][0].homeshopping_order_id  # 홈쇼핑 주문은 단개
     
-    # PaymentConfirmV2Response 스키마에 맞는 응답 구성
-    from services.order.schemas.payment_schema import PaymentConfirmV2Response
-    
-    response = PaymentConfirmV2Response(
+    # v2 결제 시작 응답 구성 (v1과 동일한 구조)
+    response = PaymentConfirmV1Response(
         payment_id=f"pending_{tx_id}",  # v2에서는 아직 payment_id가 없음
         order_id=order_id,
         kok_order_ids=kok_order_ids,
         hs_order_id=hs_order_id,
-        status="PENDING",
+        status="PENDING",  # v2에서는 아직 PENDING 상태
         payment_amount=total_order_price,
         method="WEBHOOK_V2",
         confirmed_at=datetime.now(),
         order_id_internal=order_id,
-        tx_id=tx_id,
     )
     
     return response
