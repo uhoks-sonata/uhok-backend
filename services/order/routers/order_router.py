@@ -272,6 +272,7 @@ async def get_recent_orders(
                 order_date=order_date,
                 delivery_status=delivery_status,
                 delivery_date=delivery_date,
+                product_id=getattr(kok_order, "kok_product_id", 0),
                 product_name=product_name,
                 product_image=getattr(kok_order, "product_image", None),
                 price=getattr(kok_order, "order_price", 0) or 0,  # order_price 필드 사용
@@ -306,6 +307,7 @@ async def get_recent_orders(
                 order_date=order_date,
                 delivery_status=delivery_status,
                 delivery_date=delivery_date,
+                product_id=getattr(hs_order, "product_id", 0),
                 product_name=product_name,
                 product_image=getattr(hs_order, "product_image", None),
                 price=getattr(hs_order, "order_price", 0) or 0,  # order_price 필드 사용

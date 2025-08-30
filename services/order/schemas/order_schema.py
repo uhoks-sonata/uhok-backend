@@ -33,6 +33,7 @@ class RecentOrderItem(BaseModel):
     order_date: str    # 주문 날짜 (예: 2025. 7. 25)
     delivery_status: str  # 배송 상태 (예: 배송완료)
     delivery_date: str    # 도착 예정일 (예: 7/28(월) 도착)
+    product_id: int       # 상품 ID
     product_name: str     # 상품명
     product_image: Optional[str] = None  # 상품 이미지 URL
     price: int            # 가격
