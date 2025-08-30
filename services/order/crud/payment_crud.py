@@ -289,6 +289,7 @@ async def confirm_payment_and_update_status_v2(
         "user_id": user_id,
         "amount": total_order_price,
         "callback_url": callback_url,
+        "method": "WEBHOOK_V2",  # 결제 방식 정보 추가
     }
     headers = {}
     if SERVICE_AUTH_TOKEN:
@@ -368,7 +369,7 @@ async def apply_payment_webhook_v2(
     signature_b64: str,
     event: str,  # "payment.completed" | "payment.failed" | "payment.cancelled"
     authorization: Optional[str] = None,  # (옵션) 서비스 토큰 검증용
-) -> dict:
+) -> PaymentConfirmV1Response:
     """
     결제서버 → 운영서버 웹훅 수신
     - HMAC 서명 검증 필수
@@ -455,14 +456,20 @@ async def apply_payment_webhook_v2(
         if hs_orders:
             hs_order_id = hs_orders[0].homeshopping_order_id  # 홈쇼핑 주문은 단개
 
-        return {
-            "ok": True, 
-            "order_id": order_id, 
-            "event": event, 
-            "payment_id": payment_id,
-            "kok_order_ids": kok_order_ids,
-            "hs_order_id": hs_order_id
-        }
+        # v1과 동일한 응답 형식으로 구성
+        response = PaymentConfirmV1Response(
+            payment_id=payment_id,
+            order_id=order_id,
+            kok_order_ids=kok_order_ids,
+            hs_order_id=hs_order_id,
+            status="PAYMENT_COMPLETED",
+            payment_amount=0,  # 웹훅에서는 금액 정보가 없을 수 있음
+            method=payload.get("method", "WEBHOOK_V2"),  # v1처럼 payload에서 method 가져오기
+            confirmed_at=datetime.now() if completed_at else datetime.now(),
+            order_id_internal=order_id,
+        )
+        
+        return response
 
     elif event in ("payment.failed", "payment.cancelled"):
         # 결제 실패/취소 시 주문 취소
@@ -475,10 +482,37 @@ async def apply_payment_webhook_v2(
         
         await db.commit()
         logger.info(f"[v2] 결제실패/취소 반영: order_id={order_id}, reason={failure_reason}")
-        return {"ok": True, "order_id": order_id, "event": event, "reason": failure_reason}
+        
+        # v1과 동일한 응답 형식으로 구성 (실패/취소 상태)
+        response = PaymentConfirmV1Response(
+            payment_id=payment_id or f"failed_{tx_id}",
+            order_id=order_id,
+            kok_order_ids=[],  # 취소된 주문이므로 빈 배열
+            hs_order_id=None,  # 취소된 주문이므로 None
+            status="CANCELLED" if event == "payment.failed" else "PAYMENT_CANCELLED",
+            payment_amount=0,
+            method=payload.get("method", "WEBHOOK_V2"),  # v1처럼 payload에서 method 가져오기
+            confirmed_at=datetime.now(),
+            order_id_internal=order_id,
+        )
+        
+        return response
 
     else:
         logger.warning(f"[v2] 알 수 없는 이벤트: {event}")
-        return {"ok": False, "reason": "unknown_event"}
+        # v1과 동일한 응답 형식으로 구성 (에러 상태)
+        response = PaymentConfirmV1Response(
+            payment_id=f"error_{tx_id}",
+            order_id=0,  # 알 수 없는 이벤트이므로 0
+            kok_order_ids=[],
+            hs_order_id=None,
+            status="ERROR",
+            payment_amount=0,
+            method=payload.get("method", "WEBHOOK_V2"),  # v1처럼 payload에서 method 가져오기
+            confirmed_at=datetime.now(),
+            order_id_internal=0,
+        )
+        
+        return response
 
 # ===========================================================================

@@ -92,3 +92,8 @@ class PaymentConfirmV2Response(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class LongPollQuery(BaseModel):
+    timeout_sec: int = 25  # LB/프록시 idle timeout 고려
+    
