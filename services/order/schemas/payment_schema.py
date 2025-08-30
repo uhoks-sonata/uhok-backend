@@ -56,3 +56,39 @@ class PaymentConfirmV1Response(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class PaymentConfirmV2Response(BaseModel):
+    """
+    결제 확인 응답 (v2)
+    
+    Attributes:
+        payment_id: 외부 결제 서비스에서 발급한 결제 ID
+        order_id: 주문 ID (숫자 그대로 사용)
+        kok_order_ids: 콕 주문 ID 목록 (여러 개 가능)
+        hs_order_id: 홈쇼핑 주문 ID (단개 주문만 가능)
+        status: 결제 상태
+        payment_amount: 결제 금액
+        method: 결제 방법
+        confirmed_at: 결제 확인 시간
+        order_id_internal: 내부 주문 ID
+        tx_id: 트랜잭션 ID (v2 전용)
+        
+    Note:
+        - 콕 주문은 여러 개 가능하므로 리스트로 관리
+        - 홈쇼핑 주문은 단개 주문만 가능하므로 단일 값
+        - v2는 웹훅 방식으로 결제 완료를 처리
+    """
+    payment_id: str
+    order_id: int  # 숫자 그대로 사용
+    kok_order_ids: list[int] = []  # 콕 주문 ID 목록
+    hs_order_id: Optional[int] = None  # 홈쇼핑 주문 ID (단개 주문)
+    status: str
+    payment_amount: int
+    method: str
+    confirmed_at: datetime
+    order_id_internal: int  # 내부 주문 ID
+    tx_id: str  # 트랜잭션 ID (v2 전용)
+    
+    class Config:
+        from_attributes = True

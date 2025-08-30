@@ -53,7 +53,7 @@ async def calculate_kok_order_price(
         # 1. 할인 가격 정보 조회
         price_stmt = (
             select(KokPriceInfo, KokProductInfo)
-            .join(KokPriceInfo, KokPriceInfo.kok_product_id == KokProductInfo.kok_product_id)
+            .join(KokProductInfo, KokPriceInfo.kok_product_id == KokProductInfo.kok_product_id)
             .where(KokPriceInfo.kok_price_id == kok_price_id)
         )
         price_result = await db.execute(price_stmt)

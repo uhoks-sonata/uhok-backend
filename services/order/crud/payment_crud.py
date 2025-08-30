@@ -217,9 +217,17 @@ async def confirm_payment_and_update_status_v1(
         logger.info(f"백그라운드 로그 적재 예약: order_id={order_id}")
 
     # (8) 응답 구성
+    # kok_order_ids와 hs_order_id 추출
+    kok_order_ids = [kok_order.kok_order_id for kok_order in order_data.get("kok_orders", [])]
+    hs_order_id = None
+    if order_data.get("homeshopping_orders"):
+        hs_order_id = order_data["homeshopping_orders"][0].homeshopping_order_id  # 홈쇼핑 주문은 단개
+    
     response = PaymentConfirmV1Response(
         payment_id=payment_id,
         order_id=order_id,  # 숫자 그대로 사용
+        kok_order_ids=kok_order_ids,
+        hs_order_id=hs_order_id,
         status="PAYMENT_COMPLETED",
         payment_amount=total_order_price,
         method=create_payload.get("method", "EXTERNAL_API"),
@@ -330,13 +338,29 @@ async def confirm_payment_and_update_status_v2(
             },
         )
 
-    return {
-        "status": "PENDING",
-        "tx_id": tx_id,
-        "order_id": order_id,
-        "payment_amount": total_order_price,
-        "payment_server_ack": init_ack,
-    }
+    # kok_order_ids와 hs_order_id 추출
+    kok_order_ids = [kok_order.kok_order_id for kok_order in order_data.get("kok_orders", [])]
+    hs_order_id = None
+    if order_data.get("homeshopping_orders"):
+        hs_order_id = order_data["homeshopping_orders"][0].homeshopping_order_id  # 홈쇼핑 주문은 단개
+    
+    # PaymentConfirmV2Response 스키마에 맞는 응답 구성
+    from services.order.schemas.payment_schema import PaymentConfirmV2Response
+    
+    response = PaymentConfirmV2Response(
+        payment_id=f"pending_{tx_id}",  # v2에서는 아직 payment_id가 없음
+        order_id=order_id,
+        kok_order_ids=kok_order_ids,
+        hs_order_id=hs_order_id,
+        status="PENDING",
+        payment_amount=total_order_price,
+        method="WEBHOOK_V2",
+        confirmed_at=datetime.now(),
+        order_id_internal=order_id,
+        tx_id=tx_id,
+    )
+    
+    return response
 
 
 async def apply_payment_webhook_v2(
@@ -428,7 +452,20 @@ async def apply_payment_webhook_v2(
         # background task가 라우터에 없다면 여기서 바로 적재하거나 생략
         logger.info(f"[v2] 결제완료 반영: order_id={order_id}, payment_id={payment_id}")
 
-        return {"ok": True, "order_id": order_id, "event": event, "payment_id": payment_id}
+        # kok_order_ids와 hs_order_id 추출하여 응답에 포함
+        kok_order_ids = [kok_order.kok_order_id for kok_order in kok_orders]
+        hs_order_id = None
+        if hs_orders:
+            hs_order_id = hs_orders[0].homeshopping_order_id  # 홈쇼핑 주문은 단개
+
+        return {
+            "ok": True, 
+            "order_id": order_id, 
+            "event": event, 
+            "payment_id": payment_id,
+            "kok_order_ids": kok_order_ids,
+            "hs_order_id": hs_order_id
+        }
 
     elif event in ("payment.failed", "payment.cancelled"):
         # 결제 실패/취소 시 주문 취소

@@ -11,7 +11,7 @@ from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
 from common.logger import get_logger
 
-from services.order.schemas.payment_schema import PaymentConfirmV1Request, PaymentConfirmV1Response
+from services.order.schemas.payment_schema import PaymentConfirmV1Request, PaymentConfirmV1Response, PaymentConfirmV2Response
 from services.order.crud.payment_crud import confirm_payment_and_update_status_v1
 
 logger = get_logger("payment_router")
@@ -59,7 +59,7 @@ async def confirm_payment_v1(
 # === [v2 routes: webhook flow] ==============================================
 from services.order.crud.payment_crud import confirm_payment_and_update_status_v2, apply_payment_webhook_v2
 
-@router.post("/{order_id}/confirm/v2")  # 주문 결제 확인 v2 (웹훅 방식)
+@router.post("/{order_id}/confirm/v2", response_model=PaymentConfirmV2Response, status_code=status.HTTP_200_OK)  # 주문 결제 확인 v2 (웹훅 방식)
 async def confirm_payment_v2(
     order_id: int,
     request: Request,
