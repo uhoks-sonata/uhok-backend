@@ -782,9 +782,6 @@ async def recommend_recipes_from_cart_items(
             db, product_ids
         )
         
-        # 상품명 목록 조회
-        product_names = await get_cart_product_names_by_ids(db, product_ids)
-        
         if not ingredients:
             logger.warning(f"추출된 재료가 없음: user_id={current_user.user_id}")
             return KokCartRecipeRecommendResponse(
@@ -793,8 +790,7 @@ async def recommend_recipes_from_cart_items(
                 page=page,
                 size=size,
                 total_pages=0,
-                ingredients_used=[],
-                product_names=product_names
+                keyword_extraction=[]
             )
         
         logger.info(f"재료 추출 성공: {ingredients}")
@@ -826,15 +822,19 @@ async def recommend_recipes_from_cart_items(
                     "cooking_name": row["RECIPE_TITLE"],
                     "scrap_count": int(row["SCRAP_COUNT"]) if row["SCRAP_COUNT"] is not None and not (isinstance(row["SCRAP_COUNT"], float) and pd.isna(row["SCRAP_COUNT"])) else 0,
                     "recipe_url": f"https://www.10000recipe.com/recipe/{int(row['RECIPE_ID'])}",
-                    "matched_ingredient_count": len(ingredients)
+                    "number_of_serving": str(row.get("NUMBER_OF_SERVING", "")) if row.get("NUMBER_OF_SERVING") else None,
+                    "ingredients": []
                 }
                 
-                # 재료 정보가 있으면 추가
+                # 재료 정보가 있으면 ingredients 배열에 재료명만 추가
                 if "MATERIALS" in row and row["MATERIALS"] is not None:
                     try:
                         # pandas의 NaN 값 체크를 안전하게 수행
                         if not (isinstance(row["MATERIALS"], float) and pd.isna(row["MATERIALS"])):
-                            recipe_dict["materials"] = row["MATERIALS"]
+                            for material in row["MATERIALS"]:
+                                material_name = material.get("MATERIAL_NAME", "")
+                                if material_name:
+                                    recipe_dict["ingredients"].append(material_name)
                     except:
                         # 에러가 발생하면 재료 정보를 추가하지 않음
                         pass
@@ -855,7 +855,6 @@ async def recommend_recipes_from_cart_items(
                 event_data={
                     "kok_product_ids": product_ids,
                     "extracted_ingredients": ingredients,
-                    "kok_product_names": product_names,
                     "recommended_recipes_count": len(recipes),
                     "page": page,
                     "size": size
@@ -868,8 +867,7 @@ async def recommend_recipes_from_cart_items(
             page=page,
             size=size,
             total_pages=total_pages,
-            ingredients_used=ingredients,
-            product_names=product_names
+            keyword_extraction=ingredients
         )
     except ValueError as e:
         logger.warning(f"레시피 추천 검증 오류: {str(e)}")

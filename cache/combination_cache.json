@@ -25,5 +25,13 @@
             7020612
         ],
         "combo_1_timestamp": "2025-08-28T16:55:43.723149"
+    },
+    "user:4:ingredients:44b4c417a10b6e12f896efefc35129f8:combinations": {
+        "combo_1": [
+            7029189,
+            7041353,
+            7041348
+        ],
+        "combo_1_timestamp": "2025-08-30T10:08:57.553923"
     }
 }

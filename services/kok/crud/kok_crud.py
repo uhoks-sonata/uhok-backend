@@ -9,7 +9,7 @@
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict, Any
 from datetime import datetime, timedelta
 
 from common.logger import get_logger
@@ -1307,6 +1307,10 @@ async def get_ingredients_from_cart_product_ids(
     장바구니에서 선택한 상품들의 kok_product_id를 받아서 KOK_CLASSIFY 테이블에서 cls_ing이 1인 상품만 사용하여 키워드를 추출
     - kok_product_id로 KOK_CLASSIFY 테이블에서 cls_ing이 1인 상품만 필터링
     - 해당 상품들의 product_name에서 키워드 추출
+    - keyword_extraction.py의 고급 로직 사용
+    
+    Returns:
+        List[str]: 추출된 키워드 목록
     """
     logger.info(f"장바구니 상품 ID에서 재료 추출 시작: kok_product_ids={kok_product_ids}")
 
@@ -1357,7 +1361,7 @@ async def get_ingredients_from_cart_product_ids(
             "레몬즙", "라임즙", "올리브오일", "식용유", "참기름", "들기름", "고추기름", "마늘기름"
         }
 
-    # 키워드 추출 로직 import
+    # 키워드 추출 로직
     extracted_ingredients = set()
 
     # 각 상품명에서 재료 키워드 추출
@@ -1382,6 +1386,9 @@ async def get_ingredients_from_cart_product_ids(
             if result and result.get("keywords"):
                 keywords = result["keywords"]
                 extracted_ingredients.update(keywords)
+                
+                # 키워드만 추출하여 저장
+                
                 logger.info(f"상품 '{product_name}'에서 추출된 키워드: {keywords}")
             else:
                 logger.info(f"상품 '{product_name}'에서 키워드 추출 실패")

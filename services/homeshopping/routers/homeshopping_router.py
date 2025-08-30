@@ -401,11 +401,11 @@ async def get_recipe_recommendations_for_product(
                 recipe = {
                     "recipe_id": int(row.get("RECIPE_ID", 0)),
                     "recipe_name": str(row.get("RECIPE_TITLE", "")),
-                    "cooking_time": "30분",  # 기본값, 실제로는 DB에서 가져와야 함
                     "scrap_count": int(row.get("SCRAP_COUNT", 0)) if row.get("SCRAP_COUNT") else None,
                     "ingredients": [],
                     "description": str(row.get("COOKING_INTRODUCTION", "")),
-                    "recipe_image_url": str(row.get("THUMBNAIL_URL", "")) if row.get("THUMBNAIL_URL") else None
+                    "recipe_image_url": str(row.get("THUMBNAIL_URL", "")) if row.get("THUMBNAIL_URL") else None,
+                    "number_of_serving": str(row.get("NUMBER_OF_SERVING", "")) if row.get("NUMBER_OF_SERVING") else None
                 }
                 
                 # 재료 정보가 있는 경우 추가
