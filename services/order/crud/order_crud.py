@@ -313,6 +313,31 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
     return order_list
 
 
+
+async def get_user_order_counts(db: AsyncSession, user_id: int) -> int:
+    """
+    사용자별 주문 개수만 조회 (성능 최적화)
+    
+    Args:
+        db: 데이터베이스 세션
+        user_id: 조회할 사용자 ID
+    
+    Returns:
+        int: 사용자의 주문 개수
+        
+    Note:
+        - CRUD 계층: DB COUNT 쿼리만 실행하여 성능 최적화
+        - 전체 주문 데이터를 가져오지 않고 개수만 계산
+    """
+    from sqlalchemy import func
+    
+    result = await db.execute(
+        select(func.count(Order.order_id))
+        .where(Order.user_id == user_id)
+    )
+    return result.scalar()
+
+
 async def calculate_order_total_price(db: AsyncSession, order_id: int) -> int:
     """
     주문 ID로 총 주문 금액 계산 (콕 주문 + 홈쇼핑 주문)

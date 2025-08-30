@@ -22,7 +22,7 @@ from services.order.schemas.order_schema import (
     OrdersListResponse
 )
 from services.order.crud.order_crud import (
-    get_order_by_id, get_user_orders, get_delivery_info
+    get_order_by_id, get_user_orders, get_delivery_info, get_user_order_counts
 )
 
 logger = get_logger("order_router")
@@ -171,7 +171,7 @@ async def get_order_count(
     user=Depends(get_current_user)
 ):
     """
-    내 주문 개수 조회 (전체)
+    내 주문 개수 조회 (전체) - 성능 최적화
     
     Args:
         background_tasks: 백그라운드 작업 관리자
@@ -184,11 +184,11 @@ async def get_order_count(
     Note:
         - Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
         - 비즈니스 로직은 CRUD 계층에 위임
-        - 최대 1000개 주문을 조회하여 개수 계산
+        - COUNT 쿼리만 실행하여 성능 최적화
         - 사용자 행동 로그 기록
     """
-    # CRUD 계층에 주문 조회 위임
-    order_list = await get_user_orders(db, user.user_id, limit=1000, offset=0)
+    # CRUD 계층에 주문 개수만 조회 위임 (성능 최적화)
+    order_count = await get_user_order_counts(db, user.user_id)
     
     # 주문 개수 조회 로그 기록
     if background_tasks:
@@ -196,11 +196,11 @@ async def get_order_count(
             send_user_log, 
             user_id=user.user_id, 
             event_type="order_count_view", 
-            event_data={"order_count": len(order_list)}
+            event_data={"order_count": order_count}
         )
     
     return OrderCountResponse(
-        order_count=len(order_list)
+        order_count=order_count
     )
 
 
