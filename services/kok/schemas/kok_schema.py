@@ -514,5 +514,4 @@ class KokCartRecipeRecommendResponse(BaseModel):
     page: int = Field(..., description="현재 페이지 번호")
     size: int = Field(..., description="페이지당 레시피 수")
     total_pages: int = Field(..., description="전체 페이지 수")
-    ingredients_used: List[str] = Field(..., description="사용된 재료 키워드 목록")
-    product_names: List[str] = Field(..., description="분석된 상품명 목록")
+    keyword_extraction: List[str] = Field(..., description="추출된 키워드 목록")

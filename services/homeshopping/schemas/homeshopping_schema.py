@@ -171,11 +171,11 @@ class RecipeRecommendation(BaseModel):
     """레시피 추천 정보"""
     recipe_id: int
     recipe_name: str
-    cooking_time: str
     scrap_count: Optional[int] = None
     ingredients: List[str]
     description: str
     recipe_image_url: Optional[str] = None
+    number_of_serving: Optional[str] = None
     
     class Config:
         from_attributes = True
