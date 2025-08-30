@@ -674,7 +674,11 @@ async def get_homeshopping_liked_products(
             HomeshoppingList.thumb_img_url,
             HomeshoppingProductInfo.store_name,
             HomeshoppingProductInfo.dc_price,
-            HomeshoppingProductInfo.dc_rate
+            HomeshoppingProductInfo.dc_rate,
+            HomeshoppingList.live_start_time,
+            HomeshoppingList.live_date,
+            HomeshoppingList.homeshopping_id,
+            HomeshoppingList.live_id
         )
         .select_from(HomeshoppingLikes)
         .join(HomeshoppingList, HomeshoppingLikes.product_id == HomeshoppingList.product_id)
@@ -703,7 +707,11 @@ async def get_homeshopping_liked_products(
                 "dc_price": row.dc_price if row.dc_price else None,
                 "dc_rate": row.dc_rate if row.dc_rate else None,
                 "thumb_img_url": row.thumb_img_url,
-                "homeshopping_like_created_at": row.homeshopping_like_created_at
+                "homeshopping_like_created_at": row.homeshopping_like_created_at,
+                "live_start_time": row.live_start_time,
+                "live_date": row.live_date,
+                "homeshopping_id": row.homeshopping_id,
+                "live_id": row.live_id
             })
             
             # limit에 도달하면 중단
