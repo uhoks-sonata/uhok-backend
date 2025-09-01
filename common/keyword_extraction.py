@@ -51,6 +51,12 @@ PACK_TOKENS: Set[str] = {
 # 단위 토큰: 숫자를 지운 뒤 남을 수 있어 명시적으로 제거
 UNIT_TOKENS: Set[str] = {"kg","g","ml","l"}
 
+# 붙여 쓰이는 수식 접두(색/크기/신선도 등) - '홍감자' vs '감자' 처리에 사용
+PREFIX_ATTACHABLE: Set[str] = {
+    "홍", "적","백","황","흑","자","청","풋","햇",
+    "대","중","소"
+}
+
 # 공백 없이 붙는 파생형(원물 뒤에 붙는 접미사) 금지 목록
 # ex) "양배추즙", "양배추가루" → "양배추"로 매칭 금지
 BANNED_DERIV_SUFFIX_NS: Set[str] = {
@@ -63,6 +69,13 @@ BANNED_DERIV_TOKENS: Set[str] = {
     "즙","분말","가루","엑기스","추출물","농축액","오일","유","소스","드레싱","양념","장",
     "시럽","퓨레","페이스트","환","정","캡슐","알","스낵","칩","후레이크","플레이크","향","향미유","액상"
 }
+
+# 동시 등장 시 억제할 키워드(다른 재료와 같이 나오면 무시, 단독일 때만 허용)
+COEXIST_SUPPERESS_TERMS: Set[str] = {"카스테라"}
+
+# (수량/단위) 정규식 — 지금은 숫자를 전체 제거하므로 주 사용은 안 하지만 유지
+AMOUNT_RX = re.compile(r"(?P<num>\d+(?:\.\d+)?)(?P<unit>kg|g|ml|l|L|개|구|입|봉|팩|포|스틱)")
+MULT_RX = re.compile(r"(?P<count>\d+)\s*[xX×*]\s*(?P<each>\d+(?:\.\d+)?\s*(?:kg|g|ml|l|L))")
 
 # ---- 정규식 패턴 모음 ----
 # 괄호류는 공백으로 치환해 토큰 경계 유지
@@ -137,6 +150,80 @@ def load_homeshopping_ing_vocab() -> Set[str]:
     """홈쇼핑용 표준 재료 어휘를 로드"""
     db_conf = get_homeshopping_db_config()
     return load_ing_vocab(db_conf)
+
+# ----- DB 헬퍼 함수들 (새로 추가) -----
+def list_columns(conn, table: str) -> list[str]:
+    """현재 DB 스키마에서 테이블의 컬럼명을 순서대로 반환."""
+    cols: list[str] = []
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COLUMN_NAME
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s
+            ORDER BY ORDINAL_POSITION
+            """,
+            (table,),
+        )
+        for (name,) in cur.fetchall():
+            cols.append(str(name))
+    return cols
+
+ID_PATTERNS = ["PRODUCT_ID", "GOODS_ID", "GOODS_NO", "ITEM_ID", "ID", "SEQ", "NO"]
+
+def pick_id_column(columns: list[str], override: str | None = None) -> str | None:
+    """우선순위 패턴 또는 명시 override로 식별자 컬럼을 선택."""
+    if override and override in columns:
+        return override
+    upper = {c.upper(): c for c in columns}
+    for pat in ID_PATTERNS:
+        if pat in upper:
+            return upper[pat]
+    return None
+
+def fetch_products(db_conf: dict, source: str, limit: int, id_override: str | None = None):
+    """
+    각 소스 테이블에서 PRODUCT_ID(있으면)와 PRODUCT_NAME을 읽어옴.
+    - KOK_CLASSIFY: CLS_ING=1
+    - HOMESHOPPING_CLASSIFY: CLS_FOOD=1 AND CLS_ING=1
+    """
+    conn = connect_mysql(**db_conf)
+    try:
+        if source in ("KOK", "KOK_CLASSIFY"):
+            table = "KOK_CLASSIFY"
+            where = "CLS_ING = 1 AND PRODUCT_NAME IS NOT NULL AND PRODUCT_NAME <> ''"
+        elif source in ("HOME", "HOMESHOPPING", "HOMESHOPPING_CLASSIFY"):
+            table = "HOMESHOPPING_CLASSIFY"
+            where = "CLS_FOOD = 1 AND CLS_ING = 1 AND PRODUCT_NAME IS NOT NULL AND PRODUCT_NAME <> ''"
+        else:
+            raise ValueError("source must be 'KOK' OR 'HOMESHOPPING'")
+
+        cols = list_columns(conn, table)
+        if "PRODUCT_NAME" not in cols:
+            raise RuntimeError(f"{table} 테이블에 PRODUCT_NAME 컬럼이 없습니다. 실제 컬럼: {cols}")
+
+        id_col = pick_id_column(cols, id_override)
+        select_id = f"`{id_col}` AS PRODUCT_ID" if id_col else "NULL AS PRODUCT_ID"
+
+        sql = f"SELECT {select_id}, `PRODUCT_NAME` FROM `{table}` WHERE {where} LIMIT %s"
+        
+        # pandas가 없을 수 있으므로 기본 SQL 실행으로 변경
+        with conn.cursor() as cur:
+            cur.execute(sql, [limit])
+            rows = cur.fetchall()
+        
+        # 결과를 딕셔너리 리스트로 변환
+        result = []
+        for row in rows:
+            result.append({
+                "PRODUCT_ID": str(row[0]) if row[0] else None,
+                "PRODUCT_NAME": row[1],
+                "SOURCE": "KOK" if table == "KOK_CLASSIFY" else "HOMESHOPPING"
+            })
+        
+        return result
+    finally:
+        conn.close()
 
 # ---- 키워드 추출 핵심 함수들 ----
 def normalize_name(s: str, *, strip_digits: bool = True) -> str:
@@ -222,20 +309,28 @@ def fuzzy_pick(term: str, vocab: Set[str], limit: int = 2, threshold: int = 88) 
     res = process.extract(term, vocab, scorer=fuzz.WRatio, limit=limit)
     return [k for k, score, _ in res if score >= threshold]
 
-def _is_whole_word_in(short: str, long: str) -> bool:
+def _is_contained_like_a_word(short: str, long: str) -> bool:
     """
-    공백 경계 기준 포함 여부
-    - short가 long 안에 단어 경계로 포함되면 True
-    - 예: short = '오이', long= '청오이'는 False(붙어 있어서 단어 경계가 아님)
-          short = '오이', long='오이 피클'은 True
+    공백 경계 기준 포함 여부 + 접두 붙임 고려
+    - 1) 공백 경계로 포함?
+    - 2) long이 short로 끝나고, 앞이 접두 목록이면 포함으로 간주(예: '홍감자" 안의 '감자')
     """
-    return re.search(rf'(?<!\S){re.escape(short)}(?!\S)', long) is not None
+    # 1) 공백 경계로 포함?
+    if re.search(rf'(?<!\S){re.escape(short)}(?!\S)', long):
+        return True
+    # 2) long이 short로 끝나고, 앞이 접두 목록이면 포함으로 간주(예: '홍감자" 안의 '감자')
+    if long.endswith(short) and len(long) > len(short):
+        prefix = long[:-len(short)]
+        if prefix in PREFIX_ATTACHABLE:
+            return True
+        return False
+    return False
 
 def _filter_longest_only(keys: list[str]) -> list[str]:
     """여러 키워드가 잡힌 경우, **더 긴 것**만 남기고 짧은 단어 제거"""
     kept: list[str] = []
     for k in sorted(keys, key=len, reverse=True):
-        if any(_is_whole_word_in(k, L) for L in kept):
+        if any(_is_contained_like_a_word(k, L) for L in kept):
             continue
         kept.append(k)
     return kept
@@ -252,6 +347,7 @@ def extract_ingredient_keywords(
     fuzzy_limit: int = 0,                    # 퍼지로 고를 결과 수(0이면 퍼지 OFF)
     fuzzy_threshold: int = 88,               # 퍼지 임계(높을수록 보수적)
     keep_longest_only: bool = True,          # 여러 개일 때 가장 긴 것만 유지
+    force_single: bool = True,               # 항상 1개만 반환 (기본값 True로 변경)
 ) -> Dict[str, object]:
     """
     상품명에서 식재료 키워드 추출 (메인 함수)
@@ -290,11 +386,26 @@ def extract_ingredient_keywords(
     # 8) 정렬(길이 우선) + 중복 제거
     final_keys = list(dict.fromkeys(sorted(clean_hits, key=len, reverse=True)))
     
-    # 9) 여러 개면 가장 긴 키워드만 유지(옵션)
+    # 9) 동시 등장 억제: 다른 키워드와 같이 나오면 '카스테라'는 제거(단독일 때는 유지)
+    if len(final_keys) > 1:
+        filtered = [k for k in final_keys if k not in COEXIST_SUPPERESS_TERMS]
+        if filtered:
+            final_keys = filtered
+    
+    # 10) 여러 개면 가장 긴 키워드만 유지(옵션)
     if keep_longest_only and len(final_keys) > 1:
         final_keys = _filter_longest_only(final_keys)
 
-    # 10) 결과 + 디버그
+    # 11) 항상 1개만 : 길이 ↓, 동률이면 먼저 등장한 후보 (새로 추가)
+    if force_single and len(final_keys) > 1:
+        # 후보에서의 최초 등장 인덱스
+        first_pos: dict[str, int] = {}
+        for i, m in enumerate(mapped):
+            if m in final_keys and m not in first_pos:
+                first_pos[m] = i
+        final_keys = sorted(final_keys, key=lambda k: (-len(k), first_pos.get(k, 1_000_000)))[:1]
+
+    # 12) 결과 + 디버그
     return {
         "keywords": final_keys,
         "debug": {
