@@ -143,12 +143,14 @@ def normalize_name(s: str, *, strip_digits: bool = True) -> str:
     """
     상품명을 추출 친화적으로 정규화
     - 괄호 → 공백
+    - / 구분자 → 공백 (알감자/설봉감자 → 알감자 설봉감자)
     - (옵션) 모든 숫자 제거 + 1+1, x, × 같은 프로모션/곱기호 제거
     - 잔여 특수문자 제거
     - 다중 공백 압축
     """
     s = (s or "").strip()
     s = s.replace("＋","+").replace("—","-").replace("·"," ")
+    s = s.replace("/", " ")  # / 구분자를 공백으로 치환
     s = PAREN_RX.sub(" ", s)
     if strip_digits:
         s = DIGIT_RX.sub(" ", s)

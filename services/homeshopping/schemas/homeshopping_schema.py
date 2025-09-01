@@ -225,6 +225,10 @@ class HomeshoppingLikedProduct(BaseModel):
     dc_rate: Optional[int] = None
     thumb_img_url: str
     homeshopping_like_created_at: datetime
+    homeshopping_id: Optional[int] = None
+    live_id: Optional[int] = None
+    live_start_time: Optional[time] = None
+    live_date: Optional[date] = None
     
     class Config:
         from_attributes = True
