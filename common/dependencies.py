@@ -1,4 +1,4 @@
-from fastapi import Depends, Request
+from fastapi import Depends, Request, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
@@ -48,21 +48,43 @@ async def get_current_user(
             logger.error(f"토큰의 사용자 ID가 유효하지 않음: {user_id_raw}")
             raise InvalidTokenException("토큰의 사용자 ID가 유효하지 않습니다.")
 
-        user = await get_user_by_id(db, user_id)
-        if user is None:
-            logger.warning(f"사용자를 찾을 수 없음: user_id={user_id}")
-            raise NotFoundException("사용자")
+        try:
+            user = await get_user_by_id(db, user_id)
+            if user is None:
+                logger.warning(f"사용자를 찾을 수 없음: user_id={user_id}")
+                raise NotFoundException("사용자")
 
-        # SQLAlchemy ORM 객체를 Pydantic 모델로 변환하여 직렬화 문제 해결
-        user_out = UserOut(
-            user_id=user.user_id,
-            username=user.username,
-            email=user.email,
-            created_at=user.created_at
-        )
+            # SQLAlchemy ORM 객체를 Pydantic 모델로 변환하여 직렬화 문제 해결
+            user_out = UserOut(
+                user_id=user.user_id,
+                username=user.username,
+                email=user.email,
+                created_at=user.created_at
+            )
 
-        # logger.debug(f"사용자 인증 성공: user_id={user_id}")
-        return user_out
+            # logger.debug(f"사용자 인증 성공: user_id={user_id}")
+            return user_out
+            
+        except Exception as db_error:
+            logger.error(f"데이터베이스 조회 중 오류: {str(db_error)}")
+            # 데이터베이스 세션 롤백 시도
+            try:
+                await db.rollback()
+                logger.info("데이터베이스 세션 롤백 완료")
+            except Exception as rollback_error:
+                logger.error(f"세션 롤백 실패: {str(rollback_error)}")
+            
+            # 데이터베이스 오류를 사용자 친화적인 메시지로 변환
+            if "PendingRollbackError" in str(db_error):
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="데이터베이스 연결에 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="사용자 정보 조회 중 오류가 발생했습니다."
+                )
         
     except Exception as e:
         logger.error(f"인증 실패: {str(e)}")

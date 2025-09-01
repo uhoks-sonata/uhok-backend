@@ -13,7 +13,7 @@ from typing import Optional, List, Tuple, Dict, Any
 from datetime import datetime, timedelta
 
 from common.logger import get_logger
-from common.keyword_extraction import load_ing_vocab, extract_ingredient_keywords
+from common.keyword_extraction import load_ing_vocab, extract_ingredient_keywords, get_homeshopping_db_config
 
 from services.order.models.order_model import Order, KokOrder
 from services.kok.models.kok_model import (
@@ -1237,7 +1237,8 @@ async def get_ingredients_from_selected_cart_items(
     ing_vocab = set()
     try:
         # 환경변수에서 자동으로 DB 설정을 가져와서 표준 재료 어휘 로드
-        ing_vocab = load_ing_vocab()
+        db_conf = get_homeshopping_db_config()
+        ing_vocab = load_ing_vocab(db_conf)
         logger.info(f"표준 재료 어휘 로드 완료: {len(ing_vocab)}개")
     except Exception as e:
         logger.error(f"표준 재료 어휘 로드 실패: {str(e)}")
@@ -1279,11 +1280,17 @@ async def get_ingredients_from_selected_cart_items(
                 use_bigrams=True,      # 다단어 재료 매칭
                 drop_first_token=True, # 브랜드명 제거
                 strip_digits=True,     # 숫자/프로모션 제거
-                keep_longest_only=True # 가장 긴 키워드 우선
+                keep_longest_only=True, # 가장 긴 키워드 우선
+                max_fuzzy_try=1,       # 퍼지 매칭 시도 수 줄이기
+                fuzzy_limit=1,         # 퍼지 결과 수 줄이기
+                fuzzy_threshold=90     # 퍼지 임계값 높이기
             )
 
             if result and result.get("keywords"):
                 keywords = result["keywords"]
+                # 최대 1개만 추출하도록 제한
+                if len(keywords) > 1:
+                    keywords = [keywords[0]]  # 첫 번째 키워드만 사용
                 extracted_ingredients.update(keywords)
                 logger.info(f"상품 '{product_name}'에서 추출된 키워드: {keywords}")
             else:
@@ -1338,7 +1345,8 @@ async def get_ingredients_from_cart_product_ids(
     ing_vocab = set()
     try:
         # 환경변수에서 자동으로 DB 설정을 가져와서 표준 재료 어휘 로드
-        ing_vocab = load_ing_vocab()
+        db_conf = get_homeshopping_db_config()
+        ing_vocab = load_ing_vocab(db_conf)
         logger.info(f"표준 재료 어휘 로드 완료: {len(ing_vocab)}개")
     except Exception as e:
         logger.error(f"표준 재료 어휘 로드 실패: {str(e)}")
@@ -1380,11 +1388,17 @@ async def get_ingredients_from_cart_product_ids(
                 use_bigrams=True,      # 다단어 재료 매칭
                 drop_first_token=True, # 브랜드명 제거
                 strip_digits=True,     # 숫자/프로모션 제거
-                keep_longest_only=True # 가장 긴 키워드 우선
+                keep_longest_only=True, # 가장 긴 키워드 우선
+                max_fuzzy_try=1,       # 퍼지 매칭 시도 수 줄이기
+                fuzzy_limit=1,         # 퍼지 결과 수 줄이기
+                fuzzy_threshold=90     # 퍼지 임계값 높이기
             )
 
             if result and result.get("keywords"):
                 keywords = result["keywords"]
+                # 최대 1개만 추출하도록 제한
+                if len(keywords) > 1:
+                    keywords = [keywords[0]]  # 첫 번째 키워드만 사용
                 extracted_ingredients.update(keywords)
                 
                 # 키워드만 추출하여 저장
