@@ -1361,39 +1361,10 @@ GATE_COMPARE_STORE = os.getenv("GATE_COMPARE_STORE", "false").lower() in ("1","t
 # 추천 시스템 함수들
 # -----------------------------
 
-async def kok_candidates_by_keywords_gated(
-    db,
-    must_kws: List[str],
-    optional_kws: List[str],
-    limit: int = 600,
-    min_if_all_fail: int = 30,
-) -> List[int]:
-    """
-    키워드 기반으로 콕 상품 후보 검색 (업그레이드 버전)
-    - must: OR(하나라도) → 부족하면 AND(최대 2개) → 다시 OR로 폴백
-    - optional: 여전히 부족하면 OR로 보충
-    - GATE_COMPARE_STORE 옵션으로 스토어명 비교 포함 여부 제어
-    """
-    try:
-        # 실제 DB 연동 함수 호출
-        candidates = await get_kok_candidates_by_keywords(
-            db=db,
-            must_keywords=must_kws,
-            optional_keywords=optional_kws,
-            limit=limit,
-            min_if_all_fail=min_if_all_fail
-        )
-        
-        if not candidates:
-            logger.warning("키워드 검색 결과가 없음, 기본값 사용")
-            return [1001, 1002, 1003, 1004, 1005][:limit]
-        
-        logger.info(f"키워드 게이트 통과: {len(candidates)}개 (must: {len(must_kws)}, optional: {len(optional_kws)})")
-        return candidates
-        
-    except Exception as e:
-        logger.error(f"키워드 기반 검색 실패: {str(e)}, 기본값 사용")
-        return [1001, 1002, 1003, 1004, 1005][:limit]
+# homeshopping_kok.py의 함수들을 import
+from ..utils.homeshopping_kok import (
+    recommend_homeshopping_to_kok as kok_recommend_homeshopping_to_kok
+)
 
 
 async def recommend_homeshopping_to_kok(
@@ -1405,82 +1376,24 @@ async def recommend_homeshopping_to_kok(
     rerank_mode: str = None,
 ) -> List[Dict]:
     """
-    홈쇼핑 상품에 대한 콕 유사 상품 추천 (기존 로직 사용)
+    홈쇼핑 상품에 대한 콕 유사 상품 추천 (homeshopping_kok.py의 로직 사용)
     """
     try:
-        # 기존 추천 로직 사용
-        prod_name = await get_homeshopping_product_name(db, homeshopping_product_id) or ""
-        if not prod_name:
-            logger.warning(f"홈쇼핑 상품명을 찾을 수 없음: homeshopping_product_id={homeshopping_product_id}")
-            return []
-
-        # 1) 키워드 구성
-        tail_k = extract_tail_keywords(prod_name, max_n=2)
-        core_k = extract_core_keywords(prod_name, max_n=3)
-        root_k = roots_in_name(prod_name)
-        ngram_k = infer_terms_from_name_via_ngrams(prod_name, max_terms=DYN_MAX_TERMS)
-
-        must_kws = list(dict.fromkeys([*tail_k, *core_k, *root_k]))[:12]
-        optional_kws = list(dict.fromkeys([*ngram_k]))[:DYN_MAX_TERMS]
-        
-        # 디버깅: 키워드 추출 결과 로깅
-        logger.info(f"키워드 추출 결과 - tail: {tail_k}, core: {core_k}, root: {root_k}, ngram: {ngram_k}")
-        logger.info(f"최종 키워드 - must: {must_kws}, optional: {optional_kws}")
-
-        # 2) 키워드 게이트로 후보
-        cand_ids = await kok_candidates_by_keywords_gated(
-            db,
-            must_kws=must_kws,
-            optional_kws=optional_kws,
-            limit=max(candidate_n * 3, 300),
-            min_if_all_fail=max(30, k),
-        )
-        if not cand_ids:
-            return []
-
-        # 3) 후보 내 pgvector 정렬
-        sims = await get_pgvector_topk_within(
-            db,
+        # homeshopping_kok.py의 추천 로직을 직접 호출
+        logger.info(f"homeshopping_kok.py의 추천 로직 호출: product_id={homeshopping_product_id}")
+        result = await kok_recommend_homeshopping_to_kok(
+            db=db,
             product_id=homeshopping_product_id,
-            candidate_ids=cand_ids,
-            k=max(k, candidate_n),
+            k=k,
+            use_rerank=use_rerank,
+            candidate_n=candidate_n,
+            rerank_mode=rerank_mode
         )
-        if not sims:
-            return []
-
-        pid_order = [pid for pid, _ in sims]
-        dist_map = {pid: dist for pid, dist in sims}
-
-        # 4) 상세 조인
-        details = await get_kok_product_infos(db, pid_order)
-        if not details:
-            return []
-        for d in details:
-            d["distance"] = dist_map.get(d["kok_product_id"])
-
-        # 5) 거리 정렬
-        ranked = sorted(details, key=lambda x: x.get("distance", 1e9))
-        logger.info(f"거리 정렬 완료: {len(ranked)}개 상품")
-
-        # 6) 최종 필터 적용
-        logger.info(f"필터링 시작: prod_name='{prod_name}', ranked_count={len(ranked)}")
-        filtered = filter_tail_and_ngram_and(ranked, prod_name)
-        logger.info(f"필터링 완료: filtered_count={len(filtered)}")
-        
-        # 디버깅: 필터링 전후 상세 정보
-        if ranked:
-            sample_before = ranked[0] if len(ranked) > 0 else {}
-            sample_after = filtered[0] if len(filtered) > 0 else {}
-            logger.info(f"필터링 전 샘플: {sample_before.get('kok_product_name', 'N/A')}")
-            logger.info(f"필터링 후 샘플: {sample_after.get('kok_product_name', 'N/A')}")
-
-        # 7) 최대 k개까지 반환
-        final_result = filtered[:k]
-        logger.info(f"추천 완료: {len(final_result)}개 상품")
-        return final_result
+        logger.info(f"homeshopping_kok.py 추천 완료: {len(result)}개 상품")
+        return result
         
     except Exception as e:
-        logger.error(f"추천 로직 실패: {str(e)}, 폴백 시스템 사용")
+        logger.error(f"homeshopping_kok.py 추천 로직 실패: {str(e)}, 폴백 시스템 사용")
         
         # 폴백: 기존 로직 사용
         return await simple_recommend_homeshopping_to_kok(homeshopping_product_id, k, db)
