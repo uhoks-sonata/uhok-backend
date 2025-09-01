@@ -519,28 +519,9 @@ async def get_recipe_recommendations_for_ingredient(
             logger.warning(f"상품명을 찾을 수 없음: homeshopping_product_id={homeshopping_product_id}")
             return []
         
-        # 더미 레시피 추천 데이터
-        recipes = [
-            {
-                "recipe_id": 1001,
-                "recipe_name": f"{product_name}을 활용한 간단 요리",
-                "cooking_time": "20분",
-                "difficulty": "초급",
-                "ingredients": [product_name, "양념", "기타 재료"],
-                "description": f"{product_name}을 활용한 맛있는 요리 레시피입니다."
-            },
-            {
-                "recipe_id": 1002,
-                "recipe_name": f"{product_name} 요리의 모든 것",
-                "cooking_time": "30분",
-                "difficulty": "중급",
-                "ingredients": [product_name, "고급 양념", "부재료"],
-                "description": f"{product_name}의 진가를 살리는 고급 요리 레시피입니다."
-            }
-        ]
-        
-        logger.info(f"식재료 레시피 추천 조회 완료: homeshopping_product_id={homeshopping_product_id}, 레시피 수={len(recipes)}")
-        return recipes
+        # TODO: 레시피 서비스와 연동하여 실제 레시피 추천 로직 구현
+        logger.warning("레시피 추천 서비스가 아직 구현되지 않음")
+        return []
         
     except Exception as e:
         logger.error(f"식재료 레시피 추천 조회 실패: homeshopping_product_id={homeshopping_product_id}, error={str(e)}")
@@ -1126,19 +1107,8 @@ async def get_kok_product_infos(
         
     except Exception as e:
         logger.error(f"콕 상품 정보 조회 실패: error={str(e)}")
-        # 에러 발생 시 더미 데이터로 폴백
-        logger.warning("더미 데이터로 폴백")
-        fallback_products = []
-        for i, pid in enumerate(kok_product_ids):
-            fallback_products.append({
-                "kok_product_id": pid,
-                "kok_thumbnail": f"https://example.com/kok_{pid}.jpg",
-                "kok_discount_rate": 15 + (i * 5),  # 더미 할인율
-                "kok_discounted_price": 10000 + (i * 1000),
-                "kok_product_name": f"콕 상품 {pid}",
-                "kok_store_name": f"콕 스토어 {i+1}"
-            })
-        return fallback_products
+        logger.error("콕 상품 정보 조회에 실패했습니다")
+        return []
 
 async def get_pgvector_topk_within(
     db: AsyncSession,
@@ -1156,57 +1126,60 @@ async def get_pgvector_topk_within(
         return []
     
     try:
-        # TODO: 실제 pgvector 연동 (현재는 판매량 기반 정렬)
-        # 현재는 판매량과 리뷰 점수를 기반으로 정렬
-        
-        # 후보 상품들의 리뷰 점수와 리뷰 수 조회
-        stmt = (
-            select(
-                KokProductInfo.kok_product_id,
-                KokProductInfo.kok_review_score,
-                KokProductInfo.kok_review_cnt
-            )
-            .where(
-                KokProductInfo.kok_product_id.in_(candidate_ids)
-            )
+        # 1) 쿼리 텍스트 준비: 홈쇼핑 상품명 사용
+        prod_name = await get_homeshopping_product_name(db, product_id) or ""
+        if not prod_name:
+            logger.warning("pgvector 정렬 실패: 홈쇼핑 상품명을 찾을 수 없음")
+            return []
+
+        # 2) 임베딩 생성 (레시피 모듈의 모델 재사용)
+        from services.recipe.utils.core import get_model  # lazy import
+        import numpy as np  # noqa: F401 (타입 힌트/변환용)
+        model = await get_model()
+        query_vec_np = model.encode(prod_name, normalize_embeddings=True)
+        query_vec = [float(x) for x in query_vec_np.tolist()]
+
+        # 3) PostgreSQL(pgvector)로 후보 내 유사도 정렬
+        from sqlalchemy import text, bindparam
+        from pgvector.sqlalchemy import Vector
+        from common.database.postgres_recommend import get_postgres_recommend_db
+
+        sql = text(
+            """
+            SELECT "KOK_PRODUCT_ID" AS pid,
+                   "VECTOR_NAME" <-> :qv AS distance
+            FROM "KOK_VECTOR_TABLE"
+            WHERE "KOK_PRODUCT_ID" IN :ids
+            ORDER BY distance ASC
+            LIMIT :k
+            """
+        ).bindparams(
+            bindparam("qv", type_=Vector(384)),   # vector(384)로 바인딩
+            bindparam("ids", expanding=True),      # 후보 ID 리스트 확장
+            bindparam("k")
         )
+
+        params = {
+            "qv": query_vec,
+            "ids": [int(i) for i in candidate_ids],
+            "k": int(max(1, k)),
+        }
+
+        async for pg in get_postgres_recommend_db():
+            rows = (await pg.execute(sql, params)).all()
+            sims: List[Tuple[int, float]] = [
+                (int(r.pid), float(r.distance)) for r in rows
+            ]
+            logger.info(f"pgvector 정렬 완료: 결과 수={len(sims)}")
+            return sims
         
-        result = await db.execute(stmt)
-        products = result.all()
-        
-        # 점수 계산 (리뷰점수 + 리뷰수)
-        scored_products = []
-        for product in products:
-            rating_score = (product.kok_review_score or 0) * 100  # 0~5점을 0~500점으로 변환
-            review_score = (product.kok_review_cnt or 0) * 10  # 리뷰수에 가중치
-            
-            total_score = rating_score + review_score
-            scored_products.append((product.kok_product_id, total_score))
-        
-        # 점수 순으로 정렬 (높은 점수가 낮은 거리)
-        scored_products.sort(key=lambda x: x[1], reverse=True)
-        
-        # 거리로 변환 (높은 점수 = 낮은 거리)
-        similarities = []
-        for i, (pid, score) in enumerate(scored_products[:k]):
-            # 점수를 0~1 범위의 거리로 변환 (높은 점수 = 낮은 거리)
-            distance = 1.0 / (1.0 + score) if score > 0 else 1.0
-            similarities.append((pid, distance))
-        
-        logger.info(f"리뷰 점수 기반 정렬 완료: 결과 수={len(similarities)}")
-        return similarities
+        return []
         
     except Exception as e:
-        logger.error(f"판매량 기반 정렬 실패: error={str(e)}")
-        # 에러 발생 시 더미 데이터로 폴백
-        logger.warning("더미 데이터로 폴백")
-        dummy_similarities = []
-        for i, pid in enumerate(candidate_ids[:k]):
-            distance = 0.1 + (i * 0.1)
-            dummy_similarities.append((pid, distance))
-        return dummy_similarities
+        logger.error(f"pgvector 유사도 정렬 실패: error={str(e)}")
+        return []
 
-async def get_kok_candidates_by_keywords(
+async def get_kok_candidates_by_keywords_improved(
     db: AsyncSession,
     must_keywords: List[str],
     optional_keywords: List[str],
@@ -1214,7 +1187,7 @@ async def get_kok_candidates_by_keywords(
     min_if_all_fail: int = 30
 ) -> List[int]:
     """
-    키워드 기반으로 콕 상품 후보 검색 (실제 DB 연동, 업그레이드 버전)
+    키워드 기반으로 콕 상품 후보 검색 (개선된 오케스트레이터 로직)
     - must: OR(하나라도) → 부족하면 AND(최대 2개) → 다시 OR로 폴백
     - optional: 여전히 부족하면 OR로 보충
     - GATE_COMPARE_STORE=true면 스토어명도 검색에 포함
@@ -1317,9 +1290,21 @@ async def get_kok_candidates_by_keywords(
         
     except Exception as e:
         logger.error(f"키워드 기반 검색 실패: error={str(e)}")
-        # 에러 발생 시 더미 데이터로 폴백
-        logger.warning("더미 데이터로 폴백")
-        return [1001, 1002, 1003, 1004, 1005][:limit]
+        logger.error("키워드 기반 검색에 실패했습니다")
+        return []
+
+
+async def get_kok_candidates_by_keywords(
+    db: AsyncSession,
+    must_keywords: List[str],
+    optional_keywords: List[str],
+    limit: int = 600,
+    min_if_all_fail: int = 30
+) -> List[int]:
+    """
+    키워드 기반으로 콕 상품 후보 검색 (기존 함수 - 호환성 유지)
+    """
+    return await get_kok_candidates_by_keywords_improved(db, must_keywords, optional_keywords, limit, min_if_all_fail)
 
 async def test_kok_db_connection(db: AsyncSession) -> bool:
     """
@@ -1343,28 +1328,17 @@ async def test_kok_db_connection(db: AsyncSession) -> bool:
 # 추천 관련 유틸리티 함수들 (utils 폴더 사용)
 # -----------------------------
 
-from ..utils.homeshopping_kok import (
-    DYN_MAX_TERMS, DYN_MAX_EXTRAS, DYN_SAMPLE_ROWS,
-    TAIL_MAX_DF_RATIO, TAIL_MAX_TERMS, NGRAM_N,
-    DYN_NGRAM_MIN, DYN_NGRAM_MAX,
-    DYN_COUNT_MIN, DYN_COUNT_MAX,
-    extract_core_keywords, extract_tail_keywords, roots_in_name,
-    infer_terms_from_name_via_ngrams, filter_tail_and_ngram_and, filter_tail_and_ngram_or,
-    load_domain_dicts, normalize_name, tokenize_normalized
-)
-
 # ----- 옵션: 게이트에서 스토어명도 LIKE 비교할지 (기본 False) -----
 GATE_COMPARE_STORE = os.getenv("GATE_COMPARE_STORE", "false").lower() in ("1","true","yes","on")
+
+
 
 
 # -----------------------------
 # 추천 시스템 함수들
 # -----------------------------
 
-# homeshopping_kok.py의 함수들을 import
-from ..utils.homeshopping_kok import (
-    recommend_homeshopping_to_kok as kok_recommend_homeshopping_to_kok
-)
+# homeshopping_kok.py 관련 의존성 제거됨
 
 
 async def recommend_homeshopping_to_kok(
@@ -1376,26 +1350,91 @@ async def recommend_homeshopping_to_kok(
     rerank_mode: str = None,
 ) -> List[Dict]:
     """
-    홈쇼핑 상품에 대한 콕 유사 상품 추천 (homeshopping_kok.py의 로직 사용)
+    홈쇼핑 상품에 대한 콕 유사 상품 추천 (utils 원본 로직 사용)
+    응답 형태는 라우터에서 {"products": [...]}로 감싸 반환
     """
     try:
-        # homeshopping_kok.py의 추천 로직을 직접 호출
-        logger.info(f"homeshopping_kok.py의 추천 로직 호출: product_id={homeshopping_product_id}")
-        result = await kok_recommend_homeshopping_to_kok(
-            db=db,
-            product_id=homeshopping_product_id,
-            k=k,
-            use_rerank=use_rerank,
-            candidate_n=candidate_n,
-            rerank_mode=rerank_mode
+        # utils의 키워드 추출 및 필터링 함수들 사용
+        from ..utils.homeshopping_kok import (
+            filter_tail_and_ngram_and,
+            extract_tail_keywords, extract_core_keywords, roots_in_name,
+            infer_terms_from_name_via_ngrams, DYN_MAX_TERMS
         )
-        logger.info(f"homeshopping_kok.py 추천 완료: {len(result)}개 상품")
+        
+        # 1. 홈쇼핑 상품명 조회
+        prod_name = await get_homeshopping_product_name(db, homeshopping_product_id) or ""
+        if not prod_name:
+            logger.warning(f"홈쇼핑 상품명을 찾을 수 없음: homeshopping_product_id={homeshopping_product_id}")
+            return []
+
+        # 2. 키워드 구성 (원본 로직 그대로)
+        tail_k = extract_tail_keywords(prod_name, max_n=2)          # 뒤쪽 핵심(희소 가능성이 높은 토큰)
+        core_k = extract_core_keywords(prod_name, max_n=3)          # 앞/강한 핵심
+        root_k = roots_in_name(prod_name)                           # 루트 힌트(사전 기반)
+        ngram_k = infer_terms_from_name_via_ngrams(prod_name, max_terms=DYN_MAX_TERMS)
+
+        must_kws = list(dict.fromkeys([*tail_k, *core_k, *root_k]))[:12]
+        optional_kws = list(dict.fromkeys([*ngram_k]))[:DYN_MAX_TERMS]
+
+        logger.info(f"키워드 구성: must={must_kws}, optional={optional_kws}")
+
+        # 3. LIKE 게이트로 후보 (기존 프로젝트 함수 사용)
+        cand_ids = await get_kok_candidates_by_keywords_improved(
+            db=db,
+            must_keywords=must_kws,
+            optional_keywords=optional_kws,
+            limit=max(candidate_n * 3, 300)
+        )
+        if not cand_ids:
+            logger.warning("키워드 기반 후보 수집 결과가 비어있음")
+            return []
+
+        logger.info(f"후보 수집 완료: {len(cand_ids)}개")
+
+        # 4. 후보 내 pgvector 정렬
+        sims = await get_pgvector_topk_within(
+            db,
+            homeshopping_product_id,
+            cand_ids,
+            max(k, candidate_n),
+        )
+        if not sims:
+            return []
+
+        pid_order = [pid for pid, _ in sims]
+        dist_map = {pid: dist for pid, dist in sims}
+
+        # 5. 상세 조인
+        details = await get_kok_product_infos(db, pid_order)
+        if not details:
+            return []
+        for d in details:
+            d["distance"] = dist_map.get(d["kok_product_id"])
+
+        # 6. (옵션) 리랭크 or 거리 정렬
+        ranked = sorted(details, key=lambda x: x.get("distance", 1e9))  # 기본: 거리 오름차순
+
+        # 7. 최종 AND 필터 적용 (tail ≥1 AND n-gram ≥1)
+        # 필터링을 위해 키 변환
+        for d in ranked:
+            d["KOK_PRODUCT_NAME"] = d.get("kok_product_name", "")
+            d["KOK_STORE_NAME"] = d.get("kok_store_name", "")
+        
+        filtered = filter_tail_and_ngram_and(ranked, prod_name)
+        
+        # 임시 키 제거
+        for d in filtered:
+            d.pop("KOK_PRODUCT_NAME", None)
+            d.pop("KOK_STORE_NAME", None)
+
+        # 8. 최대 k개까지 반환
+        result = filtered[:k]
+        logger.info(f"추천 완료: {len(result)}개 상품")
         return result
         
     except Exception as e:
-        logger.error(f"homeshopping_kok.py 추천 로직 실패: {str(e)}, 폴백 시스템 사용")
-        
-        # 폴백: 기존 로직 사용
+        logger.error(f"추천 로직 실패: {str(e)}")
+        # 폴백으로 간단 추천 사용
         return await simple_recommend_homeshopping_to_kok(homeshopping_product_id, k, db)
 
 async def simple_recommend_homeshopping_to_kok(
@@ -1404,7 +1443,8 @@ async def simple_recommend_homeshopping_to_kok(
     db=None
 ) -> List[Dict]:
     """
-    간단한 추천 데이터 반환 (실제 DB 연동 시도, 실패 시 더미 데이터)
+    간단한 추천 데이터 반환 (실제 DB 연동 시도)
+    - 오케스트레이터 실패 시 폴백 시스템
     """
     logger.info(f"간단한 추천 시스템 호출: homeshopping_product_id={homeshopping_product_id}, k={k}")
     
@@ -1421,23 +1461,11 @@ async def simple_recommend_homeshopping_to_kok(
                 return recommendations
                 
         except Exception as e:
-            logger.warning(f"실제 DB 연동 실패, 더미 데이터 사용: {str(e)}")
+            logger.warning(f"실제 DB 연동 실패: {str(e)}")
     
-    # DB 연동 실패 시 더미 데이터 반환
-    logger.info("더미 데이터로 폴백")
-    dummy_recommendations = []
-    for i in range(k):
-        dummy_recommendations.append({
-            "kok_product_id": 1000 + i + 1,
-            "kok_thumbnail": f"https://example.com/kok_{1000 + i + 1}.jpg",
-            "kok_discount_rate": 15 + (i * 5),  # 더미 할인율
-            "kok_discounted_price": 10000 + (i * 1000),
-            "kok_product_name": f"콕 상품 {1000 + i + 1}",
-            "kok_store_name": f"콕 스토어 {i + 1}"
-        })
-    
-    logger.info(f"간단한 추천 완료: {len(dummy_recommendations)}개 상품")
-    return dummy_recommendations
+    # DB 연동 실패 시 빈 리스트 반환
+    logger.warning("추천 결과를 찾을 수 없습니다")
+    return []
 
 # ================================
 # KOK 상품 기반 홈쇼핑 추천
@@ -1717,147 +1745,44 @@ async def get_homeshopping_cart_items(
         logger.error(f"홈쇼핑 장바구니 조회 실패: user_id={user_id}, error={str(e)}")
         return []
 
+
 # ================================
-# 추천 필터링 함수들
+# 개선된 추천 시스템 설명
 # ================================
+"""
+개선된 홈쇼핑 → 콕 추천 시스템
 
-import re
-from collections import Counter
+1. 추천 오케스트레이터 파이프라인:
+   - 1단계: 홈쇼핑 상품명에서 must/optional 키워드 구성
+   - 2단계: LIKE 게이트로 후보 수집 (must: OR → AND → OR 폴백, optional: OR 보충)
+   - 3단계: 후보 내 pgvector 정렬
+   - 4단계: (옵션) 리랭크
+   - 5단계: 최종 AND 필터(tail ≥1 AND n-gram ≥1)
+   - 6단계: 최대 k개 슬라이스
 
-# 기본 stopwords와 root hints
-DEFAULT_STOPWORDS = set("""
-세트 선물세트 모음 모음전 구성 증정 행사 정품 정기 무료 특가 사은품 선물 혼합 혼합세트 묶음 총 택
-옵션 국내산 수입산 무료배송 당일 당일발송 예약 신상 히트 인기 추천 기획 기획세트 명품 프리미엄 리미티드
-한정 본품 리뉴얼 정가 정상가 행사상품 대용량 소용량 박스 리필 업소용 가정용 편의점 오리지널 리얼 신제품 공식 단독
-정기구독 구독 사은 혜택 특전 한정판 고당도 산지 당일 당일직송 직송 손질 세척 냉동 냉장 생물 해동 숙성
-팩 봉 포 개 입 병 캔 스틱 정 포기 세트구성 골라담기 택1 택일 실속 못난이 파우치 슬라이스 인분
-""".split())
+2. 키워드 구성 전략:
+   - tail_keywords: 뒤쪽 핵심(희소 가능성이 높은 토큰)
+   - core_keywords: 앞/강한 핵심
+   - root_keywords: 루트 힌트(사전 기반)
+   - ngram_keywords: 동적 n-gram
 
-DEFAULT_ROOT_HINTS = [
-    "육수","다시","사골","곰탕","장국","티백","멸치","황태","디포리","가쓰오","가다랭이",
-    "주꾸미","쭈꾸미","오징어","한치","문어","낙지","새우","꽃게","홍게","대게","게",
-    "김치","포기김치","열무김치","갓김치","동치미","만두","교자","왕교자","라면","우동","국수","칼국수","냉면",
-    "사리","메밀","막국수","어묵","오뎅","두부","순두부","유부","우유","치즈","요거트","버터",
-    "닭","닭가슴살","닭다리","닭안심","돼지","돼지고기","삼겹살","목살","소고기","한우","양지","사태","갈비","차돌",
-    "식용유","참기름","들기름","설탕","소금","고추장","된장","간장","쌈장","고춧가루","카레","짜장","분말",
-    "명란","명란젓","젓갈","어란","창란","창란젓","오징어젓","낙지젓",
-]
+3. 후보 검색 전략:
+   - must 키워드: OR(하나라도) → 부족하면 AND(최대 2개) → 다시 OR로 폴백
+   - optional 키워드: 여전히 부족하면 OR로 보충
+   - GATE_COMPARE_STORE 옵션으로 스토어명도 검색에 포함 가능
 
-# 정규식 패턴
-_MEAS1 = re.compile(r"\d+(?:\.\d+)?\s*(?:g|kg|ml|l|L)?\s*(?:[xX×＊*]\s*\d+)?", re.I)
-_MEAS2 = re.compile(r"\b\d+[a-zA-Z]+\b")
-_ONLYNUM = re.compile(r"\b\d+\b")
-_HANGUL_ONLY = re.compile(r"^[가-힣]{2,}$")
+4. 필터링 전략:
+   - tail 토큰 일치 ≥ 1
+   - n-gram 겹침 ≥ 1 (기본 bi-gram)
+   - 들어온 순서를 보존(이미 정렬되어 있다고 가정)
 
-def normalize_name(name: str) -> str:
-    """상품명 정규화"""
-    if not isinstance(name, str):
-        return ""
-    s = re.sub(r"\[[^\]]*\]", " ", name)
-    s = re.sub(r"\([^)]*\)", " ", s)
-    s = _MEAS1.sub(" ", s)
-    s = _MEAS2.sub(" ", s)
-    s = _ONLYNUM.sub(" ", s)
-    s = re.sub(r"[^\w가-힣]+", " ", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
+5. 메타데이터 추가:
+   - 추천 결과에 파이프라인 설정 및 키워드 분석 정보 포함
+   - 폴백 시스템 정보 포함
 
-def tokenize_normalized(text: str, stopwords: set) -> list:
-    """정규화된 텍스트를 토큰화"""
-    s = normalize_name(text)
-    return [t for t in s.split() if len(t) >= 2 and not t.isnumeric() and t not in stopwords]
+6. 폴백 시스템:
+   - 오케스트레이터 실패 시 간단한 인기 상품 기반 추천
+   - DB 연동 실패 시 빈 결과 반환
+"""
 
-def _char_ngrams_raw(s: str, n: int = 2) -> set:
-    """문자 n-gram 생성"""
-    s2 = normalize_name(s).replace(" ", "")
-    if len(s2) < n:
-        return set()
-    return {s2[i:i+n] for i in range(len(s2)-n+1)}
 
-def _ngram_overlap_count(a: str, b: str, n: int = 2) -> int:
-    """두 문자열 간 n-gram 겹침 개수 계산"""
-    return len(_char_ngrams_raw(a, n) & _char_ngrams_raw(b, n))
-
-def _dynamic_tail_terms(query_name: str, candidate_names: list, stopwords: set) -> list:
-    """후보 집합에서 희소한 쿼리 토큰만 tail로 선정"""
-    q_toks = set(tokenize_normalized(query_name, stopwords))
-    if not q_toks or not candidate_names:
-        return list(q_toks)[:1]  # 폴백
-
-    df = Counter()
-    for name in candidate_names:
-        df.update(set(tokenize_normalized(name, stopwords)))
-
-    total_docs = max(1, len(candidate_names))
-    tail = [t for t in q_toks if (df.get(t, 0) / total_docs) <= 0.35]  # TAIL_MAX_DF_RATIO = 0.35
-    tail.sort(key=lambda t: df.get(t, 0))  # 희소한 순
-    if not tail:
-        tail = list(q_toks)[:1]
-    return tail[:max(1, 3)]  # TAIL_MAX_TERMS = 3
-
-def filter_tail_and_ngram_and(details: list, prod_name: str) -> list:
-    """
-    AND 조건:
-      - tail 토큰 일치 ≥ 1
-      - n-gram 겹침 ≥ 1 (기본 bi-gram)
-    들어온 순서를 보존(이미 정렬되어 있다고 가정).
-    """
-    if not details:
-        return []
-    
-    stopwords = DEFAULT_STOPWORDS
-    
-    # 디버깅: 첫 번째 상품의 구조 확인
-    if details:
-        logger.info(f"첫 번째 상품 구조: {list(details[0].keys())}")
-        logger.info(f"첫 번째 상품 데이터: {details[0]}")
-    
-    cand_names = [f"{r.get('kok_product_name','')} {r.get('kok_store_name','')}" for r in details]
-    
-    # 디버깅: 생성된 상품명들 확인
-    logger.info(f"생성된 상품명들 (처음 5개): {cand_names[:5]}")
-    
-    tails = set(_dynamic_tail_terms(prod_name, cand_names, stopwords))
-    logger.info(f"동적 tail 토큰: {tails}")
-
-    out = []
-    for i, r in enumerate(details):
-        name = f"{r.get('kok_product_name','')} {r.get('kok_store_name','')}"
-        toks = set(tokenize_normalized(name, stopwords))
-        tail_hits = len(tails & toks)
-        ngram_hits = _ngram_overlap_count(prod_name, name, n=2)  # NGRAM_N = 2
-        
-        # 디버깅: 처음 5개 상품의 필터링 과정
-        if i < 5:
-            logger.info(f"상품 {i+1}: '{name}' -> tail_hits={tail_hits}, ngram_hits={ngram_hits}")
-            logger.info(f"  토큰: {toks}")
-            logger.info(f"  tail 토큰: {tails}")
-        
-        if tail_hits >= 1 and ngram_hits >= 1:
-            out.append(r)
-    
-    logger.info(f"필터링 결과: {len(out)}개 상품 통과 (전체: {len(details)}개)")
-    return out
-
-def filter_tail_and_ngram_or(details: list, prod_name: str) -> list:
-    """
-    OR 조건:
-      - tail 토큰 일치 ≥ 1 OR n-gram 겹침 ≥ 1 (기본 bi-gram)
-    들어온 순서를 보존(이미 정렬되어 있다고 가정).
-    """
-    if not details:
-        return []
-    
-    stopwords = DEFAULT_STOPWORDS
-    cand_names = [f"{r.get('kok_product_name','')} {r.get('kok_store_name','')}" for r in details]
-    tails = set(_dynamic_tail_terms(prod_name, cand_names, stopwords))
-
-    out = []
-    for r in details:
-        name = f"{r.get('kok_product_name','')} {r.get('kok_store_name','')}"
-        toks = set(tokenize_normalized(name, stopwords))
-        tail_hits = len(tails & toks)
-        ngram_hits = _ngram_overlap_count(prod_name, name, n=2)  # NGRAM_N = 2
-        if tail_hits >= 1 or ngram_hits >= 1:  # OR 조건으로 변경
-            out.append(r)
-    return out
