@@ -795,12 +795,12 @@ async def calculate_homeshopping_order_price(
             logger.error(f"상품을 찾을 수 없음: product_id={product_id}")
             raise ValueError("상품을 찾을 수 없습니다.")
         
-        # 2. 상품명 조회
+        # 2. 상품명 조회 (여러 행이 있을 수 있으므로 첫 번째 행만 사용)
         live_stmt = select(HomeshoppingList).where(
             HomeshoppingList.product_id == product_id
         )
         live_result = await db.execute(live_stmt)
-        live = live_result.scalar_one_or_none()
+        live = live_result.scalars().first()
         
         product_name = live.product_name if live else f"상품_{product_id}"
         
