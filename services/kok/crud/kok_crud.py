@@ -28,6 +28,7 @@ from services.kok.models.kok_model import (
     KokNotification,
     KokClassify
 )
+from services.homeshopping.models.homeshopping_model import HomeshoppingClassify
 from services.kok.schemas.kok_schema import (
     KokReviewStats,
     KokReviewDetail,
@@ -1131,14 +1132,13 @@ async def add_kok_search_history(
     )
     
     db.add(new_history)
-    await db.refresh(new_history)
+    await db.commit()
     
-    logger.info(f"검색 이력 추가 완료: history_id={new_history.kok_history_id}")
+    logger.info(f"검색 이력 추가 완료: user_id={user_id}, keyword={keyword}")
     return {
-        "kok_history_id": new_history.kok_history_id,
-        "user_id": new_history.user_id,
-        "kok_keyword": new_history.kok_keyword,
-        "kok_searched_at": new_history.kok_searched_at,
+        "user_id": user_id,
+        "kok_keyword": keyword,
+        "kok_searched_at": searched_at,
     }
 
 
@@ -1308,38 +1308,58 @@ async def get_ingredients_from_selected_cart_items(
 
 async def get_ingredients_from_cart_product_ids(
     db: AsyncSession,
-    kok_product_ids: List[int]
+    kok_product_ids: List[int],
+    homeshopping_product_ids: List[int] = None
 ) -> List[str]:
     """
-    장바구니에서 선택한 상품들의 kok_product_id를 받아서 KOK_CLASSIFY 테이블에서 cls_ing이 1인 상품만 사용하여 키워드를 추출
-    - kok_product_id로 KOK_CLASSIFY 테이블에서 cls_ing이 1인 상품만 필터링
+    장바구니에서 선택한 상품들의 kok_product_id와 homeshopping_product_ids를 받아서 키워드를 추출
+    - KOK 상품: KOK_CLASSIFY 테이블에서 cls_ing이 1인 상품만 필터링
+    - 홈쇼핑 상품: HOMESHOPPING_CLASSIFY 테이블에서 cls_ing이 1인 상품만 필터링
     - 해당 상품들의 product_name에서 키워드 추출
     - keyword_extraction.py의 고급 로직 사용
     
     Returns:
         List[str]: 추출된 키워드 목록
     """
-    logger.info(f"장바구니 상품 ID에서 재료 추출 시작: kok_product_ids={kok_product_ids}")
+    homeshopping_product_ids = homeshopping_product_ids or []
+    logger.info(f"장바구니 상품 ID에서 재료 추출 시작: kok_product_ids={kok_product_ids}, homeshopping_product_ids={homeshopping_product_ids}")
 
-    if not kok_product_ids:
+    if not kok_product_ids and not homeshopping_product_ids:
         logger.warning("선택된 상품 ID가 없음")
         return []
 
-    # KOK_CLASSIFY 테이블에서 cls_ing이 1인 상품만 조회
-    stmt = (
-        select(KokClassify)
-        .where(KokClassify.product_id.in_(kok_product_ids))
-        .where(KokClassify.cls_ing == 1)
-    )
+    # KOK 상품 처리
+    kok_products = []
+    if kok_product_ids:
+        stmt = (
+            select(KokClassify)
+            .where(KokClassify.product_id.in_(kok_product_ids))
+            .where(KokClassify.cls_ing == 1)
+        )
+        result = await db.execute(stmt)
+        kok_products = result.scalars().all()
+        logger.info(f"KOK cls_ing이 1인 상품 {len(kok_products)}개 발견")
 
-    result = await db.execute(stmt)
-    classified_products = result.scalars().all()
+    # 홈쇼핑 상품 처리
+    homeshopping_products = []
+    if homeshopping_product_ids:
+        stmt = (
+            select(HomeshoppingClassify)
+            .where(HomeshoppingClassify.product_id.in_(homeshopping_product_ids))
+            .where(HomeshoppingClassify.cls_ing == 1)
+        )
+        result = await db.execute(stmt)
+        homeshopping_products = result.scalars().all()
+        logger.info(f"홈쇼핑 cls_ing=1인 상품 {len(homeshopping_products)}개 발견")
 
-    if not classified_products:
-        logger.warning(f"cls_ing이 1인 상품을 찾을 수 없음: kok_product_ids={kok_product_ids}")
+    # 모든 상품을 하나의 리스트로 합치기
+    all_products = list(kok_products) + list(homeshopping_products)
+    
+    if not all_products:
+        logger.warning(f"분류된 상품을 찾을 수 없음: kok_product_ids={kok_product_ids}, homeshopping_product_ids={homeshopping_product_ids}")
         return []
 
-    logger.info(f"cls_ing이 1인 상품 {len(classified_products)}개 발견")
+    logger.info(f"총 {len(all_products)}개 상품에서 키워드 추출 시작")
 
     # 표준 재료 어휘 로드 (TEST_MTRL.MATERIAL_NAME)
     ing_vocab = set()
@@ -1373,7 +1393,7 @@ async def get_ingredients_from_cart_product_ids(
     extracted_ingredients = set()
 
     # 각 상품명에서 재료 키워드 추출
-    for classified_product in classified_products:
+    for classified_product in all_products:
         product_name = classified_product.product_name
         if not product_name:
             continue
