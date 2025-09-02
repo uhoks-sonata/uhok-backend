@@ -1309,12 +1309,14 @@ async def get_ingredients_from_selected_cart_items(
 async def get_ingredients_from_cart_product_ids(
     db: AsyncSession,
     kok_product_ids: List[int],
-    homeshopping_product_ids: List[int] = None
+    homeshopping_product_ids: List[int] = None,
+    unified_product_ids: List[int] = None
 ) -> List[str]:
     """
     장바구니에서 선택한 상품들의 kok_product_id와 homeshopping_product_ids를 받아서 키워드를 추출
     - KOK 상품: KOK_CLASSIFY 테이블에서 cls_ing이 1인 상품만 필터링
     - 홈쇼핑 상품: HOMESHOPPING_CLASSIFY 테이블에서 cls_ing이 1인 상품만 필터링
+    - 통합 상품: 두 테이블 모두에서 cls_ing이 1인 상품을 찾아서 필터링
     - 해당 상품들의 product_name에서 키워드 추출
     - keyword_extraction.py의 고급 로직 사용
     
@@ -1322,6 +1324,13 @@ async def get_ingredients_from_cart_product_ids(
         List[str]: 추출된 키워드 목록
     """
     homeshopping_product_ids = homeshopping_product_ids or []
+    unified_product_ids = unified_product_ids or []
+    
+    # 통합 파라미터가 있으면 기존 파라미터와 합치기
+    if unified_product_ids:
+        kok_product_ids = list(set(kok_product_ids + unified_product_ids))
+        homeshopping_product_ids = list(set(homeshopping_product_ids + unified_product_ids))
+    
     logger.info(f"장바구니 상품 ID에서 재료 추출 시작: kok_product_ids={kok_product_ids}, homeshopping_product_ids={homeshopping_product_ids}")
 
     if not kok_product_ids and not homeshopping_product_ids:
@@ -1355,8 +1364,35 @@ async def get_ingredients_from_cart_product_ids(
     # 모든 상품을 하나의 리스트로 합치기
     all_products = list(kok_products) + list(homeshopping_products)
     
-    if not all_products:
+    # 분류된 상품이 없으면 FCT_KOK_PRODUCT_INFO에서 직접 상품명 조회 (폴백)
+    if not all_products and kok_product_ids:
         logger.warning(f"분류된 상품을 찾을 수 없음: kok_product_ids={kok_product_ids}, homeshopping_product_ids={homeshopping_product_ids}")
+        logger.info("FCT_KOK_PRODUCT_INFO에서 직접 상품명 조회 시도 (폴백)")
+        
+        # FCT_KOK_PRODUCT_INFO에서 상품명 조회
+        product_stmt = (
+            select(KokProductInfo)
+            .where(KokProductInfo.kok_product_id.in_(kok_product_ids))
+        )
+        product_result = await db.execute(product_stmt)
+        products = product_result.scalars().all()
+        
+        if products:
+            # KokClassify 형태로 변환
+            for product in products:
+                temp_classify = type('TempClassify', (), {
+                    'product_id': product.kok_product_id,
+                    'product_name': product.kok_product_name,
+                    'cls_ing': 1  # 임시로 1로 설정
+                })()
+                all_products.append(temp_classify)
+            
+            logger.info(f"FCT_KOK_PRODUCT_INFO에서 {len(all_products)}개 상품 발견 (폴백)")
+        else:
+            logger.warning(f"FCT_KOK_PRODUCT_INFO에서도 상품을 찾을 수 없음: kok_product_ids={kok_product_ids}")
+    
+    if not all_products:
+        logger.warning(f"모든 방법으로 상품을 찾을 수 없음: kok_product_ids={kok_product_ids}, homeshopping_product_ids={homeshopping_product_ids}")
         return []
 
     logger.info(f"총 {len(all_products)}개 상품에서 키워드 추출 시작")
