@@ -755,7 +755,8 @@ async def delete_cart_item(
 
 @router.get("/carts/recipe-recommend", response_model=KokCartRecipeRecommendResponse)
 async def recommend_recipes_from_cart_items(
-    kok_product_ids: str = Query(..., description="선택된 상품의 kok_product_id 목록 (쉼표로 구분)"),
+    kok_product_ids: str = Query(None, description="선택된 KOK 상품의 kok_product_id 목록 (쉼표로 구분)"),
+    homeshopping_product_ids: str = Query(None, description="선택된 홈쇼핑 상품의 product_id 목록 (쉼표로 구분)"),
     page: int = Query(1, ge=1, description="페이지 번호 (1부터 시작)"),
     size: int = Query(10, ge=1, le=100, description="페이지당 레시피 수"),
     current_user: UserOut = Depends(get_current_user),
@@ -763,23 +764,31 @@ async def recommend_recipes_from_cart_items(
     db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    장바구니에서 선택한 상품들의 kok_product_id를 받아서 KOK_CLASSIFY 테이블에서 cls_ing이 1인 상품만 사용하여 레시피를 추천
-    - kok_product_id로 KOK_CLASSIFY 테이블에서 cls_ing이 1인 상품만 필터링
+    장바구니에서 선택한 상품들의 kok_product_id와 homeshopping_product_ids를 받아서 키워드 추출 후 레시피 추천
+    - KOK 상품: KOK_CLASSIFY 테이블에서 cls_ing이 1인 상품만 필터링
+    - 홈쇼핑 상품: HOMESHOPPING_CLASSIFY 테이블에서 cls_ing이 1인 상품만 필터링
     - 해당 상품들의 product_name에서 키워드 추출
     - recipe 폴더 내에서 식재료명 기반 레시피 추천 로직을 사용
     """
     try:
-        # 쉼표로 구분된 kok_product_ids를 리스트로 변환
-        product_ids = [int(pid.strip()) for pid in kok_product_ids.split(",") if pid.strip().isdigit()]
+        # KOK 상품 ID 파싱
+        kok_ids = []
+        if kok_product_ids:
+            kok_ids = [int(pid.strip()) for pid in kok_product_ids.split(",") if pid.strip().isdigit()]
         
-        if not product_ids:
+        # 홈쇼핑 상품 ID 파싱
+        homeshopping_ids = []
+        if homeshopping_product_ids:
+            homeshopping_ids = [int(pid.strip()) for pid in homeshopping_product_ids.split(",") if pid.strip().isdigit()]
+        
+        if not kok_ids and not homeshopping_ids:
             raise HTTPException(status_code=400, detail="유효한 상품 ID가 없습니다.")
         
-        logger.info(f"레시피 추천 요청: user_id={current_user.user_id}, kok_product_ids={product_ids}, page={page}, size={size}")
+        logger.info(f"레시피 추천 요청: user_id={current_user.user_id}, kok_product_ids={kok_ids}, homeshopping_product_ids={homeshopping_ids}, page={page}, size={size}")
         
-        # KOK_CLASSIFY 테이블에서 cls_ing이 1인 상품만 사용하여 재료명 추출
+        # KOK와 홈쇼핑 상품에서 재료명 추출
         ingredients = await get_ingredients_from_cart_product_ids(
-            db, product_ids
+            db, kok_ids, homeshopping_ids
         )
         
         if not ingredients:
@@ -853,7 +862,8 @@ async def recommend_recipes_from_cart_items(
                 user_id=current_user.user_id, 
                 event_type="cart_recipe_recommend", 
                 event_data={
-                    "kok_product_ids": product_ids,
+                    "kok_product_ids": kok_ids,
+                    "homeshopping_product_ids": homeshopping_ids,
                     "extracted_ingredients": ingredients,
                     "recommended_recipes_count": len(recipes),
                     "page": page,
