@@ -12,7 +12,7 @@ from common.dependencies import get_current_user
 from common.logger import get_logger
 
 from services.order.schemas.payment_schema import PaymentConfirmV1Request, PaymentConfirmV1Response, PaymentConfirmV2Response
-from services.order.crud.payment_crud import confirm_payment_and_update_status_v1
+from services.order.crud.payment_crud import confirm_payment_and_update_status_v1, webhook_waiters
 
 logger = get_logger("payment_router")
 router = APIRouter(prefix="/api/orders/payment", tags=["Orders/Payment"])
@@ -139,4 +139,17 @@ async def payment_webhook_v2(
     except Exception as e:
         logger.error(f"[v2] 웹훅 처리 중 예외 발생: {e}")
         raise HTTPException(status_code=500, detail=f"webhook processing error: {str(e)}")
+
+# === [Cleanup Task] =========================================================
+async def cleanup_webhook_waiters():
+    """
+    오래된 웹훅 대기자들을 정리하는 함수
+    주기적으로 호출하여 메모리 누수를 방지
+    """
+    try:
+        await webhook_waiters.cleanup(max_age_sec=300)  # 5분 이상 된 대기자 정리
+        logger.info("[v2] 웹훅 대기자 클린업 완료")
+    except Exception as e:
+        logger.error(f"[v2] 웹훅 대기자 클린업 실패: {e}")
+
 # ===========================================================================
