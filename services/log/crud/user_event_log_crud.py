@@ -33,6 +33,12 @@ async def create_user_log(db: AsyncSession, log_data: dict) -> UserLog:
     }
     if "event_data" in log_data and log_data["event_data"] is not None:
         data["event_data"] = log_data["event_data"]
+    
+    # HTTP 관련 필드들 추가
+    http_fields = ["http_method", "api_url", "request_time", "response_time", "response_code", "client_ip"]
+    for field in http_fields:
+        if field in log_data and log_data[field] is not None:
+            data[field] = log_data[field]
 
     try:
         log = UserLog(**data)  # created_at 없음!
