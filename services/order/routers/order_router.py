@@ -338,49 +338,6 @@ async def get_recent_orders(
     )
 
 
-@router.get("/recent/ingredients", response_model=dict)
-async def get_recent_orders_ingredients(
-    days: int = Query(7, description="조회 기간 (일)"),
-    background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_maria_service_db),
-    user=Depends(get_current_user)
-):
-    """
-    7일 내 주문 내역에서 모든 상품의 product_name을 가져와서 키워드를 추출
-    
-    Args:
-        days: 조회 기간 (일), 기본값 7일
-        
-    Returns:
-        키워드 추출 결과 딕셔너리
-    """
-    logger.info(f"최근 {days}일 주문 내역 키워드 추출 API 호출: user_id={user.user_id}")
-    
-    try:
-        # CRUD 계층에 키워드 추출 위임
-        from services.order.crud.order_crud import get_recent_orders_with_ingredients
-        result = await get_recent_orders_with_ingredients(db, user.user_id, days)
-        
-        # 키워드 추출 로그 기록
-        if background_tasks:
-            background_tasks.add_task(
-                send_user_log, 
-                user_id=user.user_id, 
-                event_type="recent_orders_ingredients_view", 
-                event_data={
-                    "days": days, 
-                    "total_products": result["total_products"],
-                    "total_keywords": result["total_keywords"]
-                }
-            )
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"최근 {days}일 주문 내역 키워드 추출 실패: user_id={user.user_id}, error={str(e)}")
-        raise HTTPException(status_code=500, detail=f"키워드 추출 중 오류가 발생했습니다: {str(e)}")
-
-
 @router.get("/{order_id}", response_model=OrderRead)
 async def read_order(
         order_id: int,

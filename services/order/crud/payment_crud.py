@@ -27,6 +27,71 @@ logger = get_logger("payment_crud")
 
 load_dotenv()
 
+async def _verify_order_status_for_payment(
+    db: AsyncSession,
+    order_data: Dict[str, Any]
+) -> None:
+    """
+    결제 생성 전 주문 상태 확인
+    - kok_order와 hs_order의 상태가 ORDER_RECEIVED인지 확인
+    - ORDER_RECEIVED가 아닌 경우 결제 생성 불가
+    """
+    from services.order.models.order_model import StatusMaster, KokOrderStatusHistory, HomeShoppingOrderStatusHistory
+    from sqlalchemy import select, desc
+    
+    logger.info(f"결제 생성 전 주문 상태 확인 시작")
+    
+    # ORDER_RECEIVED 상태 ID 조회
+    status_result = await db.execute(
+        select(StatusMaster).where(StatusMaster.status_code == "ORDER_RECEIVED")
+    )
+    order_received_status = status_result.scalar_one_or_none()
+    
+    if not order_received_status:
+        logger.error("ORDER_RECEIVED 상태를 찾을 수 없습니다.")
+        raise HTTPException(status_code=500, detail="주문 상태 정보를 찾을 수 없습니다.")
+    
+    order_received_status_id = order_received_status.status_id
+    logger.info(f"ORDER_RECEIVED 상태 ID: {order_received_status_id}")
+    
+    # kok_orders 상태 확인
+    kok_orders = order_data.get("kok_orders", [])
+    for kok_order in kok_orders:
+        # 최신 상태 이력 조회
+        status_history_result = await db.execute(
+            select(KokOrderStatusHistory)
+            .where(KokOrderStatusHistory.kok_order_id == kok_order.kok_order_id)
+            .order_by(desc(KokOrderStatusHistory.changed_at))
+            .limit(1)
+        )
+        latest_status = status_history_result.scalar_one_or_none()
+        
+        if not latest_status or latest_status.status_id != order_received_status_id:
+            logger.error(f"콕 주문 상태가 ORDER_RECEIVED가 아닙니다: kok_order_id={kok_order.kok_order_id}, current_status_id={latest_status.status_id if latest_status else 'None'}")
+            raise HTTPException(status_code=400, detail=f"주문 ID {kok_order.kok_order_id}의 상태가 결제 가능한 상태가 아닙니다.")
+        
+        logger.info(f"콕 주문 상태 확인 완료: kok_order_id={kok_order.kok_order_id}, status=ORDER_RECEIVED")
+    
+    # hs_orders 상태 확인
+    hs_orders = order_data.get("homeshopping_orders", [])
+    for hs_order in hs_orders:
+        # 최신 상태 이력 조회
+        status_history_result = await db.execute(
+            select(HomeShoppingOrderStatusHistory)
+            .where(HomeShoppingOrderStatusHistory.homeshopping_order_id == hs_order.homeshopping_order_id)
+            .order_by(desc(HomeShoppingOrderStatusHistory.changed_at))
+            .limit(1)
+        )
+        latest_status = status_history_result.scalar_one_or_none()
+        
+        if not latest_status or latest_status.status_id != order_received_status_id:
+            logger.error(f"홈쇼핑 주문 상태가 ORDER_RECEIVED가 아닙니다: hs_order_id={hs_order.homeshopping_order_id}, current_status_id={latest_status.status_id if latest_status else 'None'}")
+            raise HTTPException(status_code=400, detail=f"주문 ID {hs_order.homeshopping_order_id}의 상태가 결제 가능한 상태가 아닙니다.")
+        
+        logger.info(f"홈쇼핑 주문 상태 확인 완료: hs_order_id={hs_order.homeshopping_order_id}, status=ORDER_RECEIVED")
+    
+    logger.info(f"모든 주문 상태 확인 완료: ORDER_RECEIVED 상태로 결제 가능")
+
 # === [v1: Polling-based payment flow] =======================================
 PAYMENT_SERVER_URL = os.getenv("PAYMENT_SERVER_URL")
 
@@ -254,6 +319,7 @@ def _verify_webhook_signature(body_bytes: bytes, signature_b64: str, secret: str
     # 타이밍 공격 방지 비교
     return hmac.compare_digest(expected, signature_b64)
 
+
 async def confirm_payment_and_update_status_v2(
     *,
     db: AsyncSession,
@@ -274,6 +340,11 @@ async def confirm_payment_and_update_status_v2(
     # (1) 접근 검증
     order_data = await _ensure_order_access(db, order_id, user_id)
 
+    # (1-1) 주문 상태 확인 (ORDER_RECEIVED 상태만 결제 가능)
+    logger.info(f"[v2] 주문 상태 확인 시작: order_id={order_id}")
+    await _verify_order_status_for_payment(db, order_data)
+    logger.info(f"[v2] 주문 상태 확인 완료: order_id={order_id}")
+
     # (2) 총액 계산
     total_order_price = await calculate_order_total_price(db, order_id)
 
@@ -289,7 +360,6 @@ async def confirm_payment_and_update_status_v2(
         "user_id": user_id,
         "amount": total_order_price,
         "callback_url": callback_url,
-        "method": "WEBHOOK_V2",  # 결제 방식 정보 추가
     }
     headers = {}
     if SERVICE_AUTH_TOKEN:
@@ -345,17 +415,20 @@ async def confirm_payment_and_update_status_v2(
     if order_data.get("homeshopping_orders"):
         hs_order_id = order_data["homeshopping_orders"][0].homeshopping_order_id  # 홈쇼핑 주문은 단개
     
-    # v2 결제 시작 응답 구성 (v1과 동일한 구조)
-    response = PaymentConfirmV1Response(
+    # PaymentConfirmV2Response 스키마에 맞는 응답 구성
+    from services.order.schemas.payment_schema import PaymentConfirmV2Response
+    
+    response = PaymentConfirmV2Response(
         payment_id=f"pending_{tx_id}",  # v2에서는 아직 payment_id가 없음
         order_id=order_id,
         kok_order_ids=kok_order_ids,
         hs_order_id=hs_order_id,
-        status="PENDING",  # v2에서는 아직 PENDING 상태
+        status="PENDING",
         payment_amount=total_order_price,
         method="WEBHOOK_V2",
         confirmed_at=datetime.now(),
         order_id_internal=order_id,
+        tx_id=tx_id,
     )
     
     return response
@@ -369,7 +442,7 @@ async def apply_payment_webhook_v2(
     signature_b64: str,
     event: str,  # "payment.completed" | "payment.failed" | "payment.cancelled"
     authorization: Optional[str] = None,  # (옵션) 서비스 토큰 검증용
-) -> PaymentConfirmV1Response:
+) -> dict:
     """
     결제서버 → 운영서버 웹훅 수신
     - HMAC 서명 검증 필수
@@ -456,20 +529,14 @@ async def apply_payment_webhook_v2(
         if hs_orders:
             hs_order_id = hs_orders[0].homeshopping_order_id  # 홈쇼핑 주문은 단개
 
-        # v1과 동일한 응답 형식으로 구성
-        response = PaymentConfirmV1Response(
-            payment_id=payment_id,
-            order_id=order_id,
-            kok_order_ids=kok_order_ids,
-            hs_order_id=hs_order_id,
-            status="PAYMENT_COMPLETED",
-            payment_amount=0,  # 웹훅에서는 금액 정보가 없을 수 있음
-            method=payload.get("method", "WEBHOOK_V2"),  # v1처럼 payload에서 method 가져오기
-            confirmed_at=datetime.now() if completed_at else datetime.now(),
-            order_id_internal=order_id,
-        )
-        
-        return response
+        return {
+            "ok": True, 
+            "order_id": order_id, 
+            "event": event, 
+            "payment_id": payment_id,
+            "kok_order_ids": kok_order_ids,
+            "hs_order_id": hs_order_id
+        }
 
     elif event in ("payment.failed", "payment.cancelled"):
         # 결제 실패/취소 시 주문 취소
@@ -482,37 +549,10 @@ async def apply_payment_webhook_v2(
         
         await db.commit()
         logger.info(f"[v2] 결제실패/취소 반영: order_id={order_id}, reason={failure_reason}")
-        
-        # v1과 동일한 응답 형식으로 구성 (실패/취소 상태)
-        response = PaymentConfirmV1Response(
-            payment_id=payment_id or f"failed_{tx_id}",
-            order_id=order_id,
-            kok_order_ids=[],  # 취소된 주문이므로 빈 배열
-            hs_order_id=None,  # 취소된 주문이므로 None
-            status="CANCELLED" if event == "payment.failed" else "PAYMENT_CANCELLED",
-            payment_amount=0,
-            method=payload.get("method", "WEBHOOK_V2"),  # v1처럼 payload에서 method 가져오기
-            confirmed_at=datetime.now(),
-            order_id_internal=order_id,
-        )
-        
-        return response
+        return {"ok": True, "order_id": order_id, "event": event, "reason": failure_reason}
 
     else:
         logger.warning(f"[v2] 알 수 없는 이벤트: {event}")
-        # v1과 동일한 응답 형식으로 구성 (에러 상태)
-        response = PaymentConfirmV1Response(
-            payment_id=f"error_{tx_id}",
-            order_id=0,  # 알 수 없는 이벤트이므로 0
-            kok_order_ids=[],
-            hs_order_id=None,
-            status="ERROR",
-            payment_amount=0,
-            method=payload.get("method", "WEBHOOK_V2"),  # v1처럼 payload에서 method 가져오기
-            confirmed_at=datetime.now(),
-            order_id_internal=0,
-        )
-        
-        return response
+        return {"ok": False, "reason": "unknown_event"}
 
 # ===========================================================================

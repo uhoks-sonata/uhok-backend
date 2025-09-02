@@ -8,17 +8,20 @@ from typing import Optional
 
 class PaymentConfirmV1Request(BaseModel):
     """
-    결제 확인 요청 (v1)
+    결제 확인 요청 (v1/v2 공통)
     
     Attributes:
         method: 결제 방법 (기본값: "EXTERNAL_API")
+        timeout_sec: 타임아웃 시간 (초, v2에서 사용, 기본값: 25초)
         
     Note:
         - 결제 방법을 선택적으로 지정할 수 있음
         - 지정하지 않으면 기본값 "EXTERNAL_API" 사용
         - 외부 결제 서비스와의 연동 방식 결정
+        - v2에서는 웹훅 대기 시간으로 사용
     """
     method: Optional[str] = "EXTERNAL_API"  # 결제 방법 (기본값: EXTERNAL_API)
+    timeout_sec: Optional[int] = 25  # 타임아웃 시간 (초, v2에서 사용)
     
     class Config:
         from_attributes = True
@@ -96,4 +99,60 @@ class PaymentConfirmV2Response(BaseModel):
 
 class LongPollQuery(BaseModel):
     timeout_sec: int = 25  # LB/프록시 idle timeout 고려
+
+
+class PaymentErrorResponse(BaseModel):
+    """
+    결제 관련 에러 응답 (v1/v2 공통)
     
+    Attributes:
+        order_id: 주문 ID
+        status: 에러 상태 (TIMEOUT, PAYMENT_FAILED, VALIDATION_ERROR 등)
+        error_code: 에러 코드
+        message: 에러 메시지
+        detail: 상세 에러 설명
+        timestamp: 에러 발생 시간
+        retry_available: 재시도 가능 여부
+    """
+    order_id: int
+    status: str
+    error_code: str
+    message: str
+    detail: str
+    timestamp: datetime
+    retry_available: bool = True
+    
+    class Config:
+        from_attributes = True
+
+
+class PaymentTimeoutResponse(PaymentErrorResponse):
+    """
+    결제 타임아웃 에러 응답
+    
+    Attributes:
+        timeout_seconds: 설정된 타임아웃 시간 (초)
+        waited_until: 대기 종료 시간
+    """
+    timeout_seconds: int
+    waited_until: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class PaymentFailedResponse(PaymentErrorResponse):
+    """
+    결제 실패 에러 응답
+    
+    Attributes:
+        failure_reason: 실패 사유
+        payment_id: 결제 ID (있는 경우)
+        retry_count: 재시도 횟수
+    """
+    failure_reason: str
+    payment_id: Optional[str] = None
+    retry_count: int = 0
+    
+    class Config:
+        from_attributes = True 
