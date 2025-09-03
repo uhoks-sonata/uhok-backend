@@ -2,7 +2,7 @@
 로그 적재/조회 API 라우터
 - 사용자 로그 기록 및 조회 기능 제공
 """
-from fastapi import APIRouter, Depends, status, BackgroundTasks, Request, Response
+from fastapi import APIRouter, Depends, status, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 from typing import List

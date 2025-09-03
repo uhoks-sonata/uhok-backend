@@ -17,11 +17,11 @@ from common.logger import get_logger
 
 from services.order.models.order_model import Order, KokOrder, HomeShoppingOrder
 from services.homeshopping.models.homeshopping_model import (
-    HomeshoppingList, HomeshoppingProductInfo, HomeshoppingImgUrl
+    HomeshoppingList, HomeshoppingProductInfo
 )
 from services.kok.models.kok_model import KokProductInfo
 from services.recipe.models.recipe_model import (
-    Recipe, Material, RecipeRating, RecipeVector
+    Recipe, Material, RecipeRating
 )
 # ⬇️ 추가: 추천 포트(로컬/원격 어댑터)는 라우터/서비스에서 DI로 주입하여 사용
 from ..utils.ports import VectorSearcherPort

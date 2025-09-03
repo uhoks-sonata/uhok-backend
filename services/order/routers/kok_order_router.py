@@ -14,7 +14,10 @@ from common.http_dependencies import extract_http_info
 from common.logger import get_logger
 
 from services.order.models.order_model import (
-    Order, KokOrder, KokOrderStatusHistory, StatusMaster
+    Order, 
+    KokOrder, 
+    KokOrderStatusHistory, 
+    StatusMaster
 )
 from services.user.schemas.user_schema import UserOut
 from services.order.schemas.kok_order_schema import (
@@ -32,8 +35,7 @@ from services.order.crud.kok_order_crud import (
     get_kok_order_with_current_status,
     get_kok_order_status_history,
     start_auto_kok_order_status_update,
-    get_kok_order_notifications_history,
-    debug_cart_status
+    get_kok_order_notifications_history
 )
 
 logger = get_logger("kok_order_router")

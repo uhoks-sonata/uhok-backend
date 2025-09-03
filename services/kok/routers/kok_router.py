@@ -69,15 +69,8 @@ from services.homeshopping.crud.homeshopping_crud import (
     get_homeshopping_recommendations_by_kok, 
     get_homeshopping_recommendations_fallback
 )
-from services.kok.utils.kok_homeshopping import (
-    get_recommendation_strategy,
-    recommend_by_last_word,
-    recommend_by_core_keywords,
-    recommend_by_tail_keywords,
-    last_meaningful_token,
-    normalize_name,
-    tokenize_normalized
-)
+from services.kok.utils.kok_homeshopping import get_recommendation_strategy
+
 from services.kok.crud.kok_crud import (
     # 제품 관련 CRUD
     get_kok_product_info,
@@ -109,7 +102,6 @@ from services.kok.crud.kok_crud import (
     delete_kok_search_history,
 
     # 장바구니 관련 CRUD
-    get_cart_product_names_by_ids,
     get_ingredients_from_cart_product_ids
 )
 from services.kok.utils.kok_homeshopping import (

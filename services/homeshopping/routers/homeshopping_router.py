@@ -10,7 +10,7 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from pathlib import Path
@@ -25,7 +25,6 @@ from services.homeshopping.schemas.homeshopping_schema import (
     HomeshoppingScheduleResponse,
     
     # 상품 검색 관련 스키마
-    HomeshoppingSearchRequest,
     HomeshoppingSearchResponse,
     
     # 검색 이력 관련 스키마
@@ -39,10 +38,7 @@ from services.homeshopping.schemas.homeshopping_schema import (
     
     # 레시피 추천 관련 스키마
     RecipeRecommendationsResponse,
-    
-    # 스트리밍 관련 스키마
-    HomeshoppingStreamResponse,
-    
+        
     # 찜 관련 스키마
     HomeshoppingLikesToggleRequest,
     HomeshoppingLikesToggleResponse,
