@@ -92,6 +92,7 @@ from services.recipe.crud.recipe_crud import recommend_by_recipe_pgvector
 
 from common.database.mariadb_service import get_maria_service_db
 from common.log_utils import send_user_log
+from common.http_dependencies import extract_http_info
 
 from common.logger import get_logger
 logger = get_logger("homeshopping_router")
@@ -123,11 +124,13 @@ async def get_schedule(
     
     # 편성표 조회 로그 기록 (인증된 사용자인 경우에만)
     if current_user and background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="homeshopping_schedule_view", 
-            event_data={"live_date": live_date.isoformat() if live_date else None}
+            event_data={"live_date": live_date.isoformat() if live_date else None},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     logger.info(f"홈쇼핑 편성표 조회 완료: user_id={user_id}, 결과 수={len(schedules)}")
@@ -174,11 +177,13 @@ async def live_stream_html(
         logger.info(f"[라이브 HTML] user_id={current_user.user_id}, stream={stream_url}")
         # 사용자 로그 전송을 백그라운드 태스크로 처리
         if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log,
                 user_id=current_user.user_id,
                 event_type="homeshopping_live_html_view",
                 event_data={"stream_url": stream_url, "homeshopping_id": homeshopping_id},
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
 
     # 템플릿 렌더
@@ -212,11 +217,13 @@ async def get_product_detail(
     
     # 상품 상세 조회 로그 기록 (인증된 사용자인 경우에만)
     if current_user and background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="homeshopping_product_detail_view", 
-            event_data={"live_id": live_id}
+            event_data={"live_id": live_id},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     logger.info(f"홈쇼핑 상품 상세 조회 완료: user_id={user_id}, live_id={live_id}")
@@ -421,6 +428,7 @@ async def get_recipe_recommendations_for_product(
         
         # 10. 인증된 사용자의 경우에만 로그 기록
         if current_user and background_tasks:
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
@@ -431,7 +439,8 @@ async def get_recipe_recommendations_for_product(
                     "extracted_keywords": extracted_keywords,
                     "recipe_count": len(recipes),
                     "is_ingredient": True
-                }
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         return RecipeRecommendationsResponse(
@@ -472,11 +481,13 @@ async def search_products(
     
     # 검색 로그 기록 (인증된 사용자인 경우에만)
     if current_user and background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="homeshopping_search", 
-            event_data={"keyword": keyword}
+            event_data={"keyword": keyword},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     logger.info(f"홈쇼핑 상품 검색 완료: user_id={user_id}, keyword='{keyword}', 결과 수={len(products)}")
@@ -510,11 +521,13 @@ async def add_search_history(
         
         # 검색 이력 저장 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=201)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
                 event_type="homeshopping_search_history_save", 
-                event_data={"keyword": search_data.keyword}
+                event_data={"keyword": search_data.keyword},
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         logger.info(f"홈쇼핑 검색 이력 저장 완료: user_id={current_user.user_id}, history_id={saved_history['homeshopping_history_id']}")
@@ -541,11 +554,13 @@ async def get_search_history(
     
     # 검색 이력 조회 로그 기록
     if background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="homeshopping_search_history_view", 
-            event_data={"history_count": len(history)}
+            event_data={"history_count": len(history)},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     logger.info(f"홈쇼핑 검색 이력 조회 완료: user_id={current_user.user_id}, 결과 수={len(history)}")
@@ -574,11 +589,13 @@ async def delete_search_history(
         
         # 검색 이력 삭제 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
                 event_type="homeshopping_search_history_delete", 
-                event_data={"history_id": delete_data.homeshopping_history_id}
+                event_data={"history_id": delete_data.homeshopping_history_id},
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         logger.info(f"홈쇼핑 검색 이력 삭제 완료: user_id={current_user.user_id}, history_id={delete_data.homeshopping_history_id}")
@@ -613,11 +630,13 @@ async def toggle_likes(
         
         # 찜 토글 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
                 event_type="homeshopping_likes_toggle", 
-                event_data={"product_id": like_data.product_id, "liked": liked}
+                event_data={"product_id": like_data.product_id, "liked": liked},
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         message = "찜이 등록되었습니다." if liked else "찜이 해제되었습니다."
@@ -649,11 +668,13 @@ async def get_liked_products(
     
     # 찜한 상품 조회 로그 기록
     if background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="homeshopping_liked_products_view", 
-            event_data={"liked_products_count": len(liked_products)}
+            event_data={"liked_products_count": len(liked_products)},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     logger.info(f"홈쇼핑 찜한 상품 조회 완료: user_id={current_user.user_id}, 결과 수={len(liked_products)}")
@@ -688,6 +709,7 @@ async def get_order_notifications_api(
         
         # 주문 알림 조회 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
@@ -697,7 +719,8 @@ async def get_order_notifications_api(
                     "offset": offset,
                     "notification_count": len(notifications),
                     "total_count": total_count
-                }
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         logger.info(f"홈쇼핑 주문 알림 조회 완료: user_id={current_user.user_id}, 결과 수={len(notifications)}, 전체 개수={total_count}")
@@ -738,6 +761,7 @@ async def get_broadcast_notifications_api(
         
         # 방송 알림 조회 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
@@ -747,7 +771,8 @@ async def get_broadcast_notifications_api(
                     "offset": offset,
                     "notification_count": len(notifications),
                     "total_count": total_count
-                }
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         logger.info(f"홈쇼핑 방송 알림 조회 완료: user_id={current_user.user_id}, 결과 수={len(notifications)}, 전체 개수={total_count}")

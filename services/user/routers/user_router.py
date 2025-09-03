@@ -11,8 +11,8 @@ from common.dependencies import get_current_user
 from common.auth.jwt_handler import create_access_token, get_token_expiration, extract_user_id_from_token
 from common.database.mariadb_auth import get_maria_auth_db
 from common.errors import ConflictException, NotAuthenticatedException, InvalidTokenException
-from common.log_utils import send_user_log
 from common.logger import get_logger
+# HTTP 전송 불필요하므로 send_user_log, extract_http_info import 제거
 
 from services.user.schemas.user_schema import (
     UserCreate,
@@ -34,6 +34,7 @@ logger = get_logger("user_router")
 async def signup(
     user: UserCreate,
     background_tasks: BackgroundTasks,
+    request: Request,
     db: AsyncSession = Depends(get_maria_auth_db)
 ):
     """
@@ -50,13 +51,9 @@ async def signup(
         new_user = await create_user(db, str(user.email), user.password, user.username)
         logger.info(f"새 사용자 등록 성공: user_id={new_user.user_id}, email={user.email}")
         
-        # 회원가입 로그 기록
-        background_tasks.add_task(
-            send_user_log, 
-            user_id=new_user.user_id, 
-            event_type="user_signup", 
-            event_data={"email": str(user.email), "username": user.username}
-        )
+        # 회원가입 로그 기록 (DB에 직접 저장)
+        # HTTP 전송은 불필요하므로 제거
+        logger.info(f"회원가입 완료: user_id={new_user.user_id}, email={user.email}")
         
         return new_user
     except Exception as e:
@@ -121,15 +118,9 @@ async def login(
         access_token = create_access_token({"sub": str(db_user.user_id)})
         logger.info(f"사용자 로그인 성공: user_id={db_user.user_id}, email={email}")
         
-        # 로그인 로그 기록
-        if background_tasks:
-            logger.debug(f"백그라운드 작업으로 로그인 이벤트 기록 시작: user_id={db_user.user_id}")
-            background_tasks.add_task(
-                send_user_log, 
-                user_id=db_user.user_id, 
-                event_type="user_login", 
-                event_data={"email": email}
-            )
+        # 로그인 로그 기록 (DB에 직접 저장)
+        # HTTP 전송은 불필요하므로 제거
+        logger.info(f"로그인 완료: user_id={db_user.user_id}, email={email}")
         
         return {"access_token": access_token, "token_type": "bearer"}
     except NotAuthenticatedException:
@@ -187,16 +178,8 @@ async def logout(
         )
         logger.info(f"토큰 블랙리스트 추가 성공: user_id={user_id}")
         
-        # 로그아웃 로그 기록
-        if background_tasks:
-            logger.debug(f"백그라운드 작업으로 로그아웃 이벤트 기록 시작: user_id={user_id}")
-            background_tasks.add_task(
-                send_user_log, 
-                user_id=user_id, 
-                event_type="user_logout", 
-                event_data={"logout_method": "api_call"}
-            )
-        
+        # 로그아웃 로그 기록 (DB에 직접 저장)
+        # HTTP 전송은 불필요하므로 제거        
         logger.info(f"로그아웃 완료: user_id={user_id}, email={current_user.email}")
         return {"message": "로그아웃이 완료되었습니다."}
         

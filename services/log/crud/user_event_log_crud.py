@@ -18,8 +18,15 @@ async def create_user_log(db: AsyncSession, log_data: dict) -> UserLog:
     - 필수값 및 타입 검증
     - created_at은 DB에서 자동 생성(NOW())
     """
-    if not log_data.get("user_id"):
+    user_id = log_data.get("user_id")
+    if user_id is None:
         raise BadRequestException("user_id가 누락되었습니다.")
+    if not isinstance(user_id, int) or user_id < 0:
+        raise BadRequestException("user_id는 0 이상의 정수여야 합니다.")
+    
+    # user_id=0은 익명 사용자를 의미하므로 허용
+    if user_id == 0:
+        logger.debug("익명 사용자 로그 기록: user_id=0")
     if not log_data.get("event_type"):
         raise BadRequestException("event_type이 누락되었습니다.")
 
@@ -33,6 +40,12 @@ async def create_user_log(db: AsyncSession, log_data: dict) -> UserLog:
     }
     if "event_data" in log_data and log_data["event_data"] is not None:
         data["event_data"] = log_data["event_data"]
+    
+    # HTTP 관련 필드들 추가 (null 값도 허용)
+    http_fields = ["http_method", "api_url", "request_time", "response_time", "response_code", "client_ip"]
+    for field in http_fields:
+        if field in log_data:  # null 값도 포함하여 추가
+            data[field] = log_data[field]
 
     try:
         log = UserLog(**data)  # created_at 없음!

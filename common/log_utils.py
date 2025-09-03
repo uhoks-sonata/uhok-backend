@@ -1,102 +1,208 @@
-"""
-BackgroundTasks용 로그 API 호출 함수 (.env config 사용)
-"""
-import requests
+# common/log_utils.py
+from __future__ import annotations
+
 import json
-from datetime import datetime
+import random
+from typing import Any, Dict, Iterable, Optional
+from datetime import datetime, timezone
+
+import anyio
+import httpx
+
 from common.config import get_settings
 from common.logger import get_logger
 
 settings = get_settings()
 logger = get_logger("log_utils")
-api_url = settings.log_api_url   # .env에서 불러옴
 
-# 디버그: 실제 설정된 URL 확인
-logger.info(f"LOG_API_URL 설정값: {api_url}")
-logger.info(f"환경변수 LOG_API_URL: {settings.log_api_url}")
+# 로그 전송 불필요하므로 API_URL 제거
+API_URL = None  # 사용하지 않음
+AUTH_TOKEN = getattr(settings, "service_auth_token", None)
 
+SENSITIVE_KEYS: set[str] = {
+    "password", "pwd", "pass",
+    "authorization", "cookie", "set-cookie",
+    "access_token", "refresh_token", "id_token", "token", "secret",
+    "card_number", "cvc", "cvv", "ssn", "resident_id",
+    "jumin", "bank_account", "account_no",
+}
 
-def serialize_datetime(obj):
+def serialize_datetime(obj: Any) -> Any:
     """
-    datetime 객체를 JSON 직렬화 가능한 형태로 변환
+    datetime, dict, list 내부의 datetime을 ISO8601 문자열로 변환
     """
     if isinstance(obj, datetime):
-        return obj.isoformat()
-    elif isinstance(obj, dict):
-        return {key: serialize_datetime(value) for key, value in obj.items()}
-    elif isinstance(obj, list):
-        return [serialize_datetime(item) for item in obj]
-    else:
-        return obj
+        return obj.astimezone(timezone.utc).isoformat() if obj.tzinfo else obj.isoformat()
+    if isinstance(obj, dict):
+        return {k: serialize_datetime(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [serialize_datetime(v) for v in obj]
+    return obj
 
-def check_log_service_health():
+def _redact_value(_: Any) -> str:
+    """민감 값 마스킹 문자열 반환"""
+    return "***REDACTED***"
+
+def redact_event_data(
+    data: Optional[Dict[str, Any]],
+    extra_sensitive_keys: Optional[Iterable[str]] = None
+) -> Dict[str, Any]:
     """
-    로그 서비스 상태 확인 (선택적)
+    event_data 내 민감 키(토큰/비번 등)를 재귀적으로 마스킹한 사본 반환
+    """
+    sensitive = {k.lower() for k in (extra_sensitive_keys or [])} | {k.lower() for k in SENSITIVE_KEYS}
+    def walk(obj: Any) -> Any:
+        if isinstance(obj, dict):
+            out = {}
+            for k, v in obj.items():
+                out[k] = _redact_value(v) if k.lower() in sensitive else walk(v)
+            return out
+        if isinstance(obj, list):
+            return [walk(x) for x in obj]
+        return obj
+    return walk(dict(data or {}))
+
+def _build_headers(extra_headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """
+    전송용 헤더 구성(Authorization 포함 가능)
+    """
+    headers = {"Content-Type": "application/json"}
+    if AUTH_TOKEN:
+        headers["Authorization"] = f"Bearer {AUTH_TOKEN}"
+    if extra_headers:
+        headers.update(extra_headers)
+    return headers
+
+def _summarize_payload(payload: Dict[str, Any]) -> str:
+    """
+    디버그용: 주요 키/크기만 요약 문자열로 반환
     """
     try:
-        # 환경변수에서 가져온 URL을 기반으로 헬스체크 URL 생성
-        if api_url.endswith('/'):
-            health_url = api_url + "health"
-        else:
-            health_url = api_url + "/health"
-            
-        logger.debug(f"헬스체크 URL: {health_url}")
-        response = requests.get(health_url, timeout=3)  # 3초로 단축
-        if response.status_code == 200:
-            logger.debug("로그 서비스 헬스체크 성공")
-            return True
-        else:
-            logger.debug(f"로그 서비스 헬스체크 실패: {response.status_code}")
-            return False
-    except requests.exceptions.Timeout:
-        logger.debug("로그 서비스 헬스체크 타임아웃")
-        return False
-    except requests.exceptions.ConnectionError:
-        logger.debug("로그 서비스 헬스체크 연결 실패")
-        return False
+        raw = json.dumps(payload, ensure_ascii=False)
+        size = len(raw.encode("utf-8"))
+        keys = list(payload.keys())
+        return f"keys={keys}, size_bytes={size}"
     except Exception:
-        logger.debug("로그 서비스 헬스체크 예외 발생")
+        return f"keys={list(payload.keys())}"
+
+async def _log_http_error(resp: httpx.Response, payload: Dict[str, Any]) -> None:
+    """
+    4xx/5xx 응답일 때 서버가 준 바디/헤더/요약 페이로드를 에러로 남김
+    """
+    body_preview = ""
+    try:
+        # JSON이면 pretty, 아니면 text 앞부분만
+        if "application/json" in (resp.headers.get("content-type") or ""):
+            body_preview = json.dumps(resp.json(), ensure_ascii=False)[:2000]
+        else:
+            body_preview = (resp.text or "")[:2000]
+    except Exception:
+        body_preview = "<body parse failed>"
+
+    logger.error(
+        "[log_utils] Log API error: status=%s, url=%s, resp_body=%s, payload_summary=%s",
+        resp.status_code, str(resp.request.url), body_preview, _summarize_payload(payload)
+    )
+
+async def check_log_service_health(timeout: float = 2.0) -> bool:
+    """
+    로그 서비스 헬스체크(API_URL이 없으면 False 반환)
+    """
+    if not API_URL:
+        return False
+    
+    base = API_URL.rstrip("/")
+    url = f"{base}/health"
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.get(url)
+            return 200 <= r.status_code < 300
+    except Exception:
         return False
 
-def send_user_log(user_id: int, event_type: str, event_data: dict = None):
+async def send_user_log(
+    user_id: int,
+    event_type: str,
+    event_data: Optional[Dict[str, Any]] = None,
+    *,
+    # ⬇️ 추가: 서버가 상위 필드로 받길 원할 경우를 대비해 포함
+    http_method: Optional[str] = None,
+    api_url: Optional[str] = None,
+    request_time: Optional[datetime] = None,
+    response_time: Optional[datetime] = None,
+    response_code: Optional[int] = None,
+    client_ip: Optional[str] = None,
+    # 재시도/타임아웃
+    max_retries: int = 2,
+    base_timeout: float = 5.0,
+    # 기타
+    extra_sensitive_keys: Optional[Iterable[str]] = None,
+    extra_headers: Optional[Dict[str, str]] = None,
+    raise_on_4xx: bool = False,
+) -> Optional[Dict[str, Any]]:
     """
-    사용자 행동 로그를 로그 서비스로 전송 (BackgroundTasks)
+    사용자 로그 전송(비동기)
+    - 서버가 상위 필드로 HTTP 정보를 요구하는 케이스를 지원(옵셔널)
+    - 실패 시 응답 바디를 상세 로깅하여 400 원인 파악이 가능
     """
-    # 헬스체크는 선택적으로 수행 (실패해도 로그 전송 시도)
-    health_check_passed = check_log_service_health()
-    if not health_check_passed:
-        logger.debug(f"로그 서비스 헬스체크 실패했지만 로그 전송을 시도합니다: user_id={user_id}, event_type={event_type}")
     
-    # event_data에 datetime 객체가 있을 수 있으므로 JSON 직렬화 가능한 형태로 변환
-    serialized_event_data = serialize_datetime(event_data) if event_data else {}
-    
-    log_payload = {
+    # API_URL이 없으면 전송하지 않음
+    if not API_URL:
+        logger.debug(f"[log_utils] API_URL이 설정되지 않아 로그 전송 건너뜀 (user_id={user_id}, event_type={event_type})")
+        return None
+
+    # (선택) 헬스체크
+    if not await check_log_service_health(timeout=2.0):
+        logger.debug("[log_utils] 헬스체크 실패했지만 전송 시도")
+
+    sanitized = redact_event_data(event_data, extra_sensitive_keys)
+    serialized_event_data = serialize_datetime(sanitized)
+
+    payload: Dict[str, Any] = {
         "user_id": user_id,
         "event_type": event_type,
-        "event_data": serialized_event_data
+        "event_data": serialized_event_data,
     }
-    
-    # 재시도 설정
-    max_retries = 2  # 최대 시도 횟수
-    timeout = 10  # 10초 타임아웃
-    
-    for attempt in range(max_retries):
+    # ⬇️ 상위 HTTP 컬럼 추가(서버에서 요구 시)
+    if http_method is not None:   payload["http_method"]   = http_method
+    if api_url is not None:       payload["api_url"]       = api_url
+    if response_code is not None: payload["response_code"] = response_code
+    if client_ip is not None:     payload["client_ip"]     = client_ip
+    if request_time is not None:  payload["request_time"]  = serialize_datetime(request_time)
+    if response_time is not None: payload["response_time"] = serialize_datetime(response_time)
+
+    headers = _build_headers(extra_headers)
+
+    attempt = 0
+    while attempt < max_retries:
         try:
-            # logger.info(f"로그 전송 시도 {attempt + 1}/{max_retries}: user_id={user_id}, event_type={event_type}")
-            res = requests.post(api_url, json=log_payload, timeout=timeout)
-            res.raise_for_status()
-            # logger.info(f"사용자 로그 전송 성공: user_id={user_id}, event_type={event_type}")
-            return res.json()
-        except requests.exceptions.Timeout:
-            logger.warning(f"로그 전송 타임아웃 (시도 {attempt + 1}/{max_retries}): user_id={user_id}, event_type={event_type}")
-            if attempt == max_retries - 1:
-                logger.error(f"로그 전송 최종 실패 (타임아웃): user_id={user_id}, event_type={event_type}")
-        except requests.exceptions.ConnectionError:
-            logger.warning(f"로그 서비스 연결 실패 (시도 {attempt + 1}/{max_retries}): user_id={user_id}, event_type={event_type}")
-            if attempt == max_retries - 1:
-                logger.error(f"로그 전송 최종 실패 (연결 오류): user_id={user_id}, event_type={event_type}")
-        except Exception as e:
-            logger.error(f"로그 전송 중 예상치 못한 오류: user_id={user_id}, event_type={event_type}, 오류={e}")
-            break
-    
+            async with httpx.AsyncClient(timeout=base_timeout) as client:
+                resp = await client.post(API_URL, headers=headers, json=payload)
+                if 200 <= resp.status_code < 300:
+                    try:
+                        return resp.json()
+                    except json.JSONDecodeError:
+                        return {"raw": resp.text}
+
+                # 4xx/5xx면 서버 응답 바디를 남긴다
+                await _log_http_error(resp, payload)
+                if raise_on_4xx and 400 <= resp.status_code < 500:
+                    resp.raise_for_status()
+                # 재시도 가치 있는 코드만 재시도(네트워크/5xx)
+                if 500 <= resp.status_code < 600:
+                    raise httpx.HTTPStatusError("server error", request=resp.request, response=resp)
+                return None
+
+        except (httpx.TimeoutException, httpx.RequestError, httpx.HTTPStatusError) as e:
+            attempt += 1
+            if attempt >= max_retries:
+                logger.error(
+                    "[log_utils] 로그 전송 최종 실패: %r, payload_summary=%s",
+                    e, _summarize_payload(payload)
+                )
+                return None
+            # 지수 백오프 + 지터
+            backoff = (2 ** (attempt - 1)) * 0.3 + random.uniform(0, 0.2)
+            await anyio.sleep(backoff)
+
     return None

@@ -5,12 +5,14 @@ API Gateway 서비스 진입점.
 각 서비스의 FastAPI router를 통합해서 전체 API 엔드포인트로 제공한다.
 - CORS, 공통 예외처리, 로깅 등 공통 설정도 이곳에서 적용
 """
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from common.config import get_settings
 from common.logger import get_logger
+from common.http_log_middleware import HttpLogMiddleware
 from services.user.routers.user_router import router as user_router
 from services.log.routers.user_event_log_router import router as user_event_log_router
 from services.log.routers.user_activity_log_routers import router as user_activity_log_router
@@ -28,6 +30,18 @@ logger.info("API Gateway 초기화 시작...")
 try:
     settings = get_settings()
     logger.info("설정 로드 완료")
+    
+    # 현재 환경 정보 출력
+    logger.info(f"현재 환경: DEBUG={settings.debug}")
+    
+    # uvicorn 액세스 로그 완전 비활성화 (개발/운영 구분 없이)
+    logging.getLogger("uvicorn.access").disabled = True
+    logging.getLogger("uvicorn.access").setLevel(logging.CRITICAL)
+    logging.getLogger("uvicorn").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
+    
+    logger.info("Uvicorn 액세스 로그 비활성화 완료")
+    
 except Exception as e:
     logger.error(f"설정 로드 실패: {e}")
     raise
@@ -38,6 +52,11 @@ app = FastAPI(
     title=settings.app_name,
     debug=settings.debug
 )
+
+# HTTP 로깅 미들웨어 설정
+logger.info("HTTP 로깅 미들웨어 설정 중...")
+app.add_middleware(HttpLogMiddleware)
+logger.info("HTTP 로깅 미들웨어 설정 완료")
 
 # CORS 설정
 logger.info("CORS 미들웨어 설정 중...")
