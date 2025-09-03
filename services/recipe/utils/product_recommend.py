@@ -4,6 +4,7 @@
 import os
 import re
 import pandas as pd
+import numpy as np
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
@@ -76,6 +77,21 @@ def apply_exclude(df: pd.DataFrame, name_col: str, ingredient: str) -> pd.DataFr
     for ban in bans:
         mask &= ~name_s.str.contains(re.escape(ban), case=False, na=False)
     return df[mask]
+
+def safe_price(price_value):
+    """가격 값을 안전하게 변환: nan, None, 빈 값은 None으로 변환"""
+    if price_value is None:
+        return None
+    if pd.isna(price_value) or np.isnan(price_value):
+        return None
+    try:
+        # 숫자로 변환 시도
+        price_float = float(price_value)
+        if np.isnan(price_float):
+            return None
+        return int(price_float) if price_float.is_integer() else price_float
+    except (ValueError, TypeError):
+        return None
 
 # ---------- DB 유틸 ----------
 async def _read_df_async(session: AsyncSession, sql: str, params: list) -> pd.DataFrame:
@@ -198,7 +214,7 @@ async def recommend_for_ingredient(session: AsyncSession, ingredient: str, max_t
                 "id":     r.get('PRODUCT_ID'),
                 "image_url": r.get('IMG_URL'),
                 "brand_name": r.get('STORE_NAME'),
-                "price": r.get('SALE_PRICE'),
+                "price": safe_price(r.get('SALE_PRICE')),
             })
             if len(recs) >= max_home:
                 break
@@ -222,7 +238,7 @@ async def recommend_for_ingredient(session: AsyncSession, ingredient: str, max_t
                     "id":     r.get('PRODUCT_ID'),
                     "image_url": r.get('KOK_THUMBNAIL'),
                     "brand_name": r.get('KOK_STORE_NAME'),
-                    "price": r.get('KOK_PRODUCT_PRICE'),
+                    "price": safe_price(r.get('KOK_PRODUCT_PRICE')),
                 })
 
     return recs
