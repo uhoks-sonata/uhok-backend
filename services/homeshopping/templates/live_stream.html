@@ -1,0 +1,25 @@
+<!-- services/homeshopping/templates/live_stream.html -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>{{ title }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    html, body { margin:0; background:#0b0b0b; color:#f2f2f2; height:100%; }
+    .wrap { display:flex; align-items:center; justify-content:center; min-height:100vh; padding:16px; }
+    video { width:100%; max-width:960px; height:auto; background:#000; border-radius:12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <video id="video" width="720" height="480" controls muted autoplay playsinline></video>
+  </div>
+
+  <script>
+    window.__LIVE_SRC__ = "{{ src }}";
+  </script>
+ <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+ <script src="{{ url_for('homeshopping-static', path='js/live_player.js') }}"></script>
+</body>
+</html>

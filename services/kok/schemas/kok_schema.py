@@ -4,9 +4,9 @@
 - DB ORM과 분리, API 직렬화/유효성 검증용
 - DB 데이터 정의서 기반으로 변수명 통일 (KOK_ 접두사 제거 후 소문자)
 """
-
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
+from datetime import datetime
 
 # -----------------------------
 # 이미지 정보 스키마
@@ -113,7 +113,6 @@ class KokPriceInfo(BaseModel):
     class Config:
         from_attributes = True
 
-
 # -----------------------------
 # 제품 기본/목록/상세 스키마
 # -----------------------------
@@ -163,17 +162,11 @@ class KokProductBase(BaseModel):
     class Config:
         from_attributes = True
 
-class KokProductDetailResponse(KokProductBase):
-    """제품 상세 응답(이미지, 상세정보, 리뷰, 가격, Q&A 포함)"""
-    images: List[KokImageInfo] = Field(default_factory=list)
-    detail_infos: List[KokDetailInfo] = Field(default_factory=list)
-    review_examples: List[KokReviewExample] = Field(default_factory=list)
-    price_infos: List[KokPriceInfo] = Field(default_factory=list)
 
 
 class KokProductInfoResponse(BaseModel):
     """상품 기본 정보 응답"""
-    kok_product_id: str
+    kok_product_id: int
     kok_product_name: str
     kok_store_name: str
     kok_thumbnail: str
@@ -181,13 +174,14 @@ class KokProductInfoResponse(BaseModel):
     kok_discount_rate: int
     kok_discounted_price: int
     kok_review_cnt: int
+    is_liked: Optional[bool] = False
     
     class Config:
         from_attributes = True
 
 class KokProductTabsResponse(BaseModel):
     """상품 탭 정보 응답"""
-    images: List[dict] = Field(default_factory=list)
+    images: List[KokImageInfo] = Field(default_factory=list)
 
 # -----------------------------
 # 제품 목록 응답 스키마
@@ -230,6 +224,8 @@ class KokDiscountedProduct(BaseModel):
     kok_discounted_price: Optional[int] = None
     kok_product_name: Optional[str] = None
     kok_store_name: Optional[str] = None
+    kok_review_cnt: Optional[int] = None  # 리뷰 개수
+    kok_review_score: Optional[float] = None  # 별점 평균
     
     class Config:
         from_attributes = True
@@ -256,8 +252,6 @@ class KokTopSellingProductsResponse(BaseModel):
     """판매율 높은 상품 응답"""
     products: List[KokTopSellingProduct] = Field(default_factory=list)
 
-
-
 class KokUnpurchasedResponse(BaseModel):
     """미구매 상품 응답"""
     products: List[KokProductBase] = Field(default_factory=list)
@@ -279,9 +273,6 @@ class KokStoreBestProduct(BaseModel):
 class KokStoreBestProductsResponse(BaseModel):
     """스토어 베스트 상품 응답"""
     products: List[KokStoreBestProduct] = Field(default_factory=list)
-
-
-
 
 # -----------------------------
 # 상품 상세정보 스키마
@@ -329,7 +320,7 @@ class KokLikes(BaseModel):
     kok_like_id: int
     user_id: int
     kok_product_id: int
-    kok_created_at: str
+    kok_created_at: datetime
     
     class Config:
         from_attributes = True
@@ -369,8 +360,9 @@ class KokCart(BaseModel):
     kok_cart_id: int
     user_id: int
     kok_product_id: int
+    kok_price_id: int
     kok_quantity: int
-    kok_created_at: Optional[str] = None
+    kok_created_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
@@ -406,6 +398,7 @@ class KokCartItem(BaseModel):
     """장바구니 상품 정보"""
     kok_cart_id: int
     kok_product_id: int
+    kok_price_id: int  # 자동으로 최신 가격 ID 사용
     recipe_id: Optional[int] = None
     kok_product_name: Optional[str] = None
     kok_thumbnail: Optional[str] = None
@@ -422,21 +415,6 @@ class KokCartItemsResponse(BaseModel):
     """장바구니 상품 목록 응답"""
     cart_items: List[KokCartItem] = Field(default_factory=list)
 
-# -----------------------------
-# 장바구니 선택 주문 스키마
-# -----------------------------
-
-class KokCartOrderItem(BaseModel):
-    cart_id: int = Field(..., description="장바구니 ID")
-    quantity: int = Field(..., ge=1, description="주문 수량")
-
-class KokCartOrderRequest(BaseModel):
-    selected_items: List[KokCartOrderItem]
-
-class KokCartOrderResponse(BaseModel):
-    order_id: int
-    order_count: int
-    message: str
 
 # -----------------------------
 # 검색 관련 스키마
@@ -447,7 +425,7 @@ class KokSearchHistory(BaseModel):
     kok_history_id: int
     user_id: int
     kok_keyword: str
-    kok_searched_at: str
+    kok_searched_at: datetime
     
     class Config:
         from_attributes = True
@@ -456,12 +434,27 @@ class KokSearchRequest(BaseModel):
     """검색 요청"""
     keyword: str
 
+class KokSearchProduct(BaseModel):
+    """검색 결과 상품 정보"""
+    kok_product_id: int
+    kok_product_name: Optional[str] = None
+    kok_store_name: Optional[str] = None
+    kok_thumbnail: Optional[str] = None
+    kok_product_price: Optional[int] = None
+    kok_discount_rate: Optional[int] = None
+    kok_discounted_price: Optional[int] = None
+    kok_review_cnt: Optional[int] = None
+    kok_review_score: Optional[float] = None
+    
+    class Config:
+        from_attributes = True
+
 class KokSearchResponse(BaseModel):
     """검색 결과 응답"""
     total: int
     page: int
     size: int
-    products: List[dict] = Field(default_factory=list)
+    products: List[KokSearchProduct] = Field(default_factory=list)
 
 class KokSearchHistoryResponse(BaseModel):
     """검색 이력 응답"""
@@ -491,7 +484,7 @@ class KokNotification(BaseModel):
     status_id: int
     title: str
     message: str
-    created_at: str
+    created_at: datetime
     
     class Config:
         from_attributes = True
@@ -505,18 +498,20 @@ class KokNotificationResponse(BaseModel):
         from_attributes = True
 
 # -----------------------------
-# 장바구니 기반 레시피 추천 스키마
+# 장바구니 레시피 추천 관련 스키마
 # -----------------------------
 
 class KokCartRecipeRecommendRequest(BaseModel):
     """장바구니 상품 기반 레시피 추천 요청"""
     selected_cart_ids: List[int] = Field(..., description="선택된 장바구니 상품 ID 목록")
     page: int = Field(1, ge=1, description="페이지 번호 (1부터 시작)")
-    size: int = Field(5, ge=1, le=50, description="페이지당 결과 개수")
+    size: int = Field(10, ge=1, le=100, description="페이지당 레시피 수")
 
 class KokCartRecipeRecommendResponse(BaseModel):
     """장바구니 상품 기반 레시피 추천 응답"""
-    recipes: List[Dict] = Field(..., description="추천된 레시피 목록")
+    recipes: List[Dict[str, Any]] = Field(..., description="추천된 레시피 목록")
+    total_count: int = Field(..., description="전체 레시피 수")
     page: int = Field(..., description="현재 페이지 번호")
-    total: int = Field(..., description="전체 결과 개수")
-    ingredients_used: List[str] = Field(..., description="사용된 재료 목록")
+    size: int = Field(..., description="페이지당 레시피 수")
+    total_pages: int = Field(..., description="전체 페이지 수")
+    keyword_extraction: List[str] = Field(..., description="추출된 키워드 목록")

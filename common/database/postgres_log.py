@@ -10,7 +10,7 @@ from common.logger import get_logger
 logger = get_logger("postgres_log")
 
 settings = get_settings()
-engine = create_async_engine(settings.postgres_log_url, echo=settings.debug)
+engine = create_async_engine(settings.postgres_log_url, echo=False)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 logger.info(f"PostgreSQL Log 엔진 생성됨, URL: {settings.postgres_log_url}")

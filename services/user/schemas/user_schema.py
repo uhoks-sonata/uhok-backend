@@ -1,7 +1,6 @@
 """
 User 관련 Pydantic 스키마 정의 모듈
 """
-
 from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
 

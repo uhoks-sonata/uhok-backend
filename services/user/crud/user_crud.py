@@ -2,8 +2,8 @@
 User 관련 DB 접근 함수 (비동기 CRUD)
 """
 from passlib.context import CryptContext
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.user.models.user_model import User, UserSetting
 
