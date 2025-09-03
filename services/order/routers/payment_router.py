@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
+from common.log_utils import send_user_log
+from common.http_dependencies import extract_http_info
 from common.logger import get_logger
 
 from services.order.schemas.payment_schema import PaymentConfirmV1Request, PaymentConfirmV1Response, PaymentConfirmV2Response
@@ -20,6 +22,7 @@ router = APIRouter(prefix="/api/orders/payment", tags=["Orders/Payment"])
 # === [v1 routes: polling flow] ============================================
 @router.post("/{order_id}/confirm/v1", response_model=PaymentConfirmV1Response, status_code=status.HTTP_200_OK)
 async def confirm_payment_v1(
+    request: Request,
     order_id: int,
     payment_data: PaymentConfirmV1Request,
     background_tasks: BackgroundTasks,
@@ -47,13 +50,30 @@ async def confirm_payment_v1(
         - 실패/타임아웃 시: 적절한 HTTPException 반환
     """
     # CRUD 계층에 결제 확인 및 상태 업데이트 위임
-    return await confirm_payment_and_update_status_v1(
+    result = await confirm_payment_and_update_status_v1(
         db=db,
         order_id=order_id,
         user_id=current_user.user_id,
         payment_data=payment_data,
         background_tasks=background_tasks,
     )
+    
+    # 결제 확인 v1 로그 기록
+    if background_tasks:
+        http_info = extract_http_info(request, response_code=200)
+        background_tasks.add_task(
+            send_user_log,
+            user_id=current_user.user_id,
+            event_type="payment_confirm_v1",
+            event_data={
+                "order_id": order_id,
+                "payment_method": payment_data.payment_method,
+                "amount": payment_data.amount
+            },
+            **http_info  # HTTP 정보를 키워드 인자로 전달
+        )
+    
+    return result
 # ===========================================================================
 
 # === [v2 routes: webhook flow] ==============================================
@@ -81,6 +101,21 @@ async def confirm_payment_v2(
             request=request,
             background_tasks=background_tasks,
         )
+        
+        # 결제 확인 v2 로그 기록
+        if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
+            background_tasks.add_task(
+                send_user_log,
+                user_id=current_user.user_id,
+                event_type="payment_confirm_v2",
+                event_data={
+                    "order_id": order_id,
+                    "result_status": result.get("status", "unknown")
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
+            )
+        
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"payment v2 long polling failed: {e}")
@@ -89,6 +124,7 @@ async def confirm_payment_v2(
 async def payment_webhook_v2(
     tx_id: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_maria_service_db),
     authorization: str | None = Header(None),  # (옵션) 서비스 토큰
 ):
@@ -135,6 +171,22 @@ async def payment_webhook_v2(
             logger.error(f"[v2] 웹훅 처리 실패: {result}")
             raise HTTPException(status_code=400, detail=result.get("reason","webhook handling failed"))
         
+        # 웹훅 수신 로그 기록 (익명 사용자)
+        if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
+            background_tasks.add_task(
+                send_user_log,
+                user_id=0,  # 웹훅은 익명 사용자
+                event_type="payment_webhook_v2",
+                event_data={
+                    "tx_id": tx_id,
+                    "event": x_payment_event,
+                    "result_ok": result.get("ok", False),
+                    "order_id": result.get("order_id")
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
+            )
+        
         return {"received": True, **result}
     except Exception as e:
         logger.error(f"[v2] 웹훅 처리 중 예외 발생: {e}")
@@ -151,5 +203,4 @@ async def cleanup_webhook_waiters():
         logger.info("[v2] 웹훅 대기자 클린업 완료")
     except Exception as e:
         logger.error(f"[v2] 웹훅 대기자 클린업 실패: {e}")
-
 # ===========================================================================

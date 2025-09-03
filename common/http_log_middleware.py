@@ -343,12 +343,19 @@ class HttpLogMiddleware(BaseHTTPMiddleware):
             # 추가 민감 키 마스킹(예: "phone", "email" 등)
             event_data = redact_event_data(raw_event, self.extra_sensitive_keys)
 
-            # 비동기 전송(fire-and-forget)
+            # 비동기 전송(fire-and-forget) - HTTP 정보 포함
             asyncio.create_task(
                 send_user_log(
                     user_id=user_id or 0,  # 익명은 0 등으로 보낼 수 있음(수신측에서 None 처리 가능)
                     event_type="api_request",
                     event_data=event_data,
+                    # HTTP 정보 추가
+                    http_method=method,
+                    api_url=api_url,
+                    request_time=started_at,
+                    response_time=finished_at,
+                    response_code=status_code,
+                    client_ip=client_ip,
                     extra_sensitive_keys=self.extra_sensitive_keys,
                     # 필요 시 헤더 추가 가능(코릴레이션/트레이스ID 등)
                     extra_headers={"X-Request-Path": api_url},

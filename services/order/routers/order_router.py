@@ -3,13 +3,14 @@
 Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입만 담당
 비즈니스 로직은 CRUD 계층에 위임, 직접 DB 처리(트랜잭션)는 하지 않음
 """
-from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta
 
 from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
 from common.log_utils import send_user_log
+from common.http_dependencies import extract_http_info
 from common.logger import get_logger
 
 from services.order.schemas.order_schema import (
@@ -30,6 +31,7 @@ router = APIRouter(prefix="/api/orders", tags=["Orders"])
 
 @router.get("/", response_model=OrdersListResponse)
 async def list_orders(
+    request: Request,
     limit: int = Query(10, description="조회 개수"),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db),
@@ -150,11 +152,13 @@ async def list_orders(
     
     # 주문 목록 조회 로그 기록
     if background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=user.user_id, 
-            event_type="orders_list_view", 
-            event_data={"limit": limit, "order_count": len(order_groups)}
+            event_type="order_orders_list_view", 
+            event_data={"limit": limit, "order_count": len(order_groups)},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     return OrdersListResponse(
@@ -166,6 +170,7 @@ async def list_orders(
 
 @router.get("/count", response_model=OrderCountResponse)
 async def get_order_count(
+    request: Request,
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db),
     user=Depends(get_current_user)
@@ -192,11 +197,13 @@ async def get_order_count(
     
     # 주문 개수 조회 로그 기록
     if background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=user.user_id, 
-            event_type="order_count_view", 
-            event_data={"order_count": order_count}
+            event_type="order_order_count_view", 
+            event_data={"order_count": order_count},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     return OrderCountResponse(
@@ -206,6 +213,7 @@ async def get_order_count(
 
 @router.get("/recent", response_model=RecentOrdersResponse)
 async def get_recent_orders(
+    request: Request,
     days: int = Query(7, description="조회 기간 (일)"),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db),
@@ -324,11 +332,13 @@ async def get_recent_orders(
     
     # 최근 주문 조회 로그 기록
     if background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=user.user_id, 
-            event_type="recent_orders_view", 
-            event_data={"days": days, "order_count": len(recent_order_items)}
+            event_type="order_recent_orders_view", 
+            event_data={"days": days, "order_count": len(recent_order_items)},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     return RecentOrdersResponse(
@@ -340,6 +350,7 @@ async def get_recent_orders(
 
 @router.get("/{order_id}", response_model=OrderRead)
 async def read_order(
+        request: Request,
         order_id: int,
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db),
@@ -371,11 +382,13 @@ async def read_order(
 
     # 주문 상세 조회 로그 기록
     if background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log,
             user_id=user.user_id,
-            event_type="order_detail_view",
-            event_data={"order_id": order_id}
+            event_type="order_order_detail_view",
+            event_data={"order_id": order_id},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
 
     return order_data

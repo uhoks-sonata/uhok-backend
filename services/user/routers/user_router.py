@@ -11,8 +11,9 @@ from common.dependencies import get_current_user
 from common.auth.jwt_handler import create_access_token, get_token_expiration, extract_user_id_from_token
 from common.database.mariadb_auth import get_maria_auth_db
 from common.errors import ConflictException, NotAuthenticatedException, InvalidTokenException
+from common.log_utils import send_user_log
+from common.http_dependencies import extract_http_info
 from common.logger import get_logger
-# HTTP 전송 불필요하므로 send_user_log, extract_http_info import 제거
 
 from services.user.schemas.user_schema import (
     UserCreate,
@@ -51,9 +52,19 @@ async def signup(
         new_user = await create_user(db, str(user.email), user.password, user.username)
         logger.info(f"새 사용자 등록 성공: user_id={new_user.user_id}, email={user.email}")
         
-        # 회원가입 로그 기록 (DB에 직접 저장)
-        # HTTP 전송은 불필요하므로 제거
-        logger.info(f"회원가입 완료: user_id={new_user.user_id}, email={user.email}")
+        # 회원가입 로그 기록
+        if background_tasks:
+            http_info = extract_http_info(request, response_code=201)
+            background_tasks.add_task(
+                send_user_log,
+                user_id=new_user.user_id,
+                event_type="user_signup",
+                event_data={
+                    "email": user.email,
+                    "username": user.username
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
+            )
         
         return new_user
     except Exception as e:
@@ -63,7 +74,9 @@ async def signup(
 
 @router.get("/signup/email/check", response_model=EmailDuplicateCheckResponse)
 async def check_email_duplicate(
+    request: Request,
     email: EmailStr = Query(..., description="중복 확인할 이메일"),
+    background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_auth_db)
 ):
     """
@@ -73,6 +86,21 @@ async def check_email_duplicate(
         is_dup = await get_user_by_email(db, str(email)) is not None
         msg = "이미 존재하는 아이디입니다." if is_dup else "사용 가능한 아이디입니다."
         logger.debug(f"이메일 중복 확인: {email} - 중복여부={is_dup}")
+        
+        # 이메일 중복 확인 로그 기록 (익명 사용자)
+        if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
+            background_tasks.add_task(
+                send_user_log,
+                user_id=0,  # 익명 사용자
+                event_type="user_email_duplicate_check",
+                event_data={
+                    "email": email,
+                    "is_duplicate": is_dup
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
+            )
+        
         return EmailDuplicateCheckResponse(email=email, is_duplicate=is_dup, message=msg)
     except Exception as e:
         logger.error(f"이메일 중복 확인 실패, email={email}: {str(e)}")
@@ -81,6 +109,7 @@ async def check_email_duplicate(
 
 @router.post("/login")
 async def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_auth_db)
@@ -118,9 +147,19 @@ async def login(
         access_token = create_access_token({"sub": str(db_user.user_id)})
         logger.info(f"사용자 로그인 성공: user_id={db_user.user_id}, email={email}")
         
-        # 로그인 로그 기록 (DB에 직접 저장)
-        # HTTP 전송은 불필요하므로 제거
-        logger.info(f"로그인 완료: user_id={db_user.user_id}, email={email}")
+        # 로그인 로그 기록
+        if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
+            background_tasks.add_task(
+                send_user_log,
+                user_id=db_user.user_id,
+                event_type="user_login",
+                event_data={
+                    "email": email,
+                    "username": db_user.username
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
+            )
         
         return {"access_token": access_token, "token_type": "bearer"}
     except NotAuthenticatedException:
@@ -178,9 +217,20 @@ async def logout(
         )
         logger.info(f"토큰 블랙리스트 추가 성공: user_id={user_id}")
         
-        # 로그아웃 로그 기록 (DB에 직접 저장)
-        # HTTP 전송은 불필요하므로 제거        
-        logger.info(f"로그아웃 완료: user_id={user_id}, email={current_user.email}")
+        # 로그아웃 로그 기록
+        if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
+            background_tasks.add_task(
+                send_user_log,
+                user_id=user_id,
+                event_type="user_logout",
+                event_data={
+                    "email": current_user.email,
+                    "username": current_user.username
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
+            )
+        
         return {"message": "로그아웃이 완료되었습니다."}
         
     except InvalidTokenException as e:
@@ -193,13 +243,29 @@ async def logout(
     
 @router.get("/info", response_model=UserOut, status_code=status.HTTP_200_OK)
 async def get_user_info(
-    current_user: UserOut = Depends(get_current_user)
+    request: Request,
+    current_user: UserOut = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None
 ):
     """
     로그인한 사용자의 기본 정보를 반환합니다.
     - JWT 토큰 인증 필요 (헤더: Authorization: Bearer <token>)
     - 응답: user_id, username, email
     """
+    # 사용자 정보 조회 로그 기록
+    if background_tasks:
+        http_info = extract_http_info(request, response_code=200)
+        background_tasks.add_task(
+            send_user_log,
+            user_id=current_user.user_id,
+            event_type="user_info_view",
+            event_data={
+                "email": current_user.email,
+                "username": current_user.username
+            },
+            **http_info  # HTTP 정보를 키워드 인자로 전달
+        )
+    
     return current_user
 
 

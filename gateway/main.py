@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from common.config import get_settings
 from common.logger import get_logger
-from common.http_log_middleware import HttpLogMiddleware
+# from common.http_log_middleware import HttpLogMiddleware  # 미들웨어 비활성화
 from services.user.routers.user_router import router as user_router
 from services.log.routers.user_event_log_router import router as user_event_log_router
 from services.log.routers.user_activity_log_routers import router as user_activity_log_router
@@ -53,10 +53,10 @@ app = FastAPI(
     debug=settings.debug
 )
 
-# HTTP 로깅 미들웨어 설정
-logger.info("HTTP 로깅 미들웨어 설정 중...")
-app.add_middleware(HttpLogMiddleware)
-logger.info("HTTP 로깅 미들웨어 설정 완료")
+# HTTP 로깅 미들웨어 설정 (비활성화 - 라우터에서만 로깅)
+# logger.info("HTTP 로깅 미들웨어 설정 중...")
+# app.add_middleware(HttpLogMiddleware)
+# logger.info("HTTP 로깅 미들웨어 설정 완료")
 
 # CORS 설정
 logger.info("CORS 미들웨어 설정 중...")

@@ -19,6 +19,7 @@ from common.dependencies import (
 )
 from common.database.mariadb_service import get_maria_service_db
 from common.log_utils import send_user_log
+from common.http_dependencies import extract_http_info
 from common.logger import get_logger
 
 from services.kok.models.kok_model import KokCart
@@ -144,11 +145,13 @@ async def get_discounted_products(
     
     # 인증된 사용자의 경우에만 로그 기록
     if current_user and background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="discounted_products_view", 
-            event_data={"product_count": len(products)}
+            event_type="kok_discounted_products_view", 
+            event_data={"product_count": len(products)},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     logger.info(f"할인 상품 조회 완료: user_id={user_id}, 결과 수={len(products)}")
@@ -176,11 +179,13 @@ async def get_top_selling_products(
     
     # 인증된 사용자의 경우에만 로그 기록
     if current_user and background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="top_selling_products_view", 
-            event_data={"product_count": len(products), "sort_by": sort_by}
+            event_type="kok_top_selling_products_view", 
+            event_data={"product_count": len(products), "sort_by": sort_by},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     logger.info(f"인기 상품 조회 완료: user_id={user_id}, 결과 수={len(products)}, sort_by={sort_by}")
@@ -206,11 +211,13 @@ async def get_store_best_items(
     
     # 인증된 사용자의 경우에만 로그 기록
     if current_user and background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="store_best_items_view", 
-            event_data={"product_count": len(products), "sort_by": sort_by}
+            event_type="kok_store_best_items_view", 
+            event_data={"product_count": len(products), "sort_by": sort_by},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     logger.info(f"스토어 베스트 상품 조회 완료: user_id={user_id}, 결과 수={len(products)}, sort_by={sort_by}")
@@ -241,11 +248,13 @@ async def get_product_info(
     
     # 인증된 사용자의 경우에만 로그 기록
     if current_user and background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="product_info_view", 
-            event_data={"kok_product_id": kok_product_id}
+            event_type="kok_product_info_view", 
+            event_data={"kok_product_id": kok_product_id},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     logger.info(f"상품 기본 정보 조회 완료: user_id={user_id}, kok_product_id={kok_product_id}")
@@ -272,11 +281,13 @@ async def get_product_tabs(
     
     # 인증된 사용자의 경우에만 로그 기록
     if current_user and background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="product_tabs_view", 
-            event_data={"kok_product_id": kok_product_id, "tab_count": len(images_response.images)}
+            event_type="kok_product_tabs_view", 
+            event_data={"kok_product_id": kok_product_id, "tab_count": len(images_response.images)},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     logger.info(f"상품 탭 정보 조회 완료: user_id={user_id}, kok_product_id={kok_product_id}")
@@ -305,11 +316,13 @@ async def get_product_reviews(
     
     # 인증된 사용자의 경우에만 로그 기록
     if current_user and background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="product_reviews_view", 
-            event_data={"kok_product_id": kok_product_id}
+            event_type="kok_product_reviews_view", 
+            event_data={"kok_product_id": kok_product_id},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     logger.info(f"상품 리뷰 조회 완료: user_id={user_id}, kok_product_id={kok_product_id}")
@@ -340,11 +353,13 @@ async def get_product_details(
     
     # 인증된 사용자의 경우에만 로그 기록
     if current_user and background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="product_details_view", 
-            event_data={"kok_product_id": kok_product_id}
+            event_type="kok_product_details_view", 
+            event_data={"kok_product_id": kok_product_id},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     logger.info(f"상품 상세 정보 조회 완료: user_id={user_id}, kok_product_id={kok_product_id}")
@@ -379,11 +394,13 @@ async def search_products(
         # 인증된 사용자의 경우에만 로그 기록과 검색 기록 저장
         if current_user and background_tasks:
             # 검색 로그 기록
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
-                event_type="product_search", 
-                event_data={"keyword": keyword, "result_count": len(products)}
+                event_type="kok_product_search", 
+                event_data={"keyword": keyword, "result_count": len(products)},
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
             
             # 검색 기록 저장
@@ -411,6 +428,7 @@ async def search_products(
 
 @router.get("/search/history", response_model=KokSearchHistoryResponse)
 async def get_search_history(
+    request: Request,
     limit: int = Query(10, ge=1, le=50, description="조회할 이력 개수"),
     current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
@@ -423,11 +441,13 @@ async def get_search_history(
     
     # 검색 이력 조회 로그 기록
     if background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="search_history_view", 
-            event_data={"history_count": len(history)}
+            event_type="kok_search_history_view", 
+            event_data={"history_count": len(history)},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     return {"history": history}
@@ -435,6 +455,7 @@ async def get_search_history(
 
 @router.post("/search/history", response_model=dict)
 async def add_search_history(
+    request: Request,
     search_data: KokSearchHistoryCreate,
     current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
@@ -453,11 +474,13 @@ async def add_search_history(
         
         # 검색 이력 저장 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=201)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
-                event_type="search_history_save", 
-                event_data={"keyword": search_data.keyword}
+                event_type="kok_search_history_save", 
+                event_data={"keyword": search_data.keyword},
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         return {
@@ -472,6 +495,7 @@ async def add_search_history(
 
 @router.delete("/search/history/{history_id}", response_model=KokSearchHistoryDeleteResponse)
 async def delete_search_history(
+    request: Request,
     history_id: int,
     current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
@@ -491,11 +515,13 @@ async def delete_search_history(
             
             # 검색 이력 삭제 로그 기록
             if background_tasks:
+                http_info = extract_http_info(request, response_code=200)
                 background_tasks.add_task(
                     send_user_log, 
                     user_id=current_user.user_id, 
-                    event_type="search_history_delete", 
-                    event_data={"history_id": history_id}
+                    event_type="kok_search_history_delete", 
+                    event_data={"history_id": history_id},
+                    **http_info  # HTTP 정보를 키워드 인자로 전달
                 )
             
             return {"message": f"검색 이력 ID {history_id}가 삭제되었습니다."}
@@ -516,6 +542,7 @@ async def delete_search_history(
 
 @router.post("/likes/toggle", response_model=KokLikesToggleResponse)
 async def toggle_likes(
+    request: Request,
     like_data: KokLikesToggleRequest,
     current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
@@ -534,14 +561,16 @@ async def toggle_likes(
         
         # 찜 토글 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
-                event_type="likes_toggle", 
+                event_type="kok_likes_toggle", 
                 event_data={
                     "kok_product_id": like_data.kok_product_id,
                     "liked": liked
-                }
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         if liked:
@@ -562,6 +591,7 @@ async def toggle_likes(
 
 @router.get("/likes", response_model=KokLikedProductsResponse)
 async def get_liked_products(
+    request: Request,
     limit: int = Query(50, ge=1, le=100, description="조회할 찜 상품 개수"),
     current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
@@ -574,14 +604,16 @@ async def get_liked_products(
     
     # 찜한 상품 목록 조회 로그 기록
     if background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="liked_products_view", 
+            event_type="kok_liked_products_view", 
             event_data={
                 "limit": limit,
                 "product_count": len(liked_products)
-            }
+            },
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     return {"liked_products": liked_products}
@@ -593,6 +625,7 @@ async def get_liked_products(
 
 @router.post("/carts", response_model=KokCartAddResponse, status_code=status.HTTP_201_CREATED)
 async def add_cart_item(
+    request: Request,
     cart_data: KokCartAddRequest,
     current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
@@ -627,16 +660,18 @@ async def add_cart_item(
         
         # 장바구니 추가 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=201)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
-                event_type="cart_add", 
+                event_type="kok_cart_add", 
                 event_data={
                     "kok_product_id": cart_data.kok_product_id,
                     "kok_quantity": cart_data.kok_quantity,
                     "kok_cart_id": actual_cart_id,
                     "recipe_id": cart_data.recipe_id
-                }
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         return KokCartAddResponse(
@@ -651,6 +686,7 @@ async def add_cart_item(
 
 @router.get("/carts", response_model=KokCartItemsResponse)
 async def get_cart_items(
+    request: Request,
     limit: int = Query(50, ge=1, le=200, description="조회할 장바구니 상품 개수"),
     current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
@@ -663,14 +699,16 @@ async def get_cart_items(
     
     # 장바구니 상품 목록 조회 로그 기록
     if background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="cart_items_view", 
+            event_type="kok_cart_items_view", 
             event_data={
                 "limit": limit,
                 "item_count": len(cart_items)
-            }
+            },
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     return {"cart_items": cart_items}
@@ -678,6 +716,7 @@ async def get_cart_items(
 
 @router.patch("/carts/{kok_cart_id}", response_model=KokCartUpdateResponse)
 async def update_cart_quantity(
+    request: Request,
     kok_cart_id: int,
     update_data: KokCartUpdateRequest,
     current_user: UserOut = Depends(get_current_user),
@@ -693,14 +732,16 @@ async def update_cart_quantity(
         
         # 장바구니 수량 변경 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
-                event_type="cart_update", 
+                event_type="kok_cart_update", 
                 event_data={
                     "kok_cart_id": kok_cart_id,
                     "quantity": update_data.kok_quantity
-                }
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         return KokCartUpdateResponse(
@@ -719,6 +760,7 @@ async def update_cart_quantity(
 
 @router.delete("/carts/{kok_cart_id}", response_model=KokCartDeleteResponse)
 async def delete_cart_item(
+    request: Request,
     kok_cart_id: int,
     current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
@@ -735,11 +777,13 @@ async def delete_cart_item(
             
             # 장바구니 삭제 로그 기록
             if background_tasks:
+                http_info = extract_http_info(request, response_code=200)
                 background_tasks.add_task(
                     send_user_log, 
                     user_id=current_user.user_id, 
-                    event_type="cart_delete", 
-                    event_data={"kok_cart_id": kok_cart_id}
+                    event_type="kok_cart_delete", 
+                    event_data={"kok_cart_id": kok_cart_id},
+                    **http_info  # HTTP 정보를 키워드 인자로 전달
                 )
             
             return KokCartDeleteResponse(message="장바구니에서 상품이 삭제되었습니다.")
@@ -755,6 +799,7 @@ async def delete_cart_item(
 
 @router.get("/carts/recipe-recommend", response_model=KokCartRecipeRecommendResponse)
 async def recommend_recipes_from_cart_items(
+    request: Request,
     product_ids: str = Query(..., description="상품 ID 목록 (쉼표로 구분) - KOK 또는 홈쇼핑 상품 ID 혼용 가능"),
     page: int = Query(1, ge=1, description="페이지 번호 (1부터 시작)"),
     size: int = Query(10, ge=1, le=100, description="페이지당 레시피 수"),
@@ -851,17 +896,19 @@ async def recommend_recipes_from_cart_items(
         
         # 레시피 추천 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
-                event_type="cart_recipe_recommend", 
+                event_type="kok_cart_recipe_recommend", 
                 event_data={
                     "product_ids": all_product_ids,
                     "extracted_ingredients": ingredients,
                     "recommended_recipes_count": len(recipes),
                     "page": page,
                     "size": size
-                }
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         return KokCartRecipeRecommendResponse(
@@ -886,6 +933,7 @@ async def recommend_recipes_from_cart_items(
 
 @router.get("/product/homeshopping-recommend")
 async def get_homeshopping_recommend(
+    request: Request,
     k: int = Query(5, ge=1, le=20, description="추천 상품 개수"),
     background_tasks: BackgroundTasks = None,
     current_user: UserOut = Depends(get_current_user),
@@ -1063,10 +1111,11 @@ async def get_homeshopping_recommend(
         
         # 6. 사용자 활동 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
-                event_type="homeshopping_recommendation", 
+                event_type="kok_homeshopping_recommendation", 
                 event_data={
                     "source_products_count": len(all_product_ids),
                     "liked_products_count": len(liked_product_ids),
@@ -1074,7 +1123,8 @@ async def get_homeshopping_recommend(
                     "recommendation_count": len(response_products),
                     "algorithm": "multi_product_keyword_based",
                     "k": k
-                }
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         logger.info(f"홈쇼핑 추천 완료: user_id={user_id}, 소스 상품={len(all_product_ids)}개, 결과 수={len(response_products)}개")
