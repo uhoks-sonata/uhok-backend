@@ -20,12 +20,15 @@ from services.order.models.order_model import (
     StatusMaster
 )
 from services.kok.models.kok_model import KokProductInfo, KokImageInfo
-from services.homeshopping.models.homeshopping_model import HomeshoppingList, HomeshoppingImgUrl
+from services.homeshopping.models.homeshopping_model import (
+    HomeshoppingList, HomeshoppingImgUrl
+)
 from services.recipe.models.recipe_model import Recipe, Material
 
 from services.order.crud.kok_order_crud import update_kok_order_status, calculate_kok_order_price
-from services.order.crud.hs_order_crud import calculate_homeshopping_order_price, update_hs_order_status
-from services.recipe.crud.recipe_crud import fetch_recipe_ingredients_status
+from services.order.crud.hs_order_crud import (
+    calculate_homeshopping_order_price, update_hs_order_status
+)
 
 logger = get_logger("order_crud")
 

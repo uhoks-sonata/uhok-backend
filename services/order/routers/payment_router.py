@@ -4,7 +4,6 @@ Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입�
 비즈니스 로직은 CRUD 계층에 위임, 직접 DB 처리(트랜잭션)는 하지 않음
 """
 from fastapi import APIRouter, Depends, BackgroundTasks, status, Request, Header, HTTPException
-from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.database.mariadb_service import get_maria_service_db
@@ -13,7 +12,9 @@ from common.log_utils import send_user_log
 from common.http_dependencies import extract_http_info
 from common.logger import get_logger
 
-from services.order.schemas.payment_schema import PaymentConfirmV1Request, PaymentConfirmV1Response, PaymentConfirmV2Response
+from services.order.schemas.payment_schema import (
+    PaymentConfirmV1Request, PaymentConfirmV1Response
+)
 from services.order.crud.payment_crud import confirm_payment_and_update_status_v1, webhook_waiters
 
 logger = get_logger("payment_router")
