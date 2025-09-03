@@ -132,6 +132,22 @@ app.include_router(recipe_router)
 logger.info("레시피 라우터 포함 완료")
 
 logger.info("모든 서비스 라우터 등록 완료")
+
+# 헬스체크 엔드포인트
+@app.get("/health")
+async def health_check():
+    """
+    API Gateway 헬스체크 엔드포인트
+    - 서비스 상태 확인용
+    - 로드밸런서나 모니터링 시스템에서 사용
+    """
+    return {
+        "status": "healthy",
+        "service": "uhok-backend-gateway",
+        "version": "1.0.0",
+        "timestamp": "2024-01-01T00:00:00Z"
+    }
+
 logger.info("API Gateway 시작 완료")    
 
 
