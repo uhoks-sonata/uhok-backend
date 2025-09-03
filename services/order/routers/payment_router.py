@@ -13,7 +13,7 @@ from common.http_dependencies import extract_http_info
 from common.logger import get_logger
 
 from services.order.schemas.payment_schema import (
-    PaymentConfirmV1Request, PaymentConfirmV1Response
+    PaymentConfirmV1Request, PaymentConfirmV1Response, PaymentConfirmV2Response
 )
 from services.order.crud.payment_crud import confirm_payment_and_update_status_v1, webhook_waiters
 
