@@ -396,11 +396,11 @@ async def recommend_by_recipe_pgvector(
         if not page_ids:
             return pd.DataFrame()
 
-        name_col = getattr(Recipe, "cooking_name", None) or getattr(Recipe, "recipe_title")
         detail_stmt = (
             select(
                 Recipe.recipe_id.label("RECIPE_ID"),
-                name_col.label("RECIPE_TITLE"),
+                Recipe.recipe_title.label("RECIPE_TITLE"),
+                Recipe.cooking_name.label("COOKING_NAME"),
                 Recipe.scrap_count.label("SCRAP_COUNT"),
                 Recipe.cooking_case_name.label("COOKING_CASE_NAME"),
                 Recipe.cooking_category_name.label("COOKING_CATEGORY_NAME"),
@@ -412,7 +412,7 @@ async def recommend_by_recipe_pgvector(
         )
         detail_rows = (await mariadb.execute(detail_stmt)).all()
         final_df = pd.DataFrame(detail_rows, columns=[
-            "RECIPE_ID","RECIPE_TITLE","SCRAP_COUNT","COOKING_CASE_NAME","COOKING_CATEGORY_NAME",
+            "RECIPE_ID","RECIPE_TITLE","COOKING_NAME","SCRAP_COUNT","COOKING_CASE_NAME","COOKING_CATEGORY_NAME",
             "COOKING_INTRODUCTION","NUMBER_OF_SERVING","THUMBNAIL_URL"
         ])
 
@@ -445,6 +445,7 @@ async def recommend_by_recipe_pgvector(
 
     # ============================ method: recipe ============================
     # 1) 제목 부분/정확 일치(인기순) — 현재 페이지까지 필요한 개수만 수집
+    # cooking_name을 우선으로 하되, 없으면 recipe_title 사용
     name_col = getattr(Recipe, "cooking_name", None) or getattr(Recipe, "recipe_title")
     base_stmt = (
         select(Recipe.recipe_id, name_col.label("RECIPE_TITLE"), Recipe.scrap_count)
@@ -487,7 +488,8 @@ async def recommend_by_recipe_pgvector(
     detail_stmt = (
         select(
             Recipe.recipe_id.label("RECIPE_ID"),
-            name_col.label("RECIPE_TITLE"),
+            Recipe.recipe_title.label("RECIPE_TITLE"),
+            Recipe.cooking_name.label("COOKING_NAME"),
             Recipe.scrap_count.label("SCRAP_COUNT"),
             Recipe.cooking_case_name.label("COOKING_CASE_NAME"),
             Recipe.cooking_category_name.label("COOKING_CATEGORY_NAME"),
@@ -499,7 +501,7 @@ async def recommend_by_recipe_pgvector(
     )
     detail_rows = (await mariadb.execute(detail_stmt)).all()
     detail_df = pd.DataFrame(detail_rows, columns=[
-        "RECIPE_ID","RECIPE_TITLE","SCRAP_COUNT","COOKING_CASE_NAME","COOKING_CATEGORY_NAME",
+        "RECIPE_ID","RECIPE_TITLE","COOKING_NAME","SCRAP_COUNT","COOKING_CASE_NAME","COOKING_CATEGORY_NAME",
         "COOKING_INTRODUCTION","NUMBER_OF_SERVING","THUMBNAIL_URL"
     ])
 

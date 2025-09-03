@@ -1,0 +1,126 @@
+{
+    "user:17:ingredients:889b629fd2e4ae0ec1d71ebb1b754ffa:combinations": {
+        "combo_1": [
+            7035186,
+            7030105,
+            7022220,
+            7033415,
+            7041117
+        ],
+        "combo_1_timestamp": "2025-09-03T12:42:52.864557",
+        "combo_2": [
+            7021551,
+            7019560,
+            7022685
+        ],
+        "combo_2_timestamp": "2025-09-03T09:47:24.045287"
+    },
+    "user:17:ingredients:4e02c597ec9e194501fbcbe7cac306f2:combinations": {
+        "combo_1": [
+            7041116,
+            7035476,
+            7020429,
+            7024258,
+            7036229
+        ],
+        "combo_1_timestamp": "2025-09-03T09:48:28.238686",
+        "combo_2": [
+            7018398,
+            7035971,
+            7028141,
+            7021551,
+            7033415
+        ],
+        "combo_2_timestamp": "2025-09-03T09:49:39.370886"
+    },
+    "user:17:ingredients:d0e0735ea7476b28881ff208bbcf98d5:combinations": {
+        "combo_1": [
+            7033415,
+            7034041
+        ],
+        "combo_1_timestamp": "2025-09-03T10:06:10.428331"
+    },
+    "user:17:ingredients:d70b5065e77a0155a8e1a536f3e538a7:combinations": {
+        "combo_1": [
+            7021860,
+            7016956,
+            7016961,
+            7016822,
+            7016944
+        ],
+        "combo_1_timestamp": "2025-09-03T10:29:07.863111",
+        "combo_2": [
+            7022671,
+            7017031,
+            7017114,
+            7017145,
+            7016993
+        ],
+        "combo_2_timestamp": "2025-09-03T10:29:18.555853",
+        "combo_3": [
+            7041098,
+            7017147,
+            7017056,
+            7017057,
+            7017153
+        ],
+        "combo_3_timestamp": "2025-09-03T10:30:17.534297"
+    },
+    "user:17:ingredients:37a4e325f4b422ef3bc3a57b6dfaccc4:combinations": {
+        "combo_1": [
+            7020180,
+            7018066
+        ],
+        "combo_1_timestamp": "2025-09-03T10:30:45.463237",
+        "combo_2": [
+            7025168,
+            7021860,
+            7021474
+        ],
+        "combo_2_timestamp": "2025-09-03T10:30:55.751136",
+        "combo_3": [
+            7037581,
+            7017333,
+            7022671,
+            7022082
+        ],
+        "combo_3_timestamp": "2025-09-03T10:31:03.674173"
+    },
+    "user:17:ingredients:2bc03ae3a46ab90780dfcbd5aaa77ce5:combinations": {
+        "combo_1": [
+            7035186,
+            7029189,
+            7035581
+        ],
+        "combo_1_timestamp": "2025-09-03T10:34:14.586418"
+    },
+    "user:17:ingredients:78322fc3932d39a9e89b39c6d5b6fdc3:combinations": {
+        "combo_1": [
+            7035186,
+            7030105,
+            7022220,
+            7025704
+        ],
+        "combo_1_timestamp": "2025-09-03T10:45:32.419425"
+    },
+    "user:17:ingredients:6851c9f00194122177642fd963732eae:combinations": {
+        "combo_1": [
+            7035186,
+            7030105,
+            7022220,
+            7033415,
+            7041117
+        ],
+        "combo_1_timestamp": "2025-09-03T14:41:55.416563"
+    },
+    "user:4:ingredients:47edeb251b80a908479eed3d32a3f3c3:combinations": {
+        "combo_1": [
+            7041316,
+            7041250,
+            7041158,
+            7041142,
+            7041117
+        ],
+        "combo_1_timestamp": "2025-09-03T14:22:07.184517"
+    }
+}
