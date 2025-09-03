@@ -3,13 +3,14 @@
 Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입만 담당
 비즈니스 로직은 CRUD 계층에 위임, 직접 DB 처리(트랜잭션)는 하지 않음
 """
-from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, status
+from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, status, Request
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
 from common.log_utils import send_user_log
+from common.http_dependencies import extract_http_info
 from common.logger import get_logger
 
 from services.order.models.order_model import (
@@ -46,6 +47,7 @@ router = APIRouter(prefix="/api/orders/kok", tags=["Kok Orders"])
 
 @router.post("/carts/order", response_model=KokCartOrderResponse, status_code=status.HTTP_201_CREATED)
 async def order_from_selected_carts(
+    http_request: Request,
     request: KokCartOrderRequest,
     current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
@@ -85,11 +87,13 @@ async def order_from_selected_carts(
         logger.info(f"장바구니 주문 생성 완료: user_id={current_user.user_id}, order_id={result['order_id']}, order_count={result['order_count']}")
 
         if background_tasks:
+            http_info = extract_http_info(http_request, response_code=201)
             background_tasks.add_task(
                 send_user_log,
                 user_id=current_user.user_id,
-                event_type="cart_order_create",
+                event_type="kok_cart_order_create",
                 event_data=result,
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
 
         return KokCartOrderResponse(
@@ -125,6 +129,7 @@ async def order_from_selected_carts(
 
 @router.patch("/{kok_order_id}/status", response_model=KokOrderStatusResponse)
 async def update_kok_order_status_api(
+    request: Request,
     kok_order_id: int,
     status_update: KokOrderStatusUpdate,
     background_tasks: BackgroundTasks = None,
@@ -187,6 +192,7 @@ async def update_kok_order_status_api(
         
         # 상태 변경 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log,
                 user_id=user.user_id,
@@ -195,7 +201,8 @@ async def update_kok_order_status_api(
                     "kok_order_id": kok_order_id,
                     "new_status": status_update.new_status_code,
                     "changed_by": status_update.changed_by or user.user_id
-                }
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         return KokOrderStatusResponse(
@@ -211,6 +218,7 @@ async def update_kok_order_status_api(
 
 @router.get("/{kok_order_id}/status", response_model=KokOrderStatusResponse)
 async def get_kok_order_status(
+    request: Request,
     kok_order_id: int,
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db),
@@ -263,11 +271,13 @@ async def get_kok_order_status(
     
     # 상태 조회 로그 기록
     if background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log,
             user_id=user.user_id,
             event_type="kok_order_status_view",
-            event_data={"kok_order_id": kok_order_id}
+            event_data={"kok_order_id": kok_order_id},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     return KokOrderStatusResponse(
@@ -279,6 +289,7 @@ async def get_kok_order_status(
 
 @router.get("/{kok_order_id}/with-status", response_model=KokOrderWithStatusResponse)
 async def get_kok_order_with_status(
+    request: Request,
     kok_order_id: int,
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db),
@@ -312,11 +323,13 @@ async def get_kok_order_with_status(
     
     # 주문과 상태 함께 조회 로그 기록
     if background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log,
             user_id=user.user_id,
             event_type="kok_order_with_status_view",
-            event_data={"kok_order_id": kok_order_id}
+            event_data={"kok_order_id": kok_order_id},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     return KokOrderWithStatusResponse(
@@ -329,6 +342,7 @@ async def get_kok_order_with_status(
 # - 결제 모듈/PG사 콜백과 연동할 때 주문 단건 기준으로 호출하는 API입니다.
 @router.post("/{kok_order_id}/payment/confirm")
 async def confirm_payment(
+    request: Request,
     kok_order_id: int,
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db),
@@ -357,11 +371,13 @@ async def confirm_payment(
         await update_kok_order_status(db, kok_order_id, "PAYMENT_COMPLETED", user.user_id)
 
         if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log,
                 user_id=user.user_id,
-                event_type="payment_confirm",
+                event_type="kok_payment_confirm",
                 event_data={"kok_order_id": kok_order_id},
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
 
         return {"message": "결제가 완료되어 상태가 변경되었습니다.", "kok_order_id": kok_order_id}
@@ -374,6 +390,7 @@ async def confirm_payment(
 # - 여러 상품을 한 번에 결제한 경우 한 번의 콜백으로 전체 업데이트할 때 사용합니다.
 @router.post("/order-unit/{order_id}/payment/confirm")
 async def confirm_payment_by_order(
+    request: Request,
     order_id: int,
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db),
@@ -403,11 +420,13 @@ async def confirm_payment_by_order(
             await update_kok_order_status(db, ko.kok_order_id, "PAYMENT_COMPLETED", user.user_id)
 
         if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log,
                 user_id=user.user_id,
-                event_type="payment_confirm_order",
+                event_type="kok_payment_confirm_order",
                 event_data={"order_id": order_id, "kok_order_count": len(kok_orders)},
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
 
         return {"message": "결제가 완료되어 모든 KokOrder 상태가 변경되었습니다.", "order_id": order_id}
@@ -497,6 +516,7 @@ async def start_auto_status_update_api(
 
 @router.get("/notifications/history", response_model=KokNotificationListResponse)
 async def get_kok_order_notifications_history_api(
+    request: Request,
     limit: int = Query(20, description="조회 개수"),
     offset: int = Query(0, description="시작 위치"),
     background_tasks: BackgroundTasks = None,
@@ -513,6 +533,7 @@ async def get_kok_order_notifications_history_api(
     
     # 콕 주문 현황 알림 조회 로그 기록
     if background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log,
             user_id=user.user_id,
@@ -521,7 +542,8 @@ async def get_kok_order_notifications_history_api(
                 "limit": limit,
                 "offset": offset,
                 "notification_count": len(notifications)
-            }
+            },
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     # 딕셔너리 리스트를 Pydantic 모델로 변환

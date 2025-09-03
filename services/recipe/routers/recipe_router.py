@@ -6,7 +6,7 @@
 - 트랜잭션 관리(commit/rollback)를 담당
 """
 
-from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, Path, Body
+from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, Path, Body, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict, Set, Any
 import pandas as pd
@@ -23,6 +23,7 @@ from common.dependencies import get_current_user
 from common.database.mariadb_service import get_maria_service_db
 from common.database.postgres_recommend import get_postgres_recommend_db
 from common.log_utils import send_user_log
+from common.http_dependencies import extract_http_info
 from common.logger import get_logger
 
 from services.user.schemas.user_schema import UserOut
@@ -32,23 +33,18 @@ from services.recipe.schemas.recipe_schema import (
     RecipeRatingCreate,
     RecipeRatingResponse,
     RecipeByIngredientsListResponse,
-    RecipeIngredientStatusDetailResponse,
-    HomeshoppingProductsResponse,
     RecipeIngredientStatusResponse,
     ProductRecommendResponse
 )
 from services.recipe.crud.recipe_crud import (
     get_recipe_detail,
     get_recipe_url,
-    recommend_recipes_by_ingredients,
     recommend_recipes_combination_1,
     recommend_recipes_combination_2,
     recommend_recipes_combination_3,
     recommend_by_recipe_pgvector,
     get_recipe_rating,
     set_recipe_rating,
-    fetch_recipe_ingredients_status,
-    get_homeshopping_products_by_ingredient,
     get_recipe_ingredients_status
 )
 
@@ -442,6 +438,7 @@ def get_recommendation_strategy(kok_product_name: str, k: int = 5) -> Dict[str, 
 # ============================================================================
 @router.get("/by-ingredients", response_model=RecipeByIngredientsListResponse)
 async def by_ingredients(
+    request: Request,
     ingredient: List[str] = Query(..., min_length=3, description="식재료 리스트 (최소 3개)"),
     amount: Optional[List[float]] = Query(None, description="각 재료별 분량 (amount 또는 unit 중 하나는 필수)"),
     unit: Optional[List[str]] = Query(None, description="각 재료별 단위 (amount 또는 unit 중 하나는 필수)"),
@@ -524,6 +521,7 @@ async def by_ingredients(
     
     # 재료 기반 레시피 검색 로그 기록
     if background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
@@ -536,7 +534,8 @@ async def by_ingredients(
                 "size": size,
                 "total_results": total,
                 "combination_number": combination_number
-            }
+            },
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     return {
@@ -552,6 +551,7 @@ async def by_ingredients(
 # ============================================================================
 @router.get("/search")
 async def search_recipe(
+    request: Request,
     recipe: str = Query(..., description="레시피명 또는 식재료 키워드"),
     page: int = Query(1, ge=1),
     size: int = Query(5, ge=1, le=50),   # 이 함수는 top_k 중심이라 page/size는 외부에서 활용
@@ -560,7 +560,6 @@ async def search_recipe(
     mariadb: AsyncSession = Depends(get_maria_service_db),
     postgres: AsyncSession = Depends(get_postgres_recommend_db),
     vector_searcher: VectorSearcherPort = Depends(get_db_vector_searcher),
-
     background_tasks: BackgroundTasks = None,
 ):
     """
@@ -603,6 +602,7 @@ async def search_recipe(
         """
         비동기로 사용자 로그를 적재한다.
         """
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log,
             user_id=current_user.user_id,
@@ -616,6 +616,7 @@ async def search_recipe(
                 "has_more": has_more,
                 "execution_time_seconds": round(execution_time, 3),  # 실행 시간 추가
             },
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
 
     # DataFrame → JSON
@@ -630,6 +631,7 @@ async def search_recipe(
 # ============================================================================
 @router.get("/{recipe_id}", response_model=RecipeDetailResponse)
 async def get_recipe(
+        request: Request,
         current_user = Depends(get_current_user),
         recipe_id: int = Path(..., description="레시피 ID"),
         background_tasks: BackgroundTasks = None,
@@ -645,6 +647,7 @@ async def get_recipe(
     
     # 레시피 상세 조회 로그 기록
     if background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
@@ -652,7 +655,8 @@ async def get_recipe(
             event_data={
                 "recipe_id": recipe_id,
                 "recipe_name": result.get("cooking_name") or result.get("recipe_title")
-            }
+            },
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     return result
@@ -662,6 +666,7 @@ async def get_recipe(
 # ============================================================================
 @router.get("/{recipe_id}/url", response_model=RecipeUrlResponse)
 async def get_recipe_url_api(
+    request: Request,
     current_user = Depends(get_current_user),
     recipe_id: int = Path(..., description="레시피 ID"),
     background_tasks: BackgroundTasks = None
@@ -674,11 +679,13 @@ async def get_recipe_url_api(
     
     # 레시피 URL 조회 로그 기록
     if background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="recipe_url_view", 
-            event_data={"recipe_id": recipe_id}
+            event_data={"recipe_id": recipe_id},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     return {"url": url}
@@ -688,6 +695,7 @@ async def get_recipe_url_api(
 # ============================================================================
 @router.get("/{recipe_id}/rating", response_model=RecipeRatingResponse)
 async def get_rating(
+        request: Request,
         current_user: UserOut = Depends(get_current_user),
         recipe_id: int = Path(..., description="레시피 ID"),
         background_tasks: BackgroundTasks = None,
@@ -701,11 +709,13 @@ async def get_rating(
     
     # 레시피 별점 조회 로그 기록
     if background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="recipe_rating_view", 
-            event_data={"recipe_id": recipe_id, "rating": rating}
+            event_data={"recipe_id": recipe_id, "rating": rating},
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     return {"recipe_id": recipe_id, "rating": rating}
@@ -715,6 +725,7 @@ async def get_rating(
 # ============================================================================
 @router.post("/{recipe_id}/rating", response_model=RecipeRatingResponse)
 async def post_rating(
+        request: Request,
         current_user: UserOut = Depends(get_current_user),
         recipe_id: int = Path(..., description="레시피 ID"),
         req: RecipeRatingCreate = Body(...),
@@ -735,6 +746,7 @@ async def post_rating(
         
         # 레시피 별점 등록 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=201)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
@@ -742,7 +754,8 @@ async def post_rating(
                 event_data={
                     "recipe_id": recipe_id,
                     "rating": int(req.rating)
-                }
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         logger.info(f"레시피 별점 등록 완료: recipe_id={recipe_id}, rating={rating}")
@@ -759,6 +772,7 @@ async def post_rating(
 # ============================================================================
 @router.get("/{recipe_id}/status", response_model=RecipeIngredientStatusResponse)
 async def get_recipe_ingredients_status_handler(
+    request: Request,
     recipe_id: int = Path(..., description="레시피 ID"),
     current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
@@ -780,6 +794,7 @@ async def get_recipe_ingredients_status_handler(
     
     # 레시피 식재료 상태 조회 로그 기록
     if background_tasks:
+        http_info = extract_http_info(request, response_code=200)
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
@@ -790,7 +805,8 @@ async def get_recipe_ingredients_status_handler(
                 "owned_count": result["summary"]["owned_count"],
                 "cart_count": result["summary"]["cart_count"],
                 "not_owned_count": result["summary"]["not_owned_count"]
-            }
+            },
+            **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
     return RecipeIngredientStatusResponse(**result)
@@ -800,6 +816,7 @@ async def get_recipe_ingredients_status_handler(
 # ============================================================================
 @router.get("/{ingredient}/product-recommend", response_model=ProductRecommendResponse)
 async def get_ingredient_product_recommendations(
+    request: Request,
     ingredient: str = Path(..., description="추천받을 식재료명"),
     current_user: UserOut = Depends(get_current_user),
     background_tasks: BackgroundTasks = None,
@@ -819,6 +836,7 @@ async def get_ingredient_product_recommendations(
         
         # 상품 추천 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
@@ -826,7 +844,8 @@ async def get_ingredient_product_recommendations(
                 event_data={
                     "ingredient": ingredient,
                     "recommendation_count": len(recommendations)
-                }
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         logger.info(f"식재료 상품 추천 완료: ingredient={ingredient}, 추천 상품 수={len(recommendations)}")

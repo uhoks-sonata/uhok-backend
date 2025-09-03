@@ -20,25 +20,27 @@ def extract_http_info(request: Request, response_code: int = 200) -> dict:
         dict: HTTP 정보가 포함된 딕셔너리
     """
     http_info = {}
+    current_time = datetime.now(timezone.utc)
     
     # 미들웨어에서 저장한 HTTP 정보가 있는지 확인
     if hasattr(request.state, 'http_info') and request.state.http_info:
         http_info = request.state.http_info.copy()
         # response_time과 response_code를 현재 값으로 업데이트
-        http_info["response_time"] = datetime.now(timezone.utc)
+        http_info["response_time"] = current_time
         http_info["response_code"] = response_code
         logger.debug(f"HTTP 정보 추출 (업데이트됨): {http_info}")
     else:
         # 미들웨어 정보가 없으면 기본값으로 설정
+        # request_time을 현재 시간으로 설정 (미들웨어가 비활성화된 경우)
         http_info = {
             "http_method": request.method,
             "api_url": str(request.url),
-            "request_time": None,
-            "response_time": datetime.now(timezone.utc),
+            "request_time": current_time,  # 현재 시간을 request_time으로 설정
+            "response_time": current_time,
             "response_code": response_code,
             "client_ip": request.client.host if request.client else None
         }
-        logger.debug(f"기본 HTTP 정보 설정: {http_info}")
+        logger.debug(f"기본 HTTP 정보 설정 (미들웨어 비활성화): {http_info}")
     
     return http_info
 

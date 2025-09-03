@@ -3,13 +3,14 @@
 Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입만 담당
 비즈니스 로직은 CRUD 계층에 위임, 직접 DB 처리(트랜잭션)는 하지 않음
 """
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status, Request
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.database.mariadb_service import get_maria_service_db
 from common.dependencies import get_current_user
 from common.log_utils import send_user_log
+from common.http_dependencies import extract_http_info
 from common.logger import get_logger
 
 from services.user.schemas.user_schema import UserOut
@@ -42,6 +43,7 @@ router = APIRouter(prefix="/api/orders/homeshopping", tags=["HomeShopping Orders
 
 @router.post("/order", response_model=HomeshoppingOrderResponse)
 async def create_order(
+        request: Request,
         order_data: HomeshoppingOrderRequest,
         current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
@@ -79,6 +81,7 @@ async def create_order(
         
         # 주문 생성 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=201)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
@@ -87,7 +90,8 @@ async def create_order(
                     "order_id": order_result["order_id"], 
                     "product_id": order_data.product_id,
                     "quantity": order_data.quantity
-                }
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         logger.info(f"홈쇼핑 주문 생성 완료: user_id={current_user.user_id}, order_id={order_result['order_id']}")
@@ -104,6 +108,7 @@ async def create_order(
 
 @router.get("/{homeshopping_order_id}/status", response_model=HomeshoppingOrderStatusResponse)
 async def get_order_status(
+        request: Request,
         homeshopping_order_id: int,
         current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
@@ -158,6 +163,7 @@ async def get_order_status(
         
         # 주문 상태 조회 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
@@ -165,7 +171,8 @@ async def get_order_status(
                 event_data={
                     "homeshopping_order_id": homeshopping_order_id,
                     "current_status": current_status.status.status_code if current_status and current_status.status else "UNKNOWN"
-                }
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         logger.info(f"홈쇼핑 주문 상태 조회 완료: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
@@ -214,6 +221,7 @@ async def get_order_status(
 
 @router.get("/{homeshopping_order_id}/with-status", response_model=HomeshoppingOrderWithStatusResponse)
 async def get_order_with_status(
+        request: Request,
         homeshopping_order_id: int,
         current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
@@ -247,14 +255,16 @@ async def get_order_with_status(
         
         # 주문과 상태 함께 조회 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log, 
-                user_id=current_user.user_id, 
+                user_id=current_user.user_id,
                 event_type="homeshopping_order_with_status_view", 
                 event_data={
                     "homeshopping_order_id": homeshopping_order_id,
                     "current_status": order_data.get("current_status", {}).get("status_code") if order_data.get("current_status") else None
-                }
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         logger.info(f"홈쇼핑 주문과 상태 함께 조회 완료: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
@@ -270,6 +280,7 @@ async def get_order_with_status(
 
 @router.post("/{homeshopping_order_id}/payment/confirm", response_model=PaymentConfirmResponse)
 async def confirm_payment(
+        request: Request,
         homeshopping_order_id: int,
         current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
@@ -294,6 +305,7 @@ async def confirm_payment(
         
         # 결제 확인 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
@@ -302,7 +314,8 @@ async def confirm_payment(
                     "homeshopping_order_id": homeshopping_order_id,
                     "previous_status": payment_result["previous_status"],
                     "current_status": payment_result["current_status"]
-                }
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         # 결제 확인 후 자동 상태 업데이트 시작

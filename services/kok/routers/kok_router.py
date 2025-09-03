@@ -149,7 +149,7 @@ async def get_discounted_products(
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="discounted_products_view", 
+            event_type="kok_discounted_products_view", 
             event_data={"product_count": len(products)},
             **http_info  # HTTP 정보를 키워드 인자로 전달
         )
@@ -183,7 +183,7 @@ async def get_top_selling_products(
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="top_selling_products_view", 
+            event_type="kok_top_selling_products_view", 
             event_data={"product_count": len(products), "sort_by": sort_by},
             **http_info  # HTTP 정보를 키워드 인자로 전달
         )
@@ -215,7 +215,7 @@ async def get_store_best_items(
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="store_best_items_view", 
+            event_type="kok_store_best_items_view", 
             event_data={"product_count": len(products), "sort_by": sort_by},
             **http_info  # HTTP 정보를 키워드 인자로 전달
         )
@@ -252,7 +252,7 @@ async def get_product_info(
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="product_info_view", 
+            event_type="kok_product_info_view", 
             event_data={"kok_product_id": kok_product_id},
             **http_info  # HTTP 정보를 키워드 인자로 전달
         )
@@ -285,7 +285,7 @@ async def get_product_tabs(
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="product_tabs_view", 
+            event_type="kok_product_tabs_view", 
             event_data={"kok_product_id": kok_product_id, "tab_count": len(images_response.images)},
             **http_info  # HTTP 정보를 키워드 인자로 전달
         )
@@ -320,7 +320,7 @@ async def get_product_reviews(
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="product_reviews_view", 
+            event_type="kok_product_reviews_view", 
             event_data={"kok_product_id": kok_product_id},
             **http_info  # HTTP 정보를 키워드 인자로 전달
         )
@@ -357,7 +357,7 @@ async def get_product_details(
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="product_details_view", 
+            event_type="kok_product_details_view", 
             event_data={"kok_product_id": kok_product_id},
             **http_info  # HTTP 정보를 키워드 인자로 전달
         )
@@ -398,7 +398,7 @@ async def search_products(
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
-                event_type="product_search", 
+                event_type="kok_product_search", 
                 event_data={"keyword": keyword, "result_count": len(products)},
                 **http_info  # HTTP 정보를 키워드 인자로 전달
             )
@@ -445,7 +445,7 @@ async def get_search_history(
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="search_history_view", 
+            event_type="kok_search_history_view", 
             event_data={"history_count": len(history)},
             **http_info  # HTTP 정보를 키워드 인자로 전달
         )
@@ -478,7 +478,7 @@ async def add_search_history(
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
-                event_type="search_history_save", 
+                event_type="kok_search_history_save", 
                 event_data={"keyword": search_data.keyword},
                 **http_info  # HTTP 정보를 키워드 인자로 전달
             )
@@ -519,7 +519,7 @@ async def delete_search_history(
                 background_tasks.add_task(
                     send_user_log, 
                     user_id=current_user.user_id, 
-                    event_type="search_history_delete", 
+                    event_type="kok_search_history_delete", 
                     event_data={"history_id": history_id},
                     **http_info  # HTTP 정보를 키워드 인자로 전달
                 )
@@ -565,7 +565,7 @@ async def toggle_likes(
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
-                event_type="likes_toggle", 
+                event_type="kok_likes_toggle", 
                 event_data={
                     "kok_product_id": like_data.kok_product_id,
                     "liked": liked
@@ -608,7 +608,7 @@ async def get_liked_products(
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="liked_products_view", 
+            event_type="kok_liked_products_view", 
             event_data={
                 "limit": limit,
                 "product_count": len(liked_products)
@@ -664,7 +664,7 @@ async def add_cart_item(
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
-                event_type="cart_add", 
+                event_type="kok_cart_add", 
                 event_data={
                     "kok_product_id": cart_data.kok_product_id,
                     "kok_quantity": cart_data.kok_quantity,
@@ -703,7 +703,7 @@ async def get_cart_items(
         background_tasks.add_task(
             send_user_log, 
             user_id=current_user.user_id, 
-            event_type="cart_items_view", 
+            event_type="kok_cart_items_view", 
             event_data={
                 "limit": limit,
                 "item_count": len(cart_items)
@@ -736,7 +736,7 @@ async def update_cart_quantity(
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
-                event_type="cart_update", 
+                event_type="kok_cart_update", 
                 event_data={
                     "kok_cart_id": kok_cart_id,
                     "quantity": update_data.kok_quantity
@@ -781,7 +781,7 @@ async def delete_cart_item(
                 background_tasks.add_task(
                     send_user_log, 
                     user_id=current_user.user_id, 
-                    event_type="cart_delete", 
+                    event_type="kok_cart_delete", 
                     event_data={"kok_cart_id": kok_cart_id},
                     **http_info  # HTTP 정보를 키워드 인자로 전달
                 )
@@ -899,7 +899,7 @@ async def recommend_recipes_from_cart_items(
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
-                event_type="cart_recipe_recommend", 
+                event_type="kok_cart_recipe_recommend", 
                 event_data={
                     "product_ids": all_product_ids,
                     "extracted_ingredients": ingredients,
@@ -1114,7 +1114,7 @@ async def get_homeshopping_recommend(
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
-                event_type="homeshopping_recommendation", 
+                event_type="kok_homeshopping_recommendation", 
                 event_data={
                     "source_products_count": len(all_product_ids),
                     "liked_products_count": len(liked_product_ids),
