@@ -9,15 +9,13 @@ from datetime import datetime, timezone
 import anyio
 import httpx
 
-from common.config import get_settings
 from common.logger import get_logger
 
-settings = get_settings()
 logger = get_logger("log_utils")
 
 # 로그 전송 불필요하므로 API_URL 제거
 API_URL = None  # 사용하지 않음
-AUTH_TOKEN = getattr(settings, "service_auth_token", None)
+AUTH_TOKEN = None  # 사용하지 않음
 
 SENSITIVE_KEYS: set[str] = {
     "password", "pwd", "pass",
