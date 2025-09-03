@@ -273,6 +273,7 @@ async def add_homeshopping_search_history(
     )
     
     db.add(new_history)
+    await db.flush()  # commit 전에 flush로 ID 생성
     await db.refresh(new_history)
     
     logger.info(f"홈쇼핑 검색 이력 추가 완료: history_id={new_history.homeshopping_history_id}")

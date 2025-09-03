@@ -1132,10 +1132,12 @@ async def add_kok_search_history(
     )
     
     db.add(new_history)
-    await db.commit()
+    await db.flush()  # commit 전에 flush로 ID 생성
+    await db.refresh(new_history)
     
-    logger.info(f"검색 이력 추가 완료: user_id={user_id}, keyword={keyword}")
+    logger.info(f"검색 이력 추가 완료: user_id={user_id}, keyword={keyword}, history_id={new_history.kok_history_id}")
     return {
+        "kok_history_id": new_history.kok_history_id,
         "user_id": user_id,
         "kok_keyword": keyword,
         "kok_searched_at": searched_at,
