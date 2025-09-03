@@ -505,6 +505,7 @@ async def search_products(
 
 @router.post("/search/history", response_model=dict)
 async def add_search_history(
+        request: Request,
         search_data: HomeshoppingSearchHistoryCreate,
         current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
@@ -540,6 +541,7 @@ async def add_search_history(
 
 @router.get("/search/history", response_model=HomeshoppingSearchHistoryResponse)
 async def get_search_history(
+        request: Request,
         limit: int = Query(5, ge=1, le=20, description="조회할 검색 이력 개수"),
         current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
@@ -569,6 +571,7 @@ async def get_search_history(
 
 @router.delete("/search/history", response_model=HomeshoppingSearchHistoryDeleteResponse)
 async def delete_search_history(
+        request: Request,
         delete_data: HomeshoppingSearchHistoryDeleteRequest,
         current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
@@ -614,6 +617,7 @@ async def delete_search_history(
 
 @router.post("/likes/toggle", response_model=HomeshoppingLikesToggleResponse)
 async def toggle_likes(
+        request: Request,
         like_data: HomeshoppingLikesToggleRequest,
         current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
@@ -654,6 +658,7 @@ async def toggle_likes(
 
 @router.get("/likes", response_model=HomeshoppingLikesResponse)
 async def get_liked_products(
+        request: Request,
         limit: int = Query(50, ge=1, le=100, description="조회할 찜한 상품 개수"),
         current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
@@ -687,6 +692,7 @@ async def get_liked_products(
 
 @router.get("/notifications/orders", response_model=HomeshoppingNotificationListResponse)
 async def get_order_notifications_api(
+        request: Request,
         limit: int = Query(20, ge=1, le=100, description="조회할 주문 알림 개수"),
         offset: int = Query(0, ge=0, description="시작 위치"),
         current_user: UserOut = Depends(get_current_user),
@@ -739,6 +745,7 @@ async def get_order_notifications_api(
 
 @router.get("/notifications/broadcasts", response_model=HomeshoppingNotificationListResponse)
 async def get_broadcast_notifications_api(
+        request: Request,
         limit: int = Query(20, ge=1, le=100, description="조회할 방송 알림 개수"),
         offset: int = Query(0, ge=0, description="시작 위치"),
         current_user: UserOut = Depends(get_current_user),
@@ -791,6 +798,7 @@ async def get_broadcast_notifications_api(
 
 @router.get("/notifications/all", response_model=HomeshoppingNotificationListResponse)
 async def get_all_notifications_api(
+        request: Request,
         limit: int = Query(20, ge=1, le=100, description="조회할 알림 개수"),
         offset: int = Query(0, ge=0, description="시작 위치"),
         current_user: UserOut = Depends(get_current_user),
@@ -812,6 +820,7 @@ async def get_all_notifications_api(
         
         # 모든 알림 통합 조회 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
@@ -821,7 +830,8 @@ async def get_all_notifications_api(
                     "offset": offset,
                     "notification_count": len(notifications),
                     "total_count": total_count
-                }
+                },
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         logger.info(f"홈쇼핑 모든 알림 통합 조회 완료: user_id={current_user.user_id}, 결과 수={len(notifications)}, 전체 개수={total_count}")
@@ -840,6 +850,7 @@ async def get_all_notifications_api(
 
 @router.put("/notifications/{notification_id}/read")
 async def mark_notification_read_api(
+        request: Request,
         notification_id: int,
         current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
@@ -860,11 +871,13 @@ async def mark_notification_read_api(
         
         # 알림 읽음 처리 로그 기록
         if background_tasks:
+            http_info = extract_http_info(request, response_code=200)
             background_tasks.add_task(
                 send_user_log, 
                 user_id=current_user.user_id, 
                 event_type="homeshopping_notification_read", 
-                event_data={"notification_id": notification_id}
+                event_data={"notification_id": notification_id},
+                **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         logger.info(f"홈쇼핑 알림 읽음 처리 완료: notification_id={notification_id}")

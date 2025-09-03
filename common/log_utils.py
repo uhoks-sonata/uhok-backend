@@ -141,68 +141,35 @@ async def send_user_log(
     raise_on_4xx: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """
-    사용자 로그 전송(비동기)
-    - 서버가 상위 필드로 HTTP 정보를 요구하는 케이스를 지원(옵셔널)
-    - 실패 시 응답 바디를 상세 로깅하여 400 원인 파악이 가능
+    사용자 로그를 직접 DB에 저장(비동기)
+    - HTTP 전송 대신 직접 PostgreSQL 로그 DB에 저장
+    - HTTP 정보를 포함하여 저장
     """
     
-    # API_URL이 없으면 전송하지 않음
-    if not API_URL:
-        logger.debug(f"[log_utils] API_URL이 설정되지 않아 로그 전송 건너뜀 (user_id={user_id}, event_type={event_type})")
+    # 직접 DB에 저장하도록 변경
+    try:
+        from common.database.postgres_log import SessionLocal
+        from services.log.crud.user_event_log_crud import create_user_log
+        
+        # 로그 데이터 구성
+        log_data = {
+            "user_id": user_id,
+            "event_type": event_type,
+            "event_data": event_data,
+            "http_method": http_method,
+            "api_url": api_url,
+            "request_time": request_time,
+            "response_time": response_time,
+            "response_code": response_code,
+            "client_ip": client_ip
+        }
+        
+        # 로그 DB 세션 생성 및 저장
+        async with SessionLocal() as db:
+            log_obj = await create_user_log(db, log_data)
+            logger.debug(f"[log_utils] 로그 DB 저장 완료: user_id={user_id}, event_type={event_type}, log_id={log_obj.log_id}")
+            return {"log_id": log_obj.log_id, "status": "saved_to_db"}
+            
+    except Exception as e:
+        logger.error(f"[log_utils] 로그 DB 저장 실패: user_id={user_id}, event_type={event_type}, error={str(e)}")
         return None
-
-    # (선택) 헬스체크
-    if not await check_log_service_health(timeout=2.0):
-        logger.debug("[log_utils] 헬스체크 실패했지만 전송 시도")
-
-    sanitized = redact_event_data(event_data, extra_sensitive_keys)
-    serialized_event_data = serialize_datetime(sanitized)
-
-    payload: Dict[str, Any] = {
-        "user_id": user_id,
-        "event_type": event_type,
-        "event_data": serialized_event_data,
-    }
-    # ⬇️ 상위 HTTP 컬럼 추가(서버에서 요구 시)
-    if http_method is not None:   payload["http_method"]   = http_method
-    if api_url is not None:       payload["api_url"]       = api_url
-    if response_code is not None: payload["response_code"] = response_code
-    if client_ip is not None:     payload["client_ip"]     = client_ip
-    if request_time is not None:  payload["request_time"]  = serialize_datetime(request_time)
-    if response_time is not None: payload["response_time"] = serialize_datetime(response_time)
-
-    headers = _build_headers(extra_headers)
-
-    attempt = 0
-    while attempt < max_retries:
-        try:
-            async with httpx.AsyncClient(timeout=base_timeout) as client:
-                resp = await client.post(API_URL, headers=headers, json=payload)
-                if 200 <= resp.status_code < 300:
-                    try:
-                        return resp.json()
-                    except json.JSONDecodeError:
-                        return {"raw": resp.text}
-
-                # 4xx/5xx면 서버 응답 바디를 남긴다
-                await _log_http_error(resp, payload)
-                if raise_on_4xx and 400 <= resp.status_code < 500:
-                    resp.raise_for_status()
-                # 재시도 가치 있는 코드만 재시도(네트워크/5xx)
-                if 500 <= resp.status_code < 600:
-                    raise httpx.HTTPStatusError("server error", request=resp.request, response=resp)
-                return None
-
-        except (httpx.TimeoutException, httpx.RequestError, httpx.HTTPStatusError) as e:
-            attempt += 1
-            if attempt >= max_retries:
-                logger.error(
-                    "[log_utils] 로그 전송 최종 실패: %r, payload_summary=%s",
-                    e, _summarize_payload(payload)
-                )
-                return None
-            # 지수 백오프 + 지터
-            backoff = (2 ** (attempt - 1)) * 0.3 + random.uniform(0, 0.2)
-            await anyio.sleep(backoff)
-
-    return None
