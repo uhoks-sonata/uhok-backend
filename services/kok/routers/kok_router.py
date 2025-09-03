@@ -820,7 +820,8 @@ async def recommend_recipes_from_cart_items(
             for _, row in recipes_df.iterrows():
                 recipe_dict = {
                     "recipe_id": int(row["RECIPE_ID"]),
-                    "cooking_name": row["RECIPE_TITLE"],
+                    "recipe_title": str(row.get("RECIPE_TITLE", "")) if row.get("RECIPE_TITLE") else None,
+                    "cooking_name": str(row.get("COOKING_NAME", "")) if row.get("COOKING_NAME") else None,
                     "description": str(row.get("COOKING_INTRODUCTION", "")) if row.get("COOKING_INTRODUCTION") else None,
                     "scrap_count": int(row["SCRAP_COUNT"]) if row["SCRAP_COUNT"] is not None and not (isinstance(row["SCRAP_COUNT"], float) and pd.isna(row["SCRAP_COUNT"])) else 0,
                     "recipe_url": f"https://www.10000recipe.com/recipe/{int(row['RECIPE_ID'])}",
