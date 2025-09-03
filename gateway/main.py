@@ -134,7 +134,7 @@ logger.info("레시피 라우터 포함 완료")
 logger.info("모든 서비스 라우터 등록 완료")
 
 # 헬스체크 엔드포인트
-@app.get("/health")
+@app.get("/api/health")
 async def health_check():
     """
     API Gateway 헬스체크 엔드포인트
