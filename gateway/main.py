@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from common.config import get_settings
 from common.logger import get_logger
-# from common.middleware.http_logging_middleware import HTTPLoggingMiddleware
+from common.http_log_middleware import HttpLogMiddleware
 from services.user.routers.user_router import router as user_router
 from services.log.routers.user_event_log_router import router as user_event_log_router
 from services.log.routers.user_activity_log_routers import router as user_activity_log_router
@@ -31,16 +31,16 @@ try:
     settings = get_settings()
     logger.info("설정 로드 완료")
     
-#     # 현재 환경 정보 출력
-#     logger.info(f"현재 환경: DEBUG={settings.debug}")
+    # 현재 환경 정보 출력
+    logger.info(f"현재 환경: DEBUG={settings.debug}")
     
-#     # uvicorn 액세스 로그 완전 비활성화 (개발/운영 구분 없이)
-#     logging.getLogger("uvicorn.access").disabled = True
-#     logging.getLogger("uvicorn.access").setLevel(logging.CRITICAL)
-#     logging.getLogger("uvicorn").setLevel(logging.WARNING)
-#     logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
+    # uvicorn 액세스 로그 완전 비활성화 (개발/운영 구분 없이)
+    logging.getLogger("uvicorn.access").disabled = True
+    logging.getLogger("uvicorn.access").setLevel(logging.CRITICAL)
+    logging.getLogger("uvicorn").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
     
-#     logger.info("Uvicorn 액세스 로그 비활성화 완료")
+    logger.info("Uvicorn 액세스 로그 비활성화 완료")
     
 except Exception as e:
     logger.error(f"설정 로드 실패: {e}")
@@ -54,9 +54,9 @@ app = FastAPI(
 )
 
 # HTTP 로깅 미들웨어 설정
-# logger.info("HTTP 로깅 미들웨어 설정 중...")
-# app.add_middleware(HTTPLoggingMiddleware)
-# logger.info("HTTP 로깅 미들웨어 설정 완료")
+logger.info("HTTP 로깅 미들웨어 설정 중...")
+app.add_middleware(HttpLogMiddleware)
+logger.info("HTTP 로깅 미들웨어 설정 완료")
 
 # CORS 설정
 logger.info("CORS 미들웨어 설정 중...")

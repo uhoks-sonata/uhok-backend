@@ -54,8 +54,7 @@ class Settings(BaseSettings):
     postgres_log_url: str = Field(..., env="POSTGRES_LOG_URL", description="로그 저장용 PostgreSQL 연결 URL")
     postgres_log_migrate_url: str = Field(..., env="POSTGRES_LOG_MIGRATE_URL", description="로그 DB 마이그레이션용 연결 URL")
     
-    # 외부 API 설정
-    log_api_url: str = Field(..., env="LOG_API_URL", description="로그 API 엔드포인트 URL")
+    # 외부 API 설정 (로그 전송 불필요하므로 제거)
     
     # 애플리케이션 기본 설정
     app_name: str = Field(..., env="APP_NAME", description="애플리케이션 이름")
