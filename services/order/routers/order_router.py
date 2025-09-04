@@ -32,7 +32,7 @@ from services.order.crud.order_crud import (
 logger = get_logger("order_router")
 router = APIRouter(prefix="/api/orders", tags=["Orders"])
 
-@router.get("/", response_model=OrdersListResponse)
+@router.get("", response_model=OrdersListResponse)
 async def list_orders(
     request: Request,
     limit: int = Query(10, description="조회 개수"),
