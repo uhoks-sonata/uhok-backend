@@ -112,6 +112,7 @@ class ProductRecommendation(BaseModel):
     image_url: Optional[str] = Field(None, description="상품 이미지 URL")
     brand_name: Optional[str] = Field(None, description="브랜드명")
     price: Optional[int] = Field(None, description="가격")
+    homeshopping_id: Optional[int] = Field(None, description="홈쇼핑 ID (source가 homeshopping일 경우)")
 
 class ProductRecommendResponse(BaseModel):
     """상품 추천 응답"""
