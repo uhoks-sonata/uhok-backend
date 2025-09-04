@@ -1,70 +1,125 @@
+#!/usr/bin/env python3
 """
-비동기 MariaDB 서버 연결(인증) 및 버전 정보 조회 테스트 코드
+데이터베이스 연결 테스트 스크립트
+- MariaDB 및 PostgreSQL 연결 상태 확인
 """
 
 import asyncio
-import asyncmy
-from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy import text
-from common.config import get_settings
+import sys
+import os
+from pathlib import Path
+
+# 프로젝트 루트를 Python 경로에 추가
+sys.path.append(str(Path(__file__).parent.parent))
+
+from common.database.mariadb_service import SessionLocal as MariaSessionLocal
+from common.database.postgres_log import SessionLocal as PostgresLogSessionLocal
+from common.database.postgres_recommend import SessionLocal as PostgresRecommendSessionLocal
 from common.logger import get_logger
-import re
 
 logger = get_logger("test_db_connection")
 
-def extract_conn_info(db_url):
-    """
-    SQLAlchemy 형태의 DB URL에서 접속 정보를 파싱해서 반환
-    예: mysql+aiomysql://user:pass@host:port/dbname
-    """
-    m = re.match(
-        r"mysql\+(aiomysql|pymysql|asyncmy)://(?P<user>[^:]+):(?P<password>[^@]+)@(?P<host>[^:/]+):(?P<port>\d+)(/(?P<dbname>[^?]+))?",
-        db_url
-    )
-
-    return m.groupdict() if m else None
-
-async def test_mariadb_server_connection_async():
-    """
-    비동기 MariaDB 서버 자체 연결(로그인)만 확인. DB 존재 여부는 무시.
-    """
-    settings = get_settings()
-    conn_info = extract_conn_info(settings.mariadb_auth_url)
-    if not conn_info:
-        logger.error("❌ 데이터베이스 URL 파싱 실패!")
-        return
-
+async def test_mariadb_connection():
+    """MariaDB 연결 테스트"""
+    logger.info("=== MariaDB 연결 테스트 ===")
+    
     try:
-        conn = await asyncmy.connect(
-            host=conn_info['host'],
-            port=int(conn_info['port']),
-            user=conn_info['user'],
-            password=conn_info['password'],
-            # db 파라미터 생략 (DB명 필요 없음!)
-        )
-        logger.info(f"✅ 비동기 MariaDB 서버 연결(로그인) 성공! ({conn_info['host']}:{conn_info['port']})")
-        conn.close()
+        async with MariaSessionLocal() as db:
+            result = await db.execute("SELECT 1 as test")
+            test_value = result.scalar()
+            
+            if test_value == 1:
+                logger.info("✅ MariaDB 연결 성공")
+                return True
+            else:
+                logger.error("❌ MariaDB 연결 실패: 예상치 못한 결과")
+                return False
+                
     except Exception as e:
-        logger.error(f"❌ 비동기 MariaDB 서버 연결 실패: {e}")
+        logger.error(f"❌ MariaDB 연결 실패: {str(e)}")
+        return False
 
-async def test_db_connection_async():
-    """
-    .env와 config.py 기반으로 mariadb_auth_url에 DB 연결 시도,
-    버전 정보 쿼리 후 결과 출력 (비동기)
-    """
-    settings = get_settings()
-    engine = create_async_engine(settings.mariadb_auth_url, echo=True)
-
+async def test_postgres_log_connection():
+    """PostgreSQL Log 연결 테스트"""
+    logger.info("=== PostgreSQL Log 연결 테스트 ===")
+    
     try:
-        async with engine.connect() as conn:  # type: AsyncConnection
-            result = await conn.execute(text("SELECT VERSION();"))
-            version = result.scalar_one()
-            logger.info(f"✅ 비동기 데이터베이스 연결 성공! MariaDB/MySQL 버전: {version}")
+        async with PostgresLogSessionLocal() as db:
+            result = await db.execute("SELECT 1 as test")
+            test_value = result.scalar()
+            
+            if test_value == 1:
+                logger.info("✅ PostgreSQL Log 연결 성공")
+                return True
+            else:
+                logger.error("❌ PostgreSQL Log 연결 실패: 예상치 못한 결과")
+                return False
+                
     except Exception as e:
-        logger.error(f"❌ 비동기 데이터베이스 연결 실패: {e}")
-    finally:
-        await engine.dispose()
+        logger.error(f"❌ PostgreSQL Log 연결 실패: {str(e)}")
+        return False
+
+async def test_postgres_recommend_connection():
+    """PostgreSQL Recommend 연결 테스트"""
+    logger.info("=== PostgreSQL Recommend 연결 테스트 ===")
+    
+    try:
+        async with PostgresRecommendSessionLocal() as db:
+            result = await db.execute("SELECT 1 as test")
+            test_value = result.scalar()
+            
+            if test_value == 1:
+                logger.info("✅ PostgreSQL Recommend 연결 성공")
+                return True
+            else:
+                logger.error("❌ PostgreSQL Recommend 연결 실패: 예상치 못한 결과")
+                return False
+                
+    except Exception as e:
+        logger.error(f"❌ PostgreSQL Recommend 연결 실패: {str(e)}")
+        return False
+
+async def test_all_connections():
+    """모든 데이터베이스 연결 테스트"""
+    logger.info("=== 모든 데이터베이스 연결 테스트 시작 ===")
+    
+    results = []
+    
+    # MariaDB 테스트
+    mariadb_result = await test_mariadb_connection()
+    results.append(("MariaDB", mariadb_result))
+    
+    # PostgreSQL Log 테스트
+    postgres_log_result = await test_postgres_log_connection()
+    results.append(("PostgreSQL Log", postgres_log_result))
+    
+    # PostgreSQL Recommend 테스트
+    postgres_recommend_result = await test_postgres_recommend_connection()
+    results.append(("PostgreSQL Recommend", postgres_recommend_result))
+    
+    # 결과 요약
+    logger.info("\n=== 연결 테스트 결과 요약 ===")
+    success_count = 0
+    for db_name, result in results:
+        status = "✅ 성공" if result else "❌ 실패"
+        logger.info(f"{db_name}: {status}")
+        if result:
+            success_count += 1
+    
+    logger.info(f"\n총 {len(results)}개 중 {success_count}개 연결 성공")
+    
+    if success_count == len(results):
+        logger.info("🎉 모든 데이터베이스 연결 성공!")
+    else:
+        logger.warning(f"⚠️ {len(results) - success_count}개 데이터베이스 연결 실패")
+
+async def main():
+    """메인 함수"""
+    try:
+        await test_all_connections()
+    except Exception as e:
+        logger.error(f"데이터베이스 연결 테스트 실패: {str(e)}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    asyncio.run(test_mariadb_server_connection_async())
-    asyncio.run(test_db_connection_async())
+    asyncio.run(main())
