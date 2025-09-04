@@ -713,7 +713,7 @@ async def auto_update_hs_order_status(homeshopping_order_id: int, db: AsyncSessi
                 continue
                 
             # 5초 대기
-            await asyncio.sleep(5)
+            await asyncio.sleep(2)
             
             # 상태 업데이트
             await update_hs_order_status(
