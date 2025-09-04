@@ -125,10 +125,12 @@ SELECT
     hc.CLS_ING,
     hpi.SALE_PRICE,
     hpi.STORE_NAME,
-    hiu.IMG_URL
+    hiu.IMG_URL,
+    hfl.HOMESHOPPING_ID
 FROM HOMESHOPPING_CLASSIFY hc
 LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hc.PRODUCT_ID = hpi.PRODUCT_ID
 LEFT JOIN FCT_HOMESHOPPING_IMG_URL hiu ON hc.PRODUCT_ID = hiu.PRODUCT_ID AND hiu.SORT_ORDER = 1
+LEFT JOIN FCT_HOMESHOPPING_LIST hfl ON hc.PRODUCT_ID = hfl.PRODUCT_ID
 WHERE hc.CLS_FOOD = 1
   AND hc.CLS_ING  = 1
   AND (
@@ -215,6 +217,7 @@ async def recommend_for_ingredient(session: AsyncSession, ingredient: str, max_t
                 "image_url": r.get('IMG_URL'),
                 "brand_name": r.get('STORE_NAME'),
                 "price": safe_price(r.get('SALE_PRICE')),
+                "homeshopping_id": r.get('HOMESHOPPING_ID'),
             })
             if len(recs) >= max_home:
                 break
@@ -239,6 +242,7 @@ async def recommend_for_ingredient(session: AsyncSession, ingredient: str, max_t
                     "image_url": r.get('KOK_THUMBNAIL'),
                     "brand_name": r.get('KOK_STORE_NAME'),
                     "price": safe_price(r.get('KOK_PRODUCT_PRICE')),
+                    "homeshopping_id": None,
                 })
 
     return recs
