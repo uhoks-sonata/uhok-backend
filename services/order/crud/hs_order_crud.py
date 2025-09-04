@@ -90,8 +90,12 @@ async def create_homeshopping_order(
         status_stmt = select(StatusMaster).where(
             StatusMaster.status_code == "ORDER_RECEIVED"
         )
-        status_result = await db.execute(status_stmt)
-        status = status_result.scalar_one_or_none()
+        try:
+            status_result = await db.execute(status_stmt)
+            status = status_result.scalar_one_or_none()
+        except Exception as e:
+            logger.error(f"주문 상태 조회 SQL 실행 실패: status_code=ORDER_RECEIVED, error={str(e)}")
+            raise
         
         if status:
             new_status_history = HomeShoppingOrderStatusHistory(
@@ -101,6 +105,8 @@ async def create_homeshopping_order(
                 changed_by=user_id
             )
             db.add(new_status_history)
+        else:
+            logger.warning(f"ORDER_RECEIVED 상태를 찾을 수 없음: user_id={user_id}, product_id={product_id}")
         
         # 5. 홈쇼핑 알림 생성
         new_notification = HomeshoppingNotification(
@@ -154,21 +160,29 @@ async def get_hs_current_status(
         - 상태 이력이 없는 경우 기본 상태(ORDER_RECEIVED)로 상태 이력 생성
         - status 관계를 명시적으로 로드하여 상태 정보 포함
     """
-    result = await db.execute(
-        select(HomeShoppingOrderStatusHistory)
-        .where(HomeShoppingOrderStatusHistory.homeshopping_order_id == homeshopping_order_id)
-        .order_by(desc(HomeShoppingOrderStatusHistory.changed_at))
-        .limit(1)
-    )
-    status_history = result.scalars().first()
+    try:
+        result = await db.execute(
+            select(HomeShoppingOrderStatusHistory)
+            .where(HomeShoppingOrderStatusHistory.homeshopping_order_id == homeshopping_order_id)
+            .order_by(desc(HomeShoppingOrderStatusHistory.changed_at))
+            .limit(1)
+        )
+        status_history = result.scalars().first()
+    except Exception as e:
+        logger.error(f"홈쇼핑 주문 현재 상태 조회 SQL 실행 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
+        raise
     
     # 상태 이력이 없는 경우 기본 상태 반환
     if not status_history:
         # 기본 상태 조회 (ORDER_RECEIVED)
-        default_status_result = await db.execute(
-            select(StatusMaster).where(StatusMaster.status_code == "ORDER_RECEIVED")
-        )
-        default_status = default_status_result.scalars().first()
+        try:
+            default_status_result = await db.execute(
+                select(StatusMaster).where(StatusMaster.status_code == "ORDER_RECEIVED")
+            )
+            default_status = default_status_result.scalars().first()
+        except Exception as e:
+            logger.error(f"기본 상태 조회 SQL 실행 실패: status_code=ORDER_RECEIVED, error={str(e)}")
+            raise
         
         if default_status:
             # 기본 상태로 상태 이력 생성
@@ -181,12 +195,18 @@ async def get_hs_current_status(
             
             # 기본 상태 정보를 status 관계에 설정
             status_history.status = default_status
+        else:
+            logger.warning(f"기본 상태(ORDER_RECEIVED)를 찾을 수 없음: homeshopping_order_id={homeshopping_order_id}")
     else:
         # 기존 상태 이력이 있는 경우, status 관계를 명시적으로 로드
-        status_result = await db.execute(
-            select(StatusMaster).where(StatusMaster.status_id == status_history.status_id)
-        )
-        status_history.status = status_result.scalars().first()
+        try:
+            status_result = await db.execute(
+                select(StatusMaster).where(StatusMaster.status_id == status_history.status_id)
+            )
+            status_history.status = status_result.scalars().first()
+        except Exception as e:
+            logger.warning(f"상태 정보 로드 실패: homeshopping_order_id={homeshopping_order_id}, status_id={status_history.status_id}, error={str(e)}")
+            status_history.status = None
     
     return status_history
 
@@ -216,10 +236,14 @@ async def create_hs_notification_for_status_change(
         - HomeshoppingNotification 테이블에 알림 정보 저장
     """
     # 상태 정보 조회
-    status_result = await db.execute(
-        select(StatusMaster).where(StatusMaster.status_id == status_id)
-    )
-    status = status_result.scalars().first()
+    try:
+        status_result = await db.execute(
+            select(StatusMaster).where(StatusMaster.status_id == status_id)
+        )
+        status = status_result.scalars().first()
+    except Exception as e:
+        logger.error(f"상태 정보 조회 SQL 실행 실패: status_id={status_id}, error={str(e)}")
+        return
     
     if not status:
         logger.warning(f"상태 정보를 찾을 수 없음: status_id={status_id}")
@@ -273,19 +297,31 @@ async def update_hs_order_status(
         raise ValueError(f"상태 코드 '{new_status_code}'를 찾을 수 없습니다")
 
     # 2. 주문 조회
-    result = await db.execute(
-        select(HomeShoppingOrder).where(HomeShoppingOrder.homeshopping_order_id == homeshopping_order_id)
-    )
-    hs_order = result.scalars().first()
+    try:
+        result = await db.execute(
+            select(HomeShoppingOrder).where(HomeShoppingOrder.homeshopping_order_id == homeshopping_order_id)
+        )
+        hs_order = result.scalars().first()
+    except Exception as e:
+        logger.error(f"홈쇼핑 주문 조회 SQL 실행 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
+        raise
+    
     if not hs_order:
+        logger.warning(f"홈쇼핑 주문을 찾을 수 없음: homeshopping_order_id={homeshopping_order_id}")
         raise Exception("해당 주문을 찾을 수 없습니다")
 
     # 3. 주문자 ID 조회
-    order_result = await db.execute(
-        select(Order).where(Order.order_id == hs_order.order_id)
-    )
-    order = order_result.scalars().first()
+    try:
+        order_result = await db.execute(
+            select(Order).where(Order.order_id == hs_order.order_id)
+        )
+        order = order_result.scalars().first()
+    except Exception as e:
+        logger.error(f"주문 정보 조회 SQL 실행 실패: order_id={hs_order.order_id}, error={str(e)}")
+        raise
+    
     if not order:
+        logger.warning(f"주문 정보를 찾을 수 없음: order_id={hs_order.order_id}")
         raise Exception("주문 정보를 찾을 수 없습니다")
 
     # 4. 상태 변경 이력 생성 (UPDATE 없이 INSERT만)
@@ -333,21 +369,29 @@ async def get_hs_order_status_history(
         - changed_at 기준으로 내림차순 정렬
         - status 관계를 명시적으로 로드하여 상태 정보 포함
     """
-    result = await db.execute(
-        select(HomeShoppingOrderStatusHistory)
-        .where(HomeShoppingOrderStatusHistory.homeshopping_order_id == homeshopping_order_id)
-        .order_by(desc(HomeShoppingOrderStatusHistory.changed_at))
-    )
-    
-    status_histories = result.scalars().all()
+    try:
+        result = await db.execute(
+            select(HomeShoppingOrderStatusHistory)
+            .where(HomeShoppingOrderStatusHistory.homeshopping_order_id == homeshopping_order_id)
+            .order_by(desc(HomeShoppingOrderStatusHistory.changed_at))
+        )
+        
+        status_histories = result.scalars().all()
+    except Exception as e:
+        logger.error(f"홈쇼핑 주문 상태 이력 조회 SQL 실행 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
+        raise
     
     # 각 상태 이력에 대해 status 관계를 명시적으로 로드
     for history in status_histories:
         if not history.status:
-            status_result = await db.execute(
-                select(StatusMaster).where(StatusMaster.status_id == history.status_id)
-            )
-            history.status = status_result.scalars().first()
+            try:
+                status_result = await db.execute(
+                    select(StatusMaster).where(StatusMaster.status_id == history.status_id)
+                )
+                history.status = status_result.scalars().first()
+            except Exception as e:
+                logger.warning(f"상태 이력의 상태 정보 로드 실패: history_id={history.history_id}, status_id={history.status_id}, error={str(e)}")
+                history.status = None
     
     # changed_at 기준으로 다시 정렬 (Python 레벨에서)
     status_histories.sort(key=lambda x: x.changed_at, reverse=True)
@@ -377,16 +421,22 @@ async def get_hs_order_with_status(
         - 상세한 디버깅 로그 포함
     """
     # 주문 상세 정보 조회
-    hs_order_result = await db.execute(
-        select(HomeShoppingOrder, Order, HomeshoppingList, HomeshoppingProductInfo)
-        .join(Order, HomeShoppingOrder.order_id == Order.order_id)
-        .join(HomeshoppingList, HomeShoppingOrder.product_id == HomeshoppingList.product_id)
-        .join(HomeshoppingProductInfo, HomeShoppingOrder.product_id == HomeshoppingProductInfo.product_id)
-        .where(HomeShoppingOrder.homeshopping_order_id == homeshopping_order_id)
-    )
+    try:
+        hs_order_result = await db.execute(
+            select(HomeShoppingOrder, Order, HomeshoppingList, HomeshoppingProductInfo)
+            .join(Order, HomeShoppingOrder.order_id == Order.order_id)
+            .join(HomeshoppingList, HomeShoppingOrder.product_id == HomeshoppingList.product_id)
+            .join(HomeshoppingProductInfo, HomeShoppingOrder.product_id == HomeshoppingProductInfo.product_id)
+            .where(HomeShoppingOrder.homeshopping_order_id == homeshopping_order_id)
+        )
+        
+        order_data = hs_order_result.first()
+    except Exception as e:
+        logger.error(f"홈쇼핑 주문 상세 조회 SQL 실행 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
+        return None
     
-    order_data = hs_order_result.first()
     if not order_data:
+        logger.warning(f"홈쇼핑 주문 상세 정보를 찾을 수 없음: homeshopping_order_id={homeshopping_order_id}")
         return None
     
     hs_order, order, live, product = order_data
@@ -417,10 +467,14 @@ async def get_hs_order_with_status(
     # logger.info(f"최근 상태 이력에서 현재 상태 사용: {current_status_data}")
         else:
             # status 관계가 로드되지 않은 경우 기본 상태 사용
-            default_status_result = await db.execute(
-                select(StatusMaster).where(StatusMaster.status_code == "ORDER_RECEIVED")
-            )
-            default_status = default_status_result.scalar_one_or_none()
+            try:
+                default_status_result = await db.execute(
+                    select(StatusMaster).where(StatusMaster.status_code == "ORDER_RECEIVED")
+                )
+                default_status = default_status_result.scalar_one_or_none()
+            except Exception as e:
+                logger.warning(f"기본 상태 조회 실패: status_code=ORDER_RECEIVED, error={str(e)}")
+                default_status = None
             
             current_status_data = {
                 "status_id": default_status.status_id if default_status else 0,
@@ -430,10 +484,14 @@ async def get_hs_order_with_status(
     # logger.info(f"기본 상태 사용: {current_status_data}")
     else:
         # 상태 이력이 없는 경우 기본 상태 사용
-        default_status_result = await db.execute(
-            select(StatusMaster).where(StatusMaster.status_code == "ORDER_RECEIVED")
-        )
-        default_status = default_status_result.scalar_one_or_none()
+        try:
+            default_status_result = await db.execute(
+                select(StatusMaster).where(StatusMaster.status_code == "ORDER_RECEIVED")
+            )
+            default_status = default_status_result.scalar_one_or_none()
+        except Exception as e:
+            logger.warning(f"기본 상태 조회 실패: status_code=ORDER_RECEIVED, error={str(e)}")
+            default_status = None
         
         current_status_data = {
             "status_id": default_status.status_id if default_status else 0,
@@ -497,36 +555,47 @@ async def confirm_hs_payment(
         - 트랜잭션으로 처리하여 일관성 보장
     """
     # 1. 주문 조회 및 권한 확인
-    hs_order_result = await db.execute(
-        select(HomeShoppingOrder, Order)
-        .join(Order, HomeShoppingOrder.order_id == Order.order_id)
-        .where(HomeShoppingOrder.homeshopping_order_id == homeshopping_order_id)
-    )
+    try:
+        hs_order_result = await db.execute(
+            select(HomeShoppingOrder, Order)
+            .join(Order, HomeShoppingOrder.order_id == Order.order_id)
+            .where(HomeShoppingOrder.homeshopping_order_id == homeshopping_order_id)
+        )
+        
+        order_data = hs_order_result.first()
+    except Exception as e:
+        logger.error(f"홈쇼핑 주문 결제 확인 조회 SQL 실행 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
+        raise
     
-    order_data = hs_order_result.first()
     if not order_data:
+        logger.warning(f"홈쇼핑 주문을 찾을 수 없음: homeshopping_order_id={homeshopping_order_id}")
         raise ValueError("해당 주문을 찾을 수 없습니다")
     
     hs_order, order = order_data
     
     # 주문자 본인 확인
     if order.user_id != user_id:
+        logger.warning(f"주문자 본인이 아님: order_user_id={order.user_id}, request_user_id={user_id}, homeshopping_order_id={homeshopping_order_id}")
         raise ValueError("주문자 본인만 결제 확인할 수 있습니다")
     
     # 2. 현재 상태 확인
     current_status = await get_hs_current_status(db, homeshopping_order_id)
     if not current_status:
+        logger.warning(f"주문 상태 정보를 찾을 수 없음: homeshopping_order_id={homeshopping_order_id}")
         raise ValueError("주문 상태 정보를 찾을 수 없습니다")
     
     if not current_status.status:
+        logger.warning(f"주문 상태 정보가 올바르지 않음: homeshopping_order_id={homeshopping_order_id}, status_id={current_status.status_id}")
         raise ValueError("주문 상태 정보가 올바르지 않습니다")
     
     if current_status.status.status_code != "PAYMENT_REQUESTED":
+        logger.warning(f"현재 상태가 PAYMENT_REQUESTED가 아님: homeshopping_order_id={homeshopping_order_id}, current_status={current_status.status.status_code}")
         raise ValueError("현재 상태가 PAYMENT_REQUESTED가 아닙니다")
     
     # 3. 상태를 PAYMENT_COMPLETED로 변경
     new_status = await get_status_by_code(db, "PAYMENT_COMPLETED")
     if not new_status:
+        logger.warning(f"PAYMENT_COMPLETED 상태를 찾을 수 없음: homeshopping_order_id={homeshopping_order_id}")
         raise ValueError("PAYMENT_COMPLETED 상태를 찾을 수 없습니다")
     
     # 4. 새로운 상태 이력 생성
@@ -579,28 +648,37 @@ async def start_hs_auto_update(
     """
     try:
         # 1. 주문 조회 및 권한 확인
-        hs_order_result = await db.execute(
-            select(HomeShoppingOrder, Order)
-            .join(Order, HomeShoppingOrder.order_id == Order.order_id)
-            .where(HomeShoppingOrder.homeshopping_order_id == homeshopping_order_id)
-        )
+        try:
+            hs_order_result = await db.execute(
+                select(HomeShoppingOrder, Order)
+                .join(Order, HomeShoppingOrder.order_id == Order.order_id)
+                .where(HomeShoppingOrder.homeshopping_order_id == homeshopping_order_id)
+            )
+            
+            order_data = hs_order_result.first()
+        except Exception as e:
+            logger.error(f"홈쇼핑 주문 자동 업데이트 조회 SQL 실행 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
+            raise
         
-        order_data = hs_order_result.first()
         if not order_data:
+            logger.warning(f"홈쇼핑 주문을 찾을 수 없음: homeshopping_order_id={homeshopping_order_id}")
             raise ValueError("해당 주문을 찾을 수 없습니다")
         
         hs_order, order = order_data
         
         # 주문자 본인 확인
         if order.user_id != user_id:
+            logger.warning(f"주문자 본인이 아님: order_user_id={order.user_id}, request_user_id={user_id}, homeshopping_order_id={homeshopping_order_id}")
             raise ValueError("주문자 본인만 자동 업데이트를 시작할 수 있습니다")
         
         # 2. 현재 상태 확인
         current_status = await get_hs_current_status(db, homeshopping_order_id)
         if not current_status:
+            logger.warning(f"주문 상태 정보를 찾을 수 없음: homeshopping_order_id={homeshopping_order_id}")
             raise ValueError("주문 상태 정보를 찾을 수 없습니다")
         
         if not current_status.status:
+            logger.warning(f"주문 상태 정보가 올바르지 않음: homeshopping_order_id={homeshopping_order_id}, status_id={current_status.status_id}")
             raise ValueError("주문 상태 정보가 올바르지 않습니다")
         
         # logger.info(f"자동 상태 업데이트 시작: homeshopping_order_id={homeshopping_order_id}, current_status={current_status.status.status_code}")
@@ -794,19 +872,27 @@ async def calculate_homeshopping_order_price(
         product_stmt = select(HomeshoppingProductInfo).where(
             HomeshoppingProductInfo.product_id == product_id
         )
-        product_result = await db.execute(product_stmt)
-        product = product_result.scalar_one_or_none()
+        try:
+            product_result = await db.execute(product_stmt)
+            product = product_result.scalar_one_or_none()
+        except Exception as e:
+            logger.error(f"홈쇼핑 상품 정보 조회 SQL 실행 실패: product_id={product_id}, error={str(e)}")
+            raise
         
         if not product:
-            logger.error(f"상품을 찾을 수 없음: product_id={product_id}")
+            logger.warning(f"홈쇼핑 상품을 찾을 수 없음: product_id={product_id}")
             raise ValueError("상품을 찾을 수 없습니다.")
         
         # 2. 상품명 조회 (여러 행이 있을 수 있으므로 첫 번째 행만 사용)
         live_stmt = select(HomeshoppingList).where(
             HomeshoppingList.product_id == product_id
         )
-        live_result = await db.execute(live_stmt)
-        live = live_result.scalars().first()
+        try:
+            live_result = await db.execute(live_stmt)
+            live = live_result.scalars().first()
+        except Exception as e:
+            logger.warning(f"홈쇼핑 상품명 조회 실패: product_id={product_id}, error={str(e)}")
+            live = None
         
         product_name = live.product_name if live else f"상품_{product_id}"
         

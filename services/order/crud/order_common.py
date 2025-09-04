@@ -66,10 +66,16 @@ async def get_status_by_code(db: AsyncSession, status_code: str) -> StatusMaster
         - StatusMaster 테이블에서 status_code로 조회
         - 주문 상태 변경 시 상태 정보 조회에 사용
     """
-    result = await db.execute(
-        select(StatusMaster).where(StatusMaster.status_code == status_code)
-    )
-    return result.scalars().first()
+    try:
+        result = await db.execute(
+            select(StatusMaster).where(StatusMaster.status_code == status_code)
+        )
+        return result.scalars().first()
+    except Exception as e:
+        from common.logger import get_logger
+        logger = get_logger("order_common")
+        logger.error(f"상태 코드 조회 SQL 실행 실패: status_code={status_code}, error={str(e)}")
+        return None
 
 async def initialize_status_master(db: AsyncSession):
     """
@@ -87,18 +93,29 @@ async def initialize_status_master(db: AsyncSession):
         - 기존 상태 코드가 있는 경우 중복 추가하지 않음
         - 시스템 초기화 시 사용
     """
-    for status_code, status_name in STATUS_CODES.items():
-        # 기존 상태 코드 확인
-        existing = await get_status_by_code(db, status_code)
-        if not existing:
-            # 새 상태 코드 추가
-            new_status = StatusMaster(
-                status_code=status_code,
-                status_name=status_name
-            )
-            db.add(new_status)
+    from common.logger import get_logger
+    logger = get_logger("order_common")
     
-    await db.commit()
+    for status_code, status_name in STATUS_CODES.items():
+        try:
+            # 기존 상태 코드 확인
+            existing = await get_status_by_code(db, status_code)
+            if not existing:
+                # 새 상태 코드 추가
+                new_status = StatusMaster(
+                    status_code=status_code,
+                    status_name=status_name
+                )
+                db.add(new_status)
+        except Exception as e:
+            logger.warning(f"상태 코드 초기화 실패: status_code={status_code}, error={str(e)}")
+            continue
+    
+    try:
+        await db.commit()
+    except Exception as e:
+        logger.error(f"상태 마스터 초기화 커밋 실패: error={str(e)}")
+        raise
 
 async def validate_user_exists(user_id: int, db: AsyncSession) -> bool:
     """
@@ -117,13 +134,24 @@ async def validate_user_exists(user_id: int, db: AsyncSession) -> bool:
         - 주문 생성 시 사용자 유효성 검증에 사용
         - 별도의 AUTH_DB 세션을 사용하여 인증 데이터베이스 접근
     """  
-    # AUTH_DB에서 사용자 조회
-    auth_db = get_maria_auth_db()
-    async for auth_session in auth_db:
-        result = await auth_session.execute(
-            select(User).where(User.user_id == user_id)
-        )
-        user = result.scalars().first()
-        return user is not None
+    from common.logger import get_logger
+    logger = get_logger("order_common")
     
-    return False
+    try:
+        # AUTH_DB에서 사용자 조회
+        auth_db = get_maria_auth_db()
+        async for auth_session in auth_db:
+            try:
+                result = await auth_session.execute(
+                    select(User).where(User.user_id == user_id)
+                )
+                user = result.scalars().first()
+                return user is not None
+            except Exception as e:
+                logger.error(f"사용자 검증 SQL 실행 실패: user_id={user_id}, error={str(e)}")
+                return False
+        
+        return False
+    except Exception as e:
+        logger.error(f"사용자 검증 실패: user_id={user_id}, error={str(e)}")
+        return False

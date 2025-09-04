@@ -92,8 +92,12 @@ async def get_kok_product_seller_details(
     product_stmt = (
         select(KokProductInfo).where(KokProductInfo.kok_product_id == kok_product_id)
     )
-    product_result = await db.execute(product_stmt)
-    product = product_result.scalar_one_or_none()
+    try:
+        product_result = await db.execute(product_stmt)
+        product = product_result.scalar_one_or_none()
+    except Exception as e:
+        logger.error(f"상품 판매자 정보 조회 SQL 실행 실패: kok_product_id={kok_product_id}, error={str(e)}")
+        raise
     
     if not product:
         logger.warning(f"상품을 찾을 수 없음: kok_product_id={kok_product_id}")
@@ -105,8 +109,12 @@ async def get_kok_product_seller_details(
         .where(KokDetailInfo.kok_product_id == kok_product_id)
         .order_by(KokDetailInfo.kok_detail_col_id)
     )
-    detail_result = await db.execute(detail_stmt)
-    detail_infos = detail_result.scalars().all()
+    try:
+        detail_result = await db.execute(detail_stmt)
+        detail_infos = detail_result.scalars().all()
+    except Exception as e:
+        logger.warning(f"상품 상세정보 조회 실패: kok_product_id={kok_product_id}, error={str(e)}")
+        detail_infos = []
     
     # 3. 응답 데이터 구성
     seller_info_obj = KokProductDetails(
@@ -183,7 +191,11 @@ async def get_kok_product_list(
     # 페이지네이션
     stmt = stmt.offset(offset).limit(size)
     
-    products = (await db.execute(stmt)).scalars().all()
+    try:
+        products = (await db.execute(stmt)).scalars().all()
+    except Exception as e:
+        logger.error(f"콕 상품 목록 조회 SQL 실행 실패: page={page}, size={size}, keyword={keyword}, error={str(e)}")
+        raise
     
     # 총 개수 조회
     count_stmt = select(func.count(KokProductInfo.kok_product_id))
@@ -192,7 +204,11 @@ async def get_kok_product_list(
             KokProductInfo.kok_product_name.contains(keyword) |
             KokProductInfo.kok_store_name.contains(keyword)
         )
-    total = (await db.execute(count_stmt)).scalar()
+    try:
+        total = (await db.execute(count_stmt)).scalar()
+    except Exception as e:
+        logger.error(f"콕 상품 개수 조회 SQL 실행 실패: keyword={keyword}, error={str(e)}")
+        total = 0
     
     product_list = []
     for product in products:
@@ -293,7 +309,11 @@ async def get_kok_discounted_products(
         .limit(size)
     )
     
-    results = (await db.execute(stmt)).all()
+    try:
+        results = (await db.execute(stmt)).all()
+    except Exception as e:
+        logger.error(f"할인 상품 조회 SQL 실행 실패: page={page}, size={size}, error={str(e)}")
+        raise
     
     discounted_products = []
     for product, discount_rate, discounted_price in results:
@@ -409,7 +429,11 @@ async def get_kok_top_selling_products(
         .limit(size)
     )
     
-    results = (await db.execute(stmt)).all()
+    try:
+        results = (await db.execute(stmt)).all()
+    except Exception as e:
+        logger.error(f"인기 상품 조회 SQL 실행 실패: page={page}, size={size}, sort_by={sort_by}, error={str(e)}")
+        raise
     
     top_selling_products = []
     for product, discount_rate, discounted_price in results:
@@ -455,7 +479,11 @@ async def get_kok_unpurchased(
         .where(Order.user_id == user_id)
         .where(Order.order_time >= thirty_days_ago)
     )
-    purchased_orders = (await db.execute(purchased_products_stmt)).all()
+    try:
+        purchased_orders = (await db.execute(purchased_products_stmt)).all()
+    except Exception as e:
+        logger.error(f"사용자 구매 상품 조회 SQL 실행 실패: user_id={user_id}, error={str(e)}")
+        return []
     
     # 구매한 상품 ID 목록 추출 (price_id를 통해 상품 정보 조회)
     purchased_product_ids = []
@@ -465,10 +493,14 @@ async def get_kok_unpurchased(
             select(KokPriceInfo.kok_product_id)
             .where(KokPriceInfo.kok_price_id == kok_order.kok_price_id)
         )
-        product_result = await db.execute(product_stmt)
-        product_id = product_result.scalar_one_or_none()
-        if product_id:
-            purchased_product_ids.append(product_id)
+        try:
+            product_result = await db.execute(product_stmt)
+            product_id = product_result.scalar_one_or_none()
+            if product_id:
+                purchased_product_ids.append(product_id)
+        except Exception as e:
+            logger.warning(f"가격 ID로 상품 ID 조회 실패: kok_price_id={kok_order.kok_price_id}, error={str(e)}")
+            continue
     
     # 2. 최근 구매 상품과 중복되지 않는 상품 중에서 추천 상품 선택
     # 조건: 리뷰 점수가 높고, 할인이 있는 상품 우선
@@ -481,7 +513,11 @@ async def get_kok_unpurchased(
         .limit(10)
     )
     
-    products = (await db.execute(stmt)).scalars().all()
+    try:
+        products = (await db.execute(stmt)).scalars().all()
+    except Exception as e:
+        logger.error(f"미구매 상품 조회 SQL 실행 실패: user_id={user_id}, error={str(e)}")
+        return []
     
     # 만약 조건에 맞는 상품이 10개 미만이면, 할인 조건을 제거하고 다시 조회
     if len(products) < 10:
@@ -492,7 +528,11 @@ async def get_kok_unpurchased(
             .order_by(KokProductInfo.kok_review_score.desc())
             .limit(10)
         )
-        products = (await db.execute(stmt)).scalars().all()
+        try:
+            products = (await db.execute(stmt)).scalars().all()
+        except Exception as e:
+            logger.error(f"미구매 상품 폴백 조회 SQL 실행 실패: user_id={user_id}, error={str(e)}")
+            return []
     
     return [product.__dict__ for product in products]
 
@@ -538,7 +578,11 @@ async def get_kok_store_best_items(
             .where(Order.user_id == user_id)
             .distinct()
         )
-        results = (await db.execute(stmt)).all()
+        try:
+            results = (await db.execute(stmt)).all()
+        except Exception as e:
+            logger.error(f"사용자 구매 상품 조회 SQL 실행 실패: user_id={user_id}, error={str(e)}")
+            return []
         
         if not results:
             logger.warning(f"사용자가 구매한 상품이 없음: user_id={user_id}")
@@ -605,7 +649,11 @@ async def get_kok_store_best_items(
             )
             logger.debug("정렬 기준: 리뷰 개수 순 → 별점 순")
     
-    store_results = (await db.execute(store_best_stmt)).scalars().all()
+    try:
+        store_results = (await db.execute(store_best_stmt)).scalars().all()
+    except Exception as e:
+        logger.error(f"스토어 베스트 상품 조회 SQL 실행 실패: user_id={user_id}, sort_by={sort_by}, error={str(e)}")
+        return []
     
     # logger.info(f"해당 판매자들의 현재 판매 상품 수: {len(store_results)}")
     if store_results:
@@ -647,7 +695,11 @@ async def get_kok_store_best_items(
         .where(KokProductInfo.kok_product_id.in_(product_ids))
     )
     
-    optimized_results = (await db.execute(optimized_stmt)).all()
+    try:
+        optimized_results = (await db.execute(optimized_stmt)).all()
+    except Exception as e:
+        logger.error(f"스토어 베스트 상품 가격 정보 조회 SQL 실행 실패: user_id={user_id}, product_ids={product_ids[:5]}, error={str(e)}")
+        return []
     
     # 결과를 딕셔너리로 변환하여 빠른 조회 가능하게 함
     product_price_map = {}
@@ -704,8 +756,12 @@ async def get_kok_product_by_id(
     stmt = (
         select(KokProductInfo).where(KokProductInfo.kok_product_id == kok_product_id)
     )
-    result = await db.execute(stmt)
-    product = result.scalar_one_or_none()
+    try:
+        result = await db.execute(stmt)
+        product = result.scalar_one_or_none()
+    except Exception as e:
+        logger.error(f"콕 상품 기본 정보 조회 SQL 실행 실패: kok_product_id={kok_product_id}, error={str(e)}")
+        return None
     
     return product.__dict__ if product else None
 
@@ -720,8 +776,12 @@ async def get_kok_product_tabs(
     image_stmt = (
         select(KokImageInfo).where(KokImageInfo.kok_product_id == kok_product_id)
     )
-    images_result = await db.execute(image_stmt)
-    images = images_result.scalars().all()
+    try:
+        images_result = await db.execute(image_stmt)
+        images = images_result.scalars().all()
+    except Exception as e:
+        logger.warning(f"상품 이미지 조회 실패: kok_product_id={kok_product_id}, error={str(e)}")
+        images = []
     
     images_list = []
     for img in images:
@@ -750,8 +810,12 @@ async def get_kok_product_info(
         select(KokProductInfo)
         .where(KokProductInfo.kok_product_id == kok_product_id)
     )
-    result = await db.execute(stmt)
-    product = result.scalar_one_or_none()
+    try:
+        result = await db.execute(stmt)
+        product = result.scalar_one_or_none()
+    except Exception as e:
+        logger.error(f"콕 상품 정보 조회 SQL 실행 실패: kok_product_id={kok_product_id}, error={str(e)}")
+        return None
     
     if not product:
         logger.warning(f"상품을 찾을 수 없음: kok_product_id={kok_product_id}")
@@ -762,8 +826,12 @@ async def get_kok_product_info(
     if latest_price_id:
         # 최신 가격 정보로 상세 정보 조회
         price_stmt = select(KokPriceInfo).where(KokPriceInfo.kok_price_id == latest_price_id)
-        price_result = await db.execute(price_stmt)
-        price = price_result.scalar_one_or_none()
+        try:
+            price_result = await db.execute(price_stmt)
+            price = price_result.scalar_one_or_none()
+        except Exception as e:
+            logger.warning(f"가격 정보 조회 실패: kok_product_id={kok_product_id}, latest_price_id={latest_price_id}, error={str(e)}")
+            price = None
     else:
         price = None
     
@@ -774,8 +842,12 @@ async def get_kok_product_info(
             KokLikes.user_id == user_id,
             KokLikes.kok_product_id == product.kok_product_id
         )
-        like_result = await db.execute(like_stmt)
-        is_liked = like_result.scalar_one_or_none() is not None
+        try:
+            like_result = await db.execute(like_stmt)
+            is_liked = like_result.scalar_one_or_none() is not None
+        except Exception as e:
+            logger.warning(f"찜 상태 확인 실패: user_id={user_id}, kok_product_id={kok_product_id}, error={str(e)}")
+            is_liked = False
     
     # logger.info(f"상품 기본 정보 조회 완료: kok_product_id={kok_product_id}, user_id={user_id}, is_liked={is_liked}")
     
@@ -805,10 +877,15 @@ async def get_kok_review_data(
     product_stmt = (
         select(KokProductInfo).where(KokProductInfo.kok_product_id == kok_product_id)
     )
-    product_result = await db.execute(product_stmt)
-    product = product_result.scalar_one_or_none()
+    try:
+        product_result = await db.execute(product_stmt)
+        product = product_result.scalar_one_or_none()
+    except Exception as e:
+        logger.error(f"리뷰 데이터 조회 SQL 실행 실패: kok_product_id={kok_product_id}, error={str(e)}")
+        return None
     
     if not product:
+        logger.warning(f"리뷰 데이터를 위한 상품을 찾을 수 없음: kok_product_id={kok_product_id}")
         return None
     
     # 2. KOK_REVIEW_EXAMPLE 테이블에서 개별 리뷰 목록 조회
@@ -817,8 +894,12 @@ async def get_kok_review_data(
         .where(KokReviewExample.kok_product_id == kok_product_id)
         .order_by(KokReviewExample.kok_review_date.desc())
     )
-    review_result = await db.execute(review_stmt)
-    reviews = review_result.scalars().all()
+    try:
+        review_result = await db.execute(review_stmt)
+        reviews = review_result.scalars().all()
+    except Exception as e:
+        logger.warning(f"리뷰 목록 조회 실패: kok_product_id={kok_product_id}, error={str(e)}")
+        reviews = []
     
     # 3. 응답 데이터 구성
     stats = KokReviewStats(
@@ -872,8 +953,12 @@ async def get_kok_products_by_ingredient(
         .where(KokProductInfo.kok_product_name.ilike(f"%{ingredient}%"))
         .limit(limit)
     )
-    result = await db.execute(stmt)
-    results = result.all()
+    try:
+        result = await db.execute(stmt)
+        results = result.all()
+    except Exception as e:
+        logger.error(f"식재료 기반 상품 검색 SQL 실행 실패: ingredient={ingredient}, limit={limit}, error={str(e)}")
+        return []
 
     products = []
     for product in results:
@@ -882,8 +967,12 @@ async def get_kok_products_by_ingredient(
         if latest_price_id:
             # 최신 가격 정보로 상세 정보 조회
             price_stmt = select(KokPriceInfo).where(KokPriceInfo.kok_price_id == latest_price_id)
-            price_result = await db.execute(price_stmt)
-            price_info = price_result.scalar_one_or_none()
+            try:
+                price_result = await db.execute(price_stmt)
+                price_info = price_result.scalar_one_or_none()
+            except Exception as e:
+                logger.warning(f"식재료 상품 가격 정보 조회 실패: kok_product_id={product.kok_product_id}, latest_price_id={latest_price_id}, error={str(e)}")
+                price_info = None
             
             products.append({
                 "kok_product_id": product.kok_product_id,
@@ -924,8 +1013,12 @@ async def toggle_kok_likes(
         KokLikes.user_id == user_id,
         KokLikes.kok_product_id == kok_product_id
     )
-    result = await db.execute(stmt)
-    existing_like = result.scalar_one_or_none()
+    try:
+        result = await db.execute(stmt)
+        existing_like = result.scalar_one_or_none()
+    except Exception as e:
+        logger.error(f"찜 상태 확인 SQL 실행 실패: user_id={user_id}, kok_product_id={kok_product_id}, error={str(e)}")
+        raise
     
     if existing_like:
         # 찜 해제
@@ -963,7 +1056,11 @@ async def get_kok_liked_products(
         .limit(limit)
     )
     
-    results = (await db.execute(stmt)).all()
+    try:
+        results = (await db.execute(stmt)).all()
+    except Exception as e:
+        logger.error(f"찜한 상품 목록 조회 SQL 실행 실패: user_id={user_id}, limit={limit}, error={str(e)}")
+        return []
     
     liked_products = []
     for like, product in results:
@@ -972,8 +1069,12 @@ async def get_kok_liked_products(
         if latest_price_id:
             # 최신 가격 정보로 상세 정보 조회
             price_stmt = select(KokPriceInfo).where(KokPriceInfo.kok_price_id == latest_price_id)
-            price_result = await db.execute(price_stmt)
-            price = price_result.scalar_one_or_none()
+            try:
+                price_result = await db.execute(price_stmt)
+                price = price_result.scalar_one_or_none()
+            except Exception as e:
+                logger.warning(f"찜한 상품 가격 정보 조회 실패: kok_product_id={product.kok_product_id}, latest_price_id={latest_price_id}, error={str(e)}")
+                price = None
             
             liked_products.append({
                 "kok_product_id": product.kok_product_id,
@@ -1009,7 +1110,11 @@ async def get_kok_cart_items(
         .limit(limit)
     )
     
-    results = (await db.execute(stmt)).all()
+    try:
+        results = (await db.execute(stmt)).all()
+    except Exception as e:
+        logger.error(f"장바구니 상품 목록 조회 SQL 실행 실패: user_id={user_id}, limit={limit}, error={str(e)}")
+        return []
     
     cart_items = []
     for cart, product, price in results:
@@ -1061,8 +1166,12 @@ async def add_kok_cart(
         KokCart.user_id == user_id,
         KokCart.kok_product_id == kok_product_id
     )
-    result = await db.execute(stmt)
-    existing_cart = result.scalar_one_or_none()
+    try:
+        result = await db.execute(stmt)
+        existing_cart = result.scalar_one_or_none()
+    except Exception as e:
+        logger.error(f"기존 장바구니 항목 확인 SQL 실행 실패: user_id={user_id}, kok_product_id={kok_product_id}, error={str(e)}")
+        raise
     
     if existing_cart:
         # 수량 업데이트
@@ -1111,10 +1220,15 @@ async def update_kok_cart_quantity(
         .where(KokCart.kok_cart_id == kok_cart_id)
         .where(KokCart.user_id == user_id)
     )
-    result = await db.execute(stmt)
-    cart_item = result.scalar_one_or_none()
+    try:
+        result = await db.execute(stmt)
+        cart_item = result.scalar_one_or_none()
+    except Exception as e:
+        logger.error(f"장바구니 항목 확인 SQL 실행 실패: user_id={user_id}, kok_cart_id={kok_cart_id}, error={str(e)}")
+        raise
     
     if not cart_item:
+        logger.warning(f"장바구니 항목을 찾을 수 없음: user_id={user_id}, kok_cart_id={kok_cart_id}")
         raise ValueError("장바구니 항목을 찾을 수 없습니다.")
     
     # 수량 변경
@@ -1142,10 +1256,15 @@ async def delete_kok_cart_item(
         .where(KokCart.kok_cart_id == kok_cart_id)
         .where(KokCart.user_id == user_id)
     )
-    result = await db.execute(stmt)
-    cart_item = result.scalar_one_or_none()
+    try:
+        result = await db.execute(stmt)
+        cart_item = result.scalar_one_or_none()
+    except Exception as e:
+        logger.error(f"장바구니 항목 삭제 확인 SQL 실행 실패: user_id={user_id}, kok_cart_id={kok_cart_id}, error={str(e)}")
+        return {"success": False, "message": "장바구니 항목 삭제 중 오류가 발생했습니다."}
     
     if not cart_item:
+        logger.warning(f"삭제할 장바구니 항목을 찾을 수 없음: user_id={user_id}, kok_cart_id={kok_cart_id}")
         return {"success": False, "message": "장바구니 항목을 찾을 수 없습니다."}
     
     # 삭제할 항목 정보 저장
@@ -1195,7 +1314,11 @@ async def search_kok_products(
             .limit(size)
         )
         
-        results = (await db.execute(stmt)).scalars().all()
+        try:
+            results = (await db.execute(stmt)).scalars().all()
+        except Exception as e:
+            logger.error(f"상품 검색 SQL 실행 실패: keyword={keyword}, page={page}, size={size}, error={str(e)}")
+            raise
         
         # 총 개수 조회
         count_stmt = (
@@ -1205,7 +1328,11 @@ async def search_kok_products(
                 KokProductInfo.kok_store_name.ilike(f"%{keyword}%")
             )
         )
-        total = (await db.execute(count_stmt)).scalar()
+        try:
+            total = (await db.execute(count_stmt)).scalar()
+        except Exception as e:
+            logger.error(f"상품 검색 개수 조회 SQL 실행 실패: keyword={keyword}, error={str(e)}")
+            total = 0
         
         # 결과 변환
         products = []
@@ -1215,8 +1342,12 @@ async def search_kok_products(
             if latest_price_id:
                 # 최신 가격 정보로 상세 정보 조회
                 price_stmt = select(KokPriceInfo).where(KokPriceInfo.kok_price_id == latest_price_id)
-                price_result = await db.execute(price_stmt)
-                price = price_result.scalar_one_or_none()
+                try:
+                    price_result = await db.execute(price_stmt)
+                    price = price_result.scalar_one_or_none()
+                except Exception as e:
+                    logger.warning(f"검색 상품 가격 정보 조회 실패: kok_product_id={product.kok_product_id}, latest_price_id={latest_price_id}, error={str(e)}")
+                    price = None
                 
                 products.append({
                     "kok_product_id": product.kok_product_id,
@@ -1253,7 +1384,11 @@ async def get_kok_search_history(
         .limit(limit)
     )
     
-    results = (await db.execute(stmt)).scalars().all()
+    try:
+        results = (await db.execute(stmt)).scalars().all()
+    except Exception as e:
+        logger.error(f"검색 이력 조회 SQL 실행 실패: user_id={user_id}, limit={limit}, error={str(e)}")
+        return []
     
     return [
         {
@@ -1312,8 +1447,12 @@ async def delete_kok_search_history(
         .where(KokSearchHistory.kok_history_id == kok_history_id)
     )
     
-    result = await db.execute(stmt)
-    history = result.scalar_one_or_none()
+    try:
+        result = await db.execute(stmt)
+        history = result.scalar_one_or_none()
+    except Exception as e:
+        logger.error(f"검색 이력 삭제 확인 SQL 실행 실패: user_id={user_id}, kok_history_id={kok_history_id}, error={str(e)}")
+        return False
     
     if history:
         await db.delete(history)
@@ -1339,7 +1478,11 @@ async def get_kok_notifications(
         .limit(limit)
     )
     
-    results = (await db.execute(stmt)).scalars().all()
+    try:
+        results = (await db.execute(stmt)).scalars().all()
+    except Exception as e:
+        logger.error(f"알림 목록 조회 SQL 실행 실패: user_id={user_id}, limit={limit}, error={str(e)}")
+        return []
     
     notifications = []
     for notification in results:
@@ -1380,8 +1523,12 @@ async def get_ingredients_from_selected_cart_items(
         .where(KokCart.kok_cart_id.in_(selected_cart_ids))
     )
 
-    result = await db.execute(stmt)
-    cart_items = result.fetchall()
+    try:
+        result = await db.execute(stmt)
+        cart_items = result.fetchall()
+    except Exception as e:
+        logger.error(f"선택된 장바구니 상품 조회 SQL 실행 실패: user_id={user_id}, kok_cart_ids={selected_cart_ids}, error={str(e)}")
+        return []
 
     if not cart_items:
         logger.warning(f"장바구니 상품을 찾을 수 없음: user_id={user_id}, kok_cart_ids={selected_cart_ids}")
@@ -1499,9 +1646,13 @@ async def get_ingredients_from_cart_product_ids(
             .where(KokClassify.product_id.in_(kok_product_ids))
             .where(KokClassify.cls_ing == 1)
         )
-        result = await db.execute(stmt)
-        kok_products = result.scalars().all()
-        logger.info(f"KOK cls_ing이 1인 상품 {len(kok_products)}개 발견")
+        try:
+            result = await db.execute(stmt)
+            kok_products = result.scalars().all()
+            logger.info(f"KOK cls_ing이 1인 상품 {len(kok_products)}개 발견")
+        except Exception as e:
+            logger.error(f"KOK 상품 분류 조회 SQL 실행 실패: kok_product_ids={kok_product_ids}, error={str(e)}")
+            kok_products = []
 
     # 홈쇼핑 상품 처리
     homeshopping_products = []
@@ -1511,9 +1662,13 @@ async def get_ingredients_from_cart_product_ids(
             .where(HomeshoppingClassify.product_id.in_(homeshopping_product_ids))
             .where(HomeshoppingClassify.cls_ing == 1)
         )
-        result = await db.execute(stmt)
-        homeshopping_products = result.scalars().all()
-        # logger.info(f"홈쇼핑 cls_ing=1인 상품 {len(homeshopping_products)}개 발견")
+        try:
+            result = await db.execute(stmt)
+            homeshopping_products = result.scalars().all()
+            # logger.info(f"홈쇼핑 cls_ing=1인 상품 {len(homeshopping_products)}개 발견")
+        except Exception as e:
+            logger.error(f"홈쇼핑 상품 분류 조회 SQL 실행 실패: homeshopping_product_ids={homeshopping_product_ids}, error={str(e)}")
+            homeshopping_products = []
 
     # 모든 상품을 하나의 리스트로 합치기
     all_products = list(kok_products) + list(homeshopping_products)
@@ -1528,8 +1683,12 @@ async def get_ingredients_from_cart_product_ids(
             select(KokProductInfo)
             .where(KokProductInfo.kok_product_id.in_(kok_product_ids))
         )
-        product_result = await db.execute(product_stmt)
-        products = product_result.scalars().all()
+        try:
+            product_result = await db.execute(product_stmt)
+            products = product_result.scalars().all()
+        except Exception as e:
+            logger.error(f"폴백 상품명 조회 SQL 실행 실패: kok_product_ids={kok_product_ids}, error={str(e)}")
+            products = []
         
         if products:
             # KokClassify 형태로 변환
@@ -1642,7 +1801,11 @@ async def get_cart_product_names_by_ids(
         .where(KokProductInfo.kok_product_name.isnot(None))
     )
     
-    result = await db.execute(stmt)
-    product_names = [row[0] for row in result.fetchall() if row[0]]
+    try:
+        result = await db.execute(stmt)
+        product_names = [row[0] for row in result.fetchall() if row[0]]
+    except Exception as e:
+        logger.error(f"상품명 조회 SQL 실행 실패: kok_product_ids={kok_product_ids}, error={str(e)}")
+        return []
     
     return product_names

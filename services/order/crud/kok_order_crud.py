@@ -62,11 +62,15 @@ async def calculate_kok_order_price(
             .join(KokProductInfo, KokPriceInfo.kok_product_id == KokProductInfo.kok_product_id)
             .where(KokPriceInfo.kok_price_id == kok_price_id)
         )
-        price_result = await db.execute(price_stmt)
-        price_data = price_result.first()
+        try:
+            price_result = await db.execute(price_stmt)
+            price_data = price_result.first()
+        except Exception as e:
+            logger.error(f"콕 가격 정보 조회 SQL 실행 실패: kok_price_id={kok_price_id}, error={str(e)}")
+            raise
         
         if not price_data:
-            logger.error(f"할인 가격 정보를 찾을 수 없음: kok_price_id={kok_price_id}")
+            logger.warning(f"콕 할인 가격 정보를 찾을 수 없음: kok_price_id={kok_price_id}")
             raise ValueError("할인 가격 정보를 찾을 수 없습니다.")
         
         price_info, product_info = price_data
@@ -131,13 +135,20 @@ async def create_orders_from_selected_carts(
         .where(KokCart.kok_cart_id.in_(kok_cart_ids))
         .where(KokCart.user_id == user_id)
     )
-    rows = (await db.execute(stmt)).all()
+    try:
+        rows = (await db.execute(stmt)).all()
+    except Exception as e:
+        logger.error(f"선택된 장바구니 항목 조회 SQL 실행 실패: user_id={user_id}, kok_cart_ids={kok_cart_ids}, error={str(e)}")
+        raise
+    
     if not rows:
+        logger.warning(f"선택된 장바구니 항목을 찾을 수 없음: user_id={user_id}, kok_cart_ids={kok_cart_ids}")
         raise ValueError("선택된 장바구니 항목을 찾을 수 없습니다.")
 
     # 초기 상태: 주문접수
     order_received_status = await get_status_by_code(db, "ORDER_RECEIVED")
     if not order_received_status:
+        logger.warning(f"주문접수 상태 코드를 찾을 수 없음: user_id={user_id}")
         raise ValueError("주문접수 상태 코드를 찾을 수 없습니다.")
 
     total_created = 0
@@ -235,13 +246,17 @@ async def get_kok_current_status(db: AsyncSession, kok_order_id: int) -> KokOrde
         - CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
         - changed_at 기준으로 내림차순 정렬하여 가장 최근 상태 반환
     """
-    result = await db.execute(
-        select(KokOrderStatusHistory)
-        .where(KokOrderStatusHistory.kok_order_id == kok_order_id)
-        .order_by(desc(KokOrderStatusHistory.changed_at))
-        .limit(1)
-    )
-    return result.scalars().first()
+    try:
+        result = await db.execute(
+            select(KokOrderStatusHistory)
+            .where(KokOrderStatusHistory.kok_order_id == kok_order_id)
+            .order_by(desc(KokOrderStatusHistory.changed_at))
+            .limit(1)
+        )
+        return result.scalars().first()
+    except Exception as e:
+        logger.error(f"콕 주문 현재 상태 조회 SQL 실행 실패: kok_order_id={kok_order_id}, error={str(e)}")
+        return None
 
 
 async def create_kok_notification_for_status_change(
@@ -268,12 +283,17 @@ async def create_kok_notification_for_status_change(
         - KokNotification 테이블에 알림 정보 저장
     """
     # 상태 정보 조회
-    status_result = await db.execute(
-        select(StatusMaster).where(StatusMaster.status_id == status_id)
-    )
-    status = status_result.scalars().first()
+    try:
+        status_result = await db.execute(
+            select(StatusMaster).where(StatusMaster.status_id == status_id)
+        )
+        status = status_result.scalars().first()
+    except Exception as e:
+        logger.error(f"상태 정보 조회 SQL 실행 실패: status_id={status_id}, error={str(e)}")
+        return
     
     if not status:
+        logger.warning(f"상태 정보를 찾을 수 없음: status_id={status_id}")
         return
     
     # 알림 제목과 메시지 생성
@@ -319,22 +339,35 @@ async def update_kok_order_status(
     # 1. 새로운 상태 조회
     new_status = await get_status_by_code(db, new_status_code)
     if not new_status:
+        logger.warning(f"상태 코드를 찾을 수 없음: new_status_code={new_status_code}, kok_order_id={kok_order_id}")
         raise Exception(f"상태 코드 '{new_status_code}'를 찾을 수 없습니다")
 
     # 2. 주문 조회
-    result = await db.execute(
-        select(KokOrder).where(KokOrder.kok_order_id == kok_order_id)
-    )
-    kok_order = result.scalars().first()
+    try:
+        result = await db.execute(
+            select(KokOrder).where(KokOrder.kok_order_id == kok_order_id)
+        )
+        kok_order = result.scalars().first()
+    except Exception as e:
+        logger.error(f"콕 주문 조회 SQL 실행 실패: kok_order_id={kok_order_id}, error={str(e)}")
+        raise
+    
     if not kok_order:
+        logger.warning(f"콕 주문을 찾을 수 없음: kok_order_id={kok_order_id}")
         raise Exception("해당 주문을 찾을 수 없습니다")
 
     # 3. 주문자 ID 조회
-    order_result = await db.execute(
-        select(Order).where(Order.order_id == kok_order.order_id)
-    )
-    order = order_result.scalars().first()
+    try:
+        order_result = await db.execute(
+            select(Order).where(Order.order_id == kok_order.order_id)
+        )
+        order = order_result.scalars().first()
+    except Exception as e:
+        logger.error(f"주문 정보 조회 SQL 실행 실패: order_id={kok_order.order_id}, error={str(e)}")
+        raise
+    
     if not order:
+        logger.warning(f"주문 정보를 찾을 수 없음: order_id={kok_order.order_id}")
         raise Exception("주문 정보를 찾을 수 없습니다")
 
     # 4. 상태 변경 이력 생성 (UPDATE 없이 INSERT만)
@@ -375,12 +408,17 @@ async def get_kok_order_with_current_status(db: AsyncSession, kok_order_id: int)
         - 상태 이력이 없는 경우 기본 상태 반환
     """
     # 주문 조회
-    result = await db.execute(
-        select(KokOrder).where(KokOrder.kok_order_id == kok_order_id)
-    )
-    kok_order = result.scalars().first()
+    try:
+        result = await db.execute(
+            select(KokOrder).where(KokOrder.kok_order_id == kok_order_id)
+        )
+        kok_order = result.scalars().first()
+    except Exception as e:
+        logger.error(f"콕 주문 조회 SQL 실행 실패: kok_order_id={kok_order_id}, error={str(e)}")
+        return None
     
     if not kok_order:
+        logger.warning(f"콕 주문을 찾을 수 없음: kok_order_id={kok_order_id}")
         return None
     
     # 현재 상태 조회 (가장 최근 이력)
@@ -388,10 +426,14 @@ async def get_kok_order_with_current_status(db: AsyncSession, kok_order_id: int)
     
     if current_status_history:
         # 상태 정보 조회
-        status_result = await db.execute(
-            select(StatusMaster).where(StatusMaster.status_id == current_status_history.status_id)
-        )
-        current_status = status_result.scalars().first()
+        try:
+            status_result = await db.execute(
+                select(StatusMaster).where(StatusMaster.status_id == current_status_history.status_id)
+            )
+            current_status = status_result.scalars().first()
+        except Exception as e:
+            logger.warning(f"상태 정보 조회 실패: status_id={current_status_history.status_id}, error={str(e)}")
+            current_status = None
         return kok_order, current_status, current_status_history
     
     # 상태 이력이 없는 경우 기본 상태 반환
@@ -414,12 +456,16 @@ async def get_kok_order_status_history(db: AsyncSession, kok_order_id: int):
         - StatusMaster와 조인하여 상태 정보 포함
         - changed_at 기준으로 내림차순 정렬
     """
-    result = await db.execute(
-        select(KokOrderStatusHistory, StatusMaster)
-        .join(StatusMaster, KokOrderStatusHistory.status_id == StatusMaster.status_id)
-        .where(KokOrderStatusHistory.kok_order_id == kok_order_id)
-        .order_by(desc(KokOrderStatusHistory.changed_at))
-    )
+    try:
+        result = await db.execute(
+            select(KokOrderStatusHistory, StatusMaster)
+            .join(StatusMaster, KokOrderStatusHistory.status_id == StatusMaster.status_id)
+            .where(KokOrderStatusHistory.kok_order_id == kok_order_id)
+            .order_by(desc(KokOrderStatusHistory.changed_at))
+        )
+    except Exception as e:
+        logger.error(f"콕 주문 상태 이력 조회 SQL 실행 실패: kok_order_id={kok_order_id}, error={str(e)}")
+        return []
     
     # Row 객체들을 KokOrderStatusHistorySchema 형태로 변환
     history_list = []
@@ -535,31 +581,39 @@ async def get_kok_order_notifications_history(
     order_status_codes = ["PAYMENT_COMPLETED", "SHIPPING", "DELIVERED"]
     
     # 전체 개수 조회
-    count_result = await db.execute(
-        select(func.count(KokNotification.notification_id))
-        .join(StatusMaster, KokNotification.status_id == StatusMaster.status_id)
-        .where(KokNotification.user_id == user_id)
-        .where(StatusMaster.status_code.in_(order_status_codes))
-    )
-    total_count = count_result.scalar()
+    try:
+        count_result = await db.execute(
+            select(func.count(KokNotification.notification_id))
+            .join(StatusMaster, KokNotification.status_id == StatusMaster.status_id)
+            .where(KokNotification.user_id == user_id)
+            .where(StatusMaster.status_code.in_(order_status_codes))
+        )
+        total_count = count_result.scalar()
+    except Exception as e:
+        logger.error(f"콕 알림 개수 조회 SQL 실행 실패: user_id={user_id}, error={str(e)}")
+        total_count = 0
     
     # 알림 목록 조회 (주문 현황 관련 알림만) - 상품 정보와 함께
-    result = await db.execute(
-        select(
-            KokNotification,
-            StatusMaster.status_code,
-            StatusMaster.status_name,
-            KokProductInfo.kok_product_name
+    try:
+        result = await db.execute(
+            select(
+                KokNotification,
+                StatusMaster.status_code,
+                StatusMaster.status_name,
+                KokProductInfo.kok_product_name
+            )
+            .join(StatusMaster, KokNotification.status_id == StatusMaster.status_id)
+            .join(KokOrder, KokNotification.kok_order_id == KokOrder.kok_order_id)
+            .join(KokProductInfo, KokOrder.kok_product_id == KokProductInfo.kok_product_id)
+            .where(KokNotification.user_id == user_id)
+            .where(StatusMaster.status_code.in_(order_status_codes))
+            .order_by(desc(KokNotification.created_at))
+            .limit(limit)
+            .offset(offset)
         )
-        .join(StatusMaster, KokNotification.status_id == StatusMaster.status_id)
-        .join(KokOrder, KokNotification.kok_order_id == KokOrder.kok_order_id)
-        .join(KokProductInfo, KokOrder.kok_product_id == KokProductInfo.kok_product_id)
-        .where(KokNotification.user_id == user_id)
-        .where(StatusMaster.status_code.in_(order_status_codes))
-        .order_by(desc(KokNotification.created_at))
-        .limit(limit)
-        .offset(offset)
-    )
+    except Exception as e:
+        logger.error(f"콕 알림 목록 조회 SQL 실행 실패: user_id={user_id}, limit={limit}, offset={offset}, error={str(e)}")
+        return [], 0
     
     # 결과를 딕셔너리로 변환하여 추가 정보 포함
     notifications = []
@@ -724,9 +778,13 @@ async def debug_cart_status(db: AsyncSession, user_id: int, kok_cart_ids: List[i
     
     # 1. 장바구니 테이블 상태 확인
     for kok_cart_id in kok_cart_ids:
-        cart_stmt = select(KokCart).where(KokCart.kok_cart_id == kok_cart_id)
-        cart_result = await db.execute(cart_stmt)
-        cart = cart_result.scalars().first()
+        try:
+            cart_stmt = select(KokCart).where(KokCart.kok_cart_id == kok_cart_id)
+            cart_result = await db.execute(cart_stmt)
+            cart = cart_result.scalars().first()
+        except Exception as e:
+            logger.warning(f"장바구니 조회 실패: kok_cart_id={kok_cart_id}, error={str(e)}")
+            cart = None
         
         if cart:
             debug_info["cart_status"][kok_cart_id] = {
@@ -738,9 +796,13 @@ async def debug_cart_status(db: AsyncSession, user_id: int, kok_cart_ids: List[i
             
             # 상품 정보 확인
             if cart.kok_product_id:
-                product_stmt = select(KokProductInfo).where(KokProductInfo.kok_product_id == cart.kok_product_id)
-                product_result = await db.execute(product_stmt)
-                product = product_result.scalars().first()
+                try:
+                    product_stmt = select(KokProductInfo).where(KokProductInfo.kok_product_id == cart.kok_product_id)
+                    product_result = await db.execute(product_stmt)
+                    product = product_result.scalars().first()
+                except Exception as e:
+                    logger.warning(f"상품 정보 조회 실패: kok_product_id={cart.kok_product_id}, error={str(e)}")
+                    product = None
                 
                 if product:
                     debug_info["cart_status"][kok_cart_id]["product"] = {
@@ -752,9 +814,13 @@ async def debug_cart_status(db: AsyncSession, user_id: int, kok_cart_ids: List[i
                     debug_info["cart_status"][kok_cart_id]["product"] = {"exists": False}
                 
                 # 가격 정보 확인
-                price_stmt = select(KokPriceInfo).where(KokPriceInfo.kok_product_id == cart.kok_product_id)
-                price_result = await db.execute(price_stmt)
-                price = price_result.scalars().all()
+                try:
+                    price_stmt = select(KokPriceInfo).where(KokPriceInfo.kok_product_id == cart.kok_product_id)
+                    price_result = await db.execute(price_stmt)
+                    price = price_result.scalars().all()
+                except Exception as e:
+                    logger.warning(f"가격 정보 조회 실패: kok_product_id={cart.kok_product_id}, error={str(e)}")
+                    price = []
                 
                 if price:
                     debug_info["cart_status"][kok_cart_id]["price"] = {
@@ -768,9 +834,13 @@ async def debug_cart_status(db: AsyncSession, user_id: int, kok_cart_ids: List[i
             debug_info["cart_status"][kok_cart_id] = {"exists": False}
     
     # 2. 사용자의 전체 장바구니 항목 확인
-    all_carts_stmt = select(KokCart).where(KokCart.user_id == user_id)
-    all_carts_result = await db.execute(all_carts_stmt)
-    all_user_carts = all_carts_result.scalars().all()
+    try:
+        all_carts_stmt = select(KokCart).where(KokCart.user_id == user_id)
+        all_carts_result = await db.execute(all_carts_stmt)
+        all_user_carts = all_carts_result.scalars().all()
+    except Exception as e:
+        logger.warning(f"사용자 전체 장바구니 조회 실패: user_id={user_id}, error={str(e)}")
+        all_user_carts = []
     
     debug_info["database_tables"]["user_carts"] = {
         "total_count": len(all_user_carts),
@@ -779,14 +849,22 @@ async def debug_cart_status(db: AsyncSession, user_id: int, kok_cart_ids: List[i
     }
     
     # 3. 전체 상품 정보 개수 확인
-    product_count_stmt = select(func.count(KokProductInfo.kok_product_id))
-    product_count_result = await db.execute(product_count_stmt)
-    total_products = product_count_result.scalar()
+    try:
+        product_count_stmt = select(func.count(KokProductInfo.kok_product_id))
+        product_count_result = await db.execute(product_count_stmt)
+        total_products = product_count_result.scalar()
+    except Exception as e:
+        logger.warning(f"전체 상품 개수 조회 실패: error={str(e)}")
+        total_products = 0
     
     # 4. 전체 가격 정보 개수 확인
-    price_count_stmt = select(func.count(KokPriceInfo.kok_price_id))
-    price_count_result = await db.execute(price_count_stmt)
-    total_prices = price_count_result.scalar()
+    try:
+        price_count_stmt = select(func.count(KokPriceInfo.kok_price_id))
+        price_count_result = await db.execute(price_count_stmt)
+        total_prices = price_count_result.scalar()
+    except Exception as e:
+        logger.warning(f"전체 가격 정보 개수 조회 실패: error={str(e)}")
+        total_prices = 0
     
     debug_info["database_tables"]["summary"] = {
         "total_products": total_products,

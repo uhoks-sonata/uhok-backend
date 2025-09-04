@@ -42,13 +42,17 @@ async def _verify_order_status_for_payment(
     # logger.info(f"결제 생성 전 주문 상태 확인 시작")
     
     # ORDER_RECEIVED 상태 ID 조회
-    status_result = await db.execute(
-        select(StatusMaster).where(StatusMaster.status_code == "ORDER_RECEIVED")
-    )
-    order_received_status = status_result.scalar_one_or_none()
+    try:
+        status_result = await db.execute(
+            select(StatusMaster).where(StatusMaster.status_code == "ORDER_RECEIVED")
+        )
+        order_received_status = status_result.scalar_one_or_none()
+    except Exception as e:
+        logger.error(f"ORDER_RECEIVED 상태 조회 SQL 실행 실패: error={str(e)}")
+        raise HTTPException(status_code=500, detail="주문 상태 정보를 찾을 수 없습니다.")
     
     if not order_received_status:
-        logger.error("ORDER_RECEIVED 상태를 찾을 수 없습니다.")
+        logger.warning("ORDER_RECEIVED 상태를 찾을 수 없음")
         raise HTTPException(status_code=500, detail="주문 상태 정보를 찾을 수 없습니다.")
     
     order_received_status_id = order_received_status.status_id
@@ -58,16 +62,20 @@ async def _verify_order_status_for_payment(
     kok_orders = order_data.get("kok_orders", [])
     for kok_order in kok_orders:
         # 최신 상태 이력 조회
-        status_history_result = await db.execute(
-            select(KokOrderStatusHistory)
-            .where(KokOrderStatusHistory.kok_order_id == kok_order.kok_order_id)
-            .order_by(desc(KokOrderStatusHistory.changed_at))
-            .limit(1)
-        )
-        latest_status = status_history_result.scalar_one_or_none()
+        try:
+            status_history_result = await db.execute(
+                select(KokOrderStatusHistory)
+                .where(KokOrderStatusHistory.kok_order_id == kok_order.kok_order_id)
+                .order_by(desc(KokOrderStatusHistory.changed_at))
+                .limit(1)
+            )
+            latest_status = status_history_result.scalar_one_or_none()
+        except Exception as e:
+            logger.error(f"콕 주문 상태 이력 조회 SQL 실행 실패: kok_order_id={kok_order.kok_order_id}, error={str(e)}")
+            raise HTTPException(status_code=500, detail="주문 상태 조회에 실패했습니다.")
         
         if not latest_status or latest_status.status_id != order_received_status_id:
-            logger.error(f"콕 주문 상태가 ORDER_RECEIVED가 아닙니다: kok_order_id={kok_order.kok_order_id}, current_status_id={latest_status.status_id if latest_status else 'None'}")
+            logger.warning(f"콕 주문 상태가 ORDER_RECEIVED가 아님: kok_order_id={kok_order.kok_order_id}, current_status_id={latest_status.status_id if latest_status else 'None'}")
             raise HTTPException(status_code=400, detail=f"주문 ID {kok_order.kok_order_id}의 상태가 결제 가능한 상태가 아닙니다.")
         
     # logger.info(f"콕 주문 상태 확인 완료: kok_order_id={kok_order.kok_order_id}, status=ORDER_RECEIVED")
@@ -76,16 +84,20 @@ async def _verify_order_status_for_payment(
     hs_orders = order_data.get("homeshopping_orders", [])
     for hs_order in hs_orders:
         # 최신 상태 이력 조회
-        status_history_result = await db.execute(
-            select(HomeShoppingOrderStatusHistory)
-            .where(HomeShoppingOrderStatusHistory.homeshopping_order_id == hs_order.homeshopping_order_id)
-            .order_by(desc(HomeShoppingOrderStatusHistory.changed_at))
-            .limit(1)
-        )
-        latest_status = status_history_result.scalar_one_or_none()
+        try:
+            status_history_result = await db.execute(
+                select(HomeShoppingOrderStatusHistory)
+                .where(HomeShoppingOrderStatusHistory.homeshopping_order_id == hs_order.homeshopping_order_id)
+                .order_by(desc(HomeShoppingOrderStatusHistory.changed_at))
+                .limit(1)
+            )
+            latest_status = status_history_result.scalar_one_or_none()
+        except Exception as e:
+            logger.error(f"홈쇼핑 주문 상태 이력 조회 SQL 실행 실패: hs_order_id={hs_order.homeshopping_order_id}, error={str(e)}")
+            raise HTTPException(status_code=500, detail="주문 상태 조회에 실패했습니다.")
         
         if not latest_status or latest_status.status_id != order_received_status_id:
-            logger.error(f"홈쇼핑 주문 상태가 ORDER_RECEIVED가 아닙니다: hs_order_id={hs_order.homeshopping_order_id}, current_status_id={latest_status.status_id if latest_status else 'None'}")
+            logger.warning(f"홈쇼핑 주문 상태가 ORDER_RECEIVED가 아님: hs_order_id={hs_order.homeshopping_order_id}, current_status_id={latest_status.status_id if latest_status else 'None'}")
             raise HTTPException(status_code=400, detail=f"주문 ID {hs_order.homeshopping_order_id}의 상태가 결제 가능한 상태가 아닙니다.")
         
     # logger.info(f"홈쇼핑 주문 상태 확인 완료: hs_order_id={hs_order.homeshopping_order_id}, status=ORDER_RECEIVED")
@@ -621,6 +633,7 @@ async def apply_payment_webhook_v2(
         logger.warning(f"[v2] tx_id 불일치: path={tx_id}, body={body_tx_id}")
  
     if not order_id:
+        logger.warning(f"[v2] 웹훅 페이로드에 order_id 없음: tx_id={tx_id}, payload={payload}")
         return {"ok": False, "reason": "missing_order_id"}
 
     # (3) event 처리
