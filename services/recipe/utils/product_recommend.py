@@ -119,19 +119,6 @@ async def _read_df_async(session: AsyncSession, sql: str, params: list) -> pd.Da
 # ---------- SQL 템플릿 (REGEXP + 오른쪽 경계) ----------
 HS_SQL_TMPL = """
 SELECT 
-<<<<<<< HEAD
-    hc.PRODUCT_ID,
-    hc.PRODUCT_NAME,
-    hc.CLS_FOOD,
-    hc.CLS_ING,
-    hpi.SALE_PRICE,
-    hpi.STORE_NAME,
-    hiu.IMG_URL,
-    hfl.HOMESHOPPING_ID
-FROM HOMESHOPPING_CLASSIFY hc
-LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hc.PRODUCT_ID = hpi.PRODUCT_ID
-LEFT JOIN FCT_HOMESHOPPING_IMG_URL hiu ON hc.PRODUCT_ID = hiu.PRODUCT_ID AND hiu.SORT_ORDER = 1
-=======
     hc.PRODUCT_ID as product_id,
     hc.PRODUCT_NAME as product_name,
     hc.CLS_FOOD as cls_food,
@@ -142,7 +129,6 @@ LEFT JOIN FCT_HOMESHOPPING_IMG_URL hiu ON hc.PRODUCT_ID = hiu.PRODUCT_ID AND hiu
     COALESCE(hfl.LIVE_ID, hc.PRODUCT_ID) as live_id
 FROM HOMESHOPPING_CLASSIFY hc
 LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hc.PRODUCT_ID = hpi.PRODUCT_ID
->>>>>>> origin/seosebin
 LEFT JOIN FCT_HOMESHOPPING_LIST hfl ON hc.PRODUCT_ID = hfl.PRODUCT_ID
 WHERE hc.CLS_FOOD = 1
   AND hc.CLS_ING  = 1
@@ -226,18 +212,11 @@ async def recommend_for_ingredient(session: AsyncSession, ingredient: str, max_t
                 "source": "homeshopping",
                 "table":  "HOMESHOPPING_CLASSIFY",
                 "name":   name,
-<<<<<<< HEAD
-                "id":     r.get('PRODUCT_ID'),
-                "image_url": r.get('IMG_URL'),
-                "brand_name": r.get('STORE_NAME'),
-                "price": safe_price(r.get('SALE_PRICE')),
-                "homeshopping_id": r.get('HOMESHOPPING_ID'),
-=======
                 "id":     r.get('live_id'),
                 "thumb_img_url": r.get('thumb_img_url'),
                 "brand_name": r.get('store_name'),
-                "price": r.get('sale_price'),
->>>>>>> origin/seosebin
+                "price": safe_price(r.get('sale_price')),
+                "homeshopping_id": r.get('live_id'),
             })
             if len(recs) >= max_home:
                 break
@@ -258,18 +237,11 @@ async def recommend_for_ingredient(session: AsyncSession, ingredient: str, max_t
                     "source": "kok",
                     "table":  "KOK_CLASSIFY",
                     "name":   name,
-<<<<<<< HEAD
-                    "id":     r.get('PRODUCT_ID'),
-                    "image_url": r.get('KOK_THUMBNAIL'),
-                    "brand_name": r.get('KOK_STORE_NAME'),
-                    "price": safe_price(r.get('KOK_PRODUCT_PRICE')),
-                    "homeshopping_id": None,
-=======
                     "id":     r.get('product_id'),
                     "image_url": r.get('kok_thumbnail'),
                     "brand_name": r.get('kok_store_name'),
-                    "price": r.get('kok_product_price'),
->>>>>>> origin/seosebin
+                    "price": safe_price(r.get('kok_product_price')),
+                    "homeshopping_id": None,
                 })
 
     return recs
