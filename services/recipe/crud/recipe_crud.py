@@ -371,7 +371,16 @@ async def execute_standard_inventory_algorithm(
         logger.error(f"DataFrame 생성 실패: {e}")
         return [], 0
     
-    # 2-5. 순차적 재고 소진 알고리즘 실행 (요청 페이지의 끝까지 생성하면 조기 중단)
+    # 2-5. mat2recipes 역인덱스 생성 (Streamlit 코드와 동일)
+    mat2recipes = {}
+    for rid, materials in recipe_material_map.items():
+        for mat_info in materials:
+            mat_name = mat_info['mat']
+            if mat_name not in mat2recipes:
+                mat2recipes[mat_name] = set()
+            mat2recipes[mat_name].add(rid)
+    
+    # 2-6. 순차적 재고 소진 알고리즘 실행 (요청 페이지의 끝까지 생성하면 조기 중단)
     max_results_needed = page * size
     logger.info(f"알고리즘 실행: 최대 {max_results_needed}개까지 생성")
     
@@ -379,6 +388,7 @@ async def execute_standard_inventory_algorithm(
         initial_ingredients,
         recipe_material_map,
         recipe_df,
+        mat2recipes,
         max_results=max_results_needed
     )
     

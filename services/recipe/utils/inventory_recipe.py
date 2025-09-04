@@ -7,21 +7,71 @@ Recipe 추천 시스템 유틸리티
 
 import copy
 import pandas as pd
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Set
 from common.logger import get_logger
 
 logger = get_logger("recipe_recommendation_utils")
 
 
-def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_map, recipe_df, max_results: Optional[int] = None):
+def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_map, recipe_df, mat2recipes, max_results: Optional[int] = None):
     """
-    순차적 재고 소진 알고리즘으로 레시피 추천
+    순차적 재고 소진 알고리즘으로 레시피 추천 (Streamlit 코드와 동일한 로직)
     - 재료를 가장 효율적으로 사용하는 레시피를 순서대로 추천
     - max_results에 도달하면 조기 중단하여 성능 최적화
     """
     # 내부 함수: 단위를 정규화 (소문자 + 앞뒤 공백 제거)
     def _norm(u):
         return (u or "").strip().lower()
+
+    # 단위 호환 규칙: 둘 중 하나라도 비어있거나(lower 후) 동일하면 ok
+    def units_compatible(u_have: str, u_req: str) -> bool:
+        a = (u_have or "").strip().lower()
+        b = (u_req or "").strip().lower()
+        return (not a) or (not b) or (a == b)
+
+    # 현재 남은 재고 키만 사용하여 빠르게 후보 레시피 집합 구성
+    def candidate_recipe_ids_from_stock(remaining_stock: Dict[str, Dict], mat2recipes: Dict[str, Set[int]]) -> Set[int]:
+        current_ingredients = [k for k, v in remaining_stock.items() if v["amount"] > 1e-9]
+        cand: Set[int] = set()
+        for m in current_ingredients:
+            cand |= mat2recipes.get(m, set())
+        return cand
+
+    # 평가: 레시피 내 '필요량'과 '재고'를 비교해 최대 사용량을 계산 (temp 재고를 줄이면서)
+    def score_recipe_usage(rid: int, remaining_stock: Dict[str, Dict], recipe_material_map: Dict[int, List]) -> Tuple[int, float, Dict[str, Dict]]:
+        """
+        반환: (사용 재료 '종류' 수, '총 사용량' 합계, 사용 상세 dict)
+        - used_amt = req_amt (재고가 충분) or stock_amt (부족한 만큼)
+        - temp 재고를 레시피 평가 중 줄여 재사용 문제 방지
+        """
+        materials = recipe_material_map.get(int(rid), [])
+        temp_stock = {k: {"amount": v["amount"], "unit": v.get("unit")} for k, v in remaining_stock.items()}
+
+        used_ingredients: Dict[str, Dict] = {}
+        used_cnt = 0
+        total_used = 0.0
+
+        for m in materials:
+            mat = m['mat']      # 재료 이름
+            req_amt = m['amt']  # 필요한 양
+            req_unit = m['unit']  # 단위
+            
+            s = temp_stock.get(mat)
+            if not s:
+                continue
+            if s["amount"] <= 1e-9:
+                continue
+            if not units_compatible(s.get("unit"), req_unit):
+                continue
+
+            used_amt = req_amt if s["amount"] >= req_amt - 1e-9 else s["amount"]
+            if used_amt > 1e-9:
+                s["amount"] -= used_amt  # temp 차감
+                used_ingredients[mat] = {"amount": used_amt, "unit": s.get("unit") or req_unit}
+                used_cnt += 1
+                total_used += float(used_amt)
+
+        return used_cnt, total_used, used_ingredients
 
     # ⬇️ 순서 수정: remaining_stock을 먼저 구성한 뒤 사용
     remaining_stock = {
@@ -44,75 +94,32 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
 
     # 가능한 재료가 남아 있는 한 반복
     while True:
-        # 현재 재고 중 양이 0.001 이상인 재료 목록
-        current_ingredients = [k for k, v in remaining_stock.items() if v.get('amount', 0) > 1e-3]
-        if not current_ingredients:
-            break  # 재료가 다 떨어졌으면 종료
-
-        best_recipe = None         # 이번 라운드에서 추천할 최고의 레시피 ID
-        best_usage = {}            # 그 레시피에서 실제 사용된 재료들
-        max_used = 0               # 가장 많은 종류의 재료를 사용한 수치
-
-        # 모든 레시피를 하나씩 탐색
-        for rid, materials in recipe_material_map.items():
-            try:
-                rid = int(rid)
-            except (ValueError, TypeError) as e:
-                logger.error(f"레시피 ID 변환 실패: {rid}, 에러: {e}")
-                continue
-            
-            if rid in used_recipe_ids:
-                continue  # 이미 추천된 레시피는 스킵
-
-            temp_stock = copy.deepcopy(remaining_stock)  # 재고 복사본 (시뮬레이션용)
-            used_ingredients = {}  # 현재 레시피에서 사용된 재료
-
-            # 이 레시피에 필요한 모든 재료를 순회
-            for m in materials:
-                mat = m['mat']      # 재료 이름
-                req_amt = m['amt']  # 필요한 양
-                req_unit = m['unit']  # 단위
-
-                # 조건:
-                # - 재고에 그 재료가 있음
-                # - 필요한 양이 명시되어 있음
-                # - 재고 수량이 충분함
-                # - 단위가 일치하거나 둘 중 하나라도 명시되지 않았음
-                if (
-                    mat in temp_stock and
-                    req_amt is not None and
-                    temp_stock[mat].get('amount', 0) > 1e-3 and
-                    (not temp_stock[mat].get('unit') or not req_unit
-                     or _norm(temp_stock[mat]['unit']) == _norm(req_unit))
-                ):
-                    # 실제 사용할 양은 현재 재고와 필요량 중 작은 값
-                    try:
-                        used_amt = min(req_amt, temp_stock[mat]['amount'])
-                        if used_amt > 1e-3:
-                            temp_stock[mat]['amount'] -= used_amt  # 재고에서 차감
-                            used_ingredients[mat] = {'amount': used_amt, 'unit': req_unit}
-                    except (ValueError, TypeError) as e:
-                        logger.error(f"재료 사용량 계산 실패: {mat}, req_amt: {req_amt}, stock: {temp_stock[mat]}, 에러: {e}")
-                        continue
-
-            # 현재 레시피가 지금까지 중 가장 많은 재료를 사용했다면 선택
-            if used_ingredients and len(used_ingredients) > max_used:
-                best_recipe = rid
-                best_usage = used_ingredients
-                max_used = len(used_ingredients)
-
-        # 이번 라운드에 추천할 레시피가 없다면 종료
-        if not best_recipe:
+        if not any(v["amount"] > 1e-9 for v in remaining_stock.values()):
             break
 
-        # 선택된 레시피의 재료를 실제 재고에서 차감
-        for mat, detail in best_usage.items():
-            try:
-                amount_to_subtract = float(detail.get('amount', 0)) if detail.get('amount') is not None else 0
-                remaining_stock[mat]['amount'] -= amount_to_subtract
-            except (ValueError, TypeError) as e:
-                logger.error(f"재료 수량 차감 실패: {mat}, detail: {detail}, 에러: {e}")
-                continue
+        candidates = candidate_recipe_ids_from_stock(remaining_stock, mat2recipes) - used_recipe_ids
+        if not candidates:
+            break
+
+        best_recipe = None
+        best_usage = {}
+        best_cnt = 0
+        best_total = -1.0
+
+        for rid in candidates:
+            cnt, total, used = score_recipe_usage(rid, remaining_stock, recipe_material_map)
+            if (cnt > best_cnt) or (cnt == best_cnt and total > best_total):
+                best_recipe = int(rid)
+                best_usage = used
+                best_cnt = cnt
+                best_total = total
+
+        if best_recipe is None or best_cnt == 0:
+            break
+
+        # 실제 차감 (선택된 레시피만)
+        for m, d in best_usage.items():
+            remaining_stock[m]["amount"] -= d["amount"]
 
         # 레시피 정보 조회
         try:
