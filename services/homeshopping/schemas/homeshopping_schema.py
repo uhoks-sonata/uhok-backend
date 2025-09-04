@@ -60,6 +60,7 @@ class HomeshoppingSearchRequest(BaseModel):
 
 class HomeshoppingSearchProduct(BaseModel):
     """검색 결과 상품 정보"""
+    live_id: int
     product_id: int
     product_name: str
     store_name: Optional[str] = None
@@ -227,6 +228,7 @@ class HomeshoppingLikesToggleResponse(BaseModel):
 
 class HomeshoppingLikedProduct(BaseModel):
     """찜한 상품 정보"""
+    live_id: Optional[int] = None
     product_id: int
     product_name: str
     store_name: Optional[str] = None
@@ -235,10 +237,9 @@ class HomeshoppingLikedProduct(BaseModel):
     thumb_img_url: str
     homeshopping_like_created_at: datetime
     homeshopping_id: Optional[int] = None
-    live_id: Optional[int] = None
+    live_date: Optional[date] = None
     live_start_time: Optional[time] = None
     live_end_time: Optional[time] = None
-    live_date: Optional[date] = None
     
     class Config:
         from_attributes = True

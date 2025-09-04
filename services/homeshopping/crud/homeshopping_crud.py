@@ -476,6 +476,7 @@ async def search_homeshopping_products(
     product_list = []
     for live, product in products:
         product_list.append({
+            "live_id": live.live_id,
             "product_id": live.product_id,
             "product_name": live.product_name,
             "store_name": product.store_name,
@@ -913,6 +914,7 @@ async def get_homeshopping_liked_products(
     
     stmt = (
         select(
+            HomeshoppingList.live_id,
             HomeshoppingLikes.product_id,
             HomeshoppingLikes.homeshopping_like_created_at,
             HomeshoppingList.product_name,
@@ -920,11 +922,10 @@ async def get_homeshopping_liked_products(
             HomeshoppingProductInfo.store_name,
             HomeshoppingProductInfo.dc_price,
             HomeshoppingProductInfo.dc_rate,
+            HomeshoppingList.live_date,
             HomeshoppingList.live_start_time,
             HomeshoppingList.live_end_time,
-            HomeshoppingList.live_date,
-            HomeshoppingList.homeshopping_id,
-            HomeshoppingList.live_id
+            HomeshoppingList.homeshopping_id
         )
         .select_from(HomeshoppingLikes)
         .join(HomeshoppingList, HomeshoppingLikes.product_id == HomeshoppingList.product_id)
@@ -951,6 +952,7 @@ async def get_homeshopping_liked_products(
         if row.product_id not in seen_products:
             seen_products.add(row.product_id)
             product_list.append({
+                "live_id": row.live_id,
                 "product_id": row.product_id,
                 "product_name": row.product_name,
                 "store_name": row.store_name if row.store_name else None,
@@ -958,11 +960,10 @@ async def get_homeshopping_liked_products(
                 "dc_rate": row.dc_rate if row.dc_rate else None,
                 "thumb_img_url": row.thumb_img_url,
                 "homeshopping_like_created_at": row.homeshopping_like_created_at,
+                "live_date": row.live_date,
                 "live_start_time": row.live_start_time,
                 "live_end_time": row.live_end_time,
-                "live_date": row.live_date,
-                "homeshopping_id": row.homeshopping_id,
-                "live_id": row.live_id
+                "homeshopping_id": row.homeshopping_id
             })
             
             # limit에 도달하면 중단
