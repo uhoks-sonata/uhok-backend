@@ -21,8 +21,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 애플리케이션 코드 복사
 COPY . .
 
-# 포트 노출 (FastAPI 기본 포트)
-EXPOSE 9000
+# 포트 노출 (FastAPI 기본 포트, Redis 포트)
+EXPOSE 9000 6379
 
 # 환경변수 설정
 ENV PYTHONPATH=/app
