@@ -109,7 +109,9 @@ class ProductRecommendation(BaseModel):
     table: str = Field(..., description="상품 테이블명")
     name: str = Field(..., description="상품명")
     id: Optional[int] = Field(None, description="상품 ID")
-    image_url: Optional[str] = Field(None, description="상품 이미지 URL")
+    # 홈쇼핑은 thumb_img_url, KOK는 image_url 사용
+    thumb_img_url: Optional[str] = Field(None, description="홈쇼핑 상품 썸네일 이미지 URL")
+    image_url: Optional[str] = Field(None, description="KOK 상품 이미지 URL")
     brand_name: Optional[str] = Field(None, description="브랜드명")
     price: Optional[int] = Field(None, description="가격")
     homeshopping_id: Optional[int] = Field(None, description="홈쇼핑 ID (source가 homeshopping일 경우)")
@@ -242,7 +244,7 @@ class HomeshoppingProductInfo(BaseModel):
     product_name: str = Field(..., description="상품명")
     brand_name: Optional[str] = Field(None, description="브랜드명")
     price: int = Field(..., description="가격")
-    image_url: Optional[str] = Field(None, description="상품 이미지 URL")
+    thumb_img_url: Optional[str] = Field(None, description="상품 썸네일 이미지 URL")
     
     class Config:
         from_attributes = True

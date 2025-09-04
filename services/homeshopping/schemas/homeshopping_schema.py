@@ -33,9 +33,18 @@ class HomeshoppingScheduleItem(BaseModel):
         from_attributes = True
 
 
+class HomeshoppingSchedulePagination(BaseModel):
+    """편성표 페이징 정보"""
+    page: int = Field(..., description="현재 페이지")
+    size: int = Field(..., description="페이지 크기")
+    total_count: int = Field(..., description="전체 개수")
+    has_more: bool = Field(..., description="더 많은 데이터가 있는지 여부")
+
+
 class HomeshoppingScheduleResponse(BaseModel):
-    """편성표 조회 응답"""
+    """편성표 조회 응답 - 최적화된 버전"""
     schedules: List[HomeshoppingScheduleItem] = Field(default_factory=list)
+    pagination: HomeshoppingSchedulePagination = Field(..., description="페이징 정보")
 
 
 # -----------------------------

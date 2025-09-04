@@ -203,17 +203,9 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
         .limit(limit)
     )
     
-    # 3. 두 쿼리를 병렬로 실행 (SQLAlchemy 2.0에서는 제한적)
-    try:
-        kok_result, hs_result = await asyncio.gather(
-            db.execute(kok_orders_stmt),
-            db.execute(hs_orders_stmt)
-        )
-    except Exception as e:
-        # 병렬 실행 실패 시 순차 실행으로 폴백
-        logger.warning(f"병렬 쿼리 실행 실패, 순차 실행으로 전환: {e}")
-        kok_result = await db.execute(kok_orders_stmt)
-        hs_result = await db.execute(hs_orders_stmt)
+    # 3. 두 쿼리를 순차적으로 실행 (SQLAlchemy AsyncSession은 동시 실행 불가)
+    kok_result = await db.execute(kok_orders_stmt)
+    hs_result = await db.execute(hs_orders_stmt)
     
     kok_orders_data = kok_result.all()
     hs_orders_data = hs_result.all()
@@ -416,17 +408,9 @@ async def _batch_fetch_recipe_ingredients_status(
         .where(Order.cancel_time.is_(None))
     )
     
-    # 병렬로 주문 정보 조회 (SQLAlchemy 2.0에서는 제한적)
-    try:
-        kok_result, hs_result = await asyncio.gather(
-            db.execute(kok_orders_stmt),
-            db.execute(hs_orders_stmt)
-        )
-    except Exception as e:
-        # 병렬 실행 실패 시 순차 실행으로 폴백
-        logger.warning(f"병렬 쿼리 실행 실패, 순차 실행으로 전환: {e}")
-        kok_result = await db.execute(kok_orders_stmt)
-        hs_result = await db.execute(hs_orders_stmt)
+    # 순차적으로 주문 정보 조회 (SQLAlchemy AsyncSession은 동시 실행 불가)
+    kok_result = await db.execute(kok_orders_stmt)
+    hs_result = await db.execute(hs_orders_stmt)
     
     kok_orders = kok_result.all()
     hs_orders = hs_result.all()
@@ -458,17 +442,9 @@ async def _batch_fetch_recipe_ingredients_status(
         from services.kok.crud.kok_crud import get_kok_cart_items
         from services.homeshopping.crud.homeshopping_crud import get_homeshopping_cart_items
         
-        # 병렬로 장바구니 정보 조회 (SQLAlchemy 2.0에서는 제한적)
-        try:
-            kok_cart_items, hs_cart_items = await asyncio.gather(
-                get_kok_cart_items(db, user_id),
-                get_homeshopping_cart_items(db, user_id)
-            )
-        except Exception as e:
-            # 병렬 실행 실패 시 순차 실행으로 폴백
-            logger.warning(f"병렬 장바구니 조회 실패, 순차 실행으로 전환: {e}")
-            kok_cart_items = await get_kok_cart_items(db, user_id)
-            hs_cart_items = await get_homeshopping_cart_items(db, user_id)
+        # 순차적으로 장바구니 정보 조회 (SQLAlchemy AsyncSession은 동시 실행 불가)
+        kok_cart_items = await get_kok_cart_items(db, user_id)
+        hs_cart_items = await get_homeshopping_cart_items(db, user_id)
         
         # 콕 장바구니 처리
         for cart_item in kok_cart_items:
