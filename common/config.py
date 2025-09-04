@@ -54,6 +54,13 @@ class Settings(BaseSettings):
     postgres_log_url: str = Field(..., env="POSTGRES_LOG_URL", description="로그 저장용 PostgreSQL 연결 URL")
     postgres_log_migrate_url: str = Field(..., env="POSTGRES_LOG_MIGRATE_URL", description="로그 DB 마이그레이션용 연결 URL")
     
+    # Redis 캐시 설정
+    redis_url: str = Field("redis://redis:6379/0", env="REDIS_URL", description="Redis 연결 URL")
+
+    # ML 서비스 설정
+    ml_mode: str = Field("remote_embed", env="ML_MODE", description="ML 서비스 모드")
+    ml_service_url: str = Field("http://ml-inference:8001", env="ML_SERVICE_URL", description="ML 서비스 URL")
+    
     # 외부 API 설정 (로그 전송 불필요하므로 제거)
     
     # 애플리케이션 기본 설정

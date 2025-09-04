@@ -17,11 +17,8 @@ logger = get_logger("kok_cache_utils")
 settings = get_settings()
 
 # Redis 연결 설정
-redis_client = redis.Redis(
-    # host=getattr(settings, 'redis_host', 'localhost'),
-    host=getattr(settings, 'redis_host', 'redis'),  # Docker 컨테이너명으로 변경
-    port=getattr(settings, 'redis_port', 6379),
-    db=getattr(settings, 'redis_db', 0),
+redis_client = redis.from_url(
+    getattr(settings, 'redis_url', 'redis://redis:6379/0'),  # 설정에서 Redis URL 가져오기
     decode_responses=True
 )
 
