@@ -12,6 +12,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from pathlib import Path
 from typing import Optional
@@ -55,6 +56,7 @@ from services.homeshopping.schemas.homeshopping_schema import (
 from services.homeshopping.crud.homeshopping_crud import (
     # 편성표 관련 CRUD
     get_homeshopping_schedule,
+    get_homeshopping_schedule_optimized,
     
     # 상품 검색 관련 CRUD
     search_homeshopping_products,
@@ -108,19 +110,27 @@ router = APIRouter(prefix="/api/homeshopping", tags=["HomeShopping"])
 async def get_schedule(
         request: Request,
         live_date: Optional[date] = Query(None, description="조회할 날짜 (YYYY-MM-DD 형식, 미입력시 전체 스케줄)"),
+        page: int = Query(1, ge=1, description="페이지 번호"),
+        size: int = Query(50, ge=1, le=100, description="페이지 크기 (최대 100)"),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    홈쇼핑 편성표 조회 (식품만)
+    홈쇼핑 편성표 조회 (식품만) - 최적화된 버전
     - live_date가 제공되면 해당 날짜의 스케줄만 조회
     - live_date가 미입력시 전체 스케줄 조회
+    - 페이징 처리로 성능 최적화
     """
     current_user = await get_current_user_optional(request)
     user_id = current_user.user_id if current_user else None
-    logger.info(f"홈쇼핑 편성표 조회 요청: user_id={user_id}, live_date={live_date}")
+    logger.info(f"홈쇼핑 편성표 조회 요청: user_id={user_id}, live_date={live_date}, page={page}, size={size}")
     
-    schedules = await get_homeshopping_schedule(db, live_date=live_date)
+    schedules, total_count = await get_homeshopping_schedule(
+        db, 
+        live_date=live_date, 
+        page=page, 
+        size=size
+    )
     
     # 편성표 조회 로그 기록 (인증된 사용자인 경우에만)
     if current_user and background_tasks:
@@ -129,12 +139,25 @@ async def get_schedule(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="homeshopping_schedule_view", 
-            event_data={"live_date": live_date.isoformat() if live_date else None},
+            event_data={
+                "live_date": live_date.isoformat() if live_date else None,
+                "page": page,
+                "size": size,
+                "total_count": total_count
+            },
             **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
-    logger.info(f"홈쇼핑 편성표 조회 완료: user_id={user_id}, 결과 수={len(schedules)}")
-    return {"schedules": schedules}
+    logger.info(f"홈쇼핑 편성표 조회 완료: user_id={user_id}, 결과 수={len(schedules)}, 전체={total_count}")
+    return {
+        "schedules": schedules,
+        "pagination": {
+            "page": page,
+            "size": size,
+            "total_count": total_count,
+            "has_more": (page * size) < total_count
+        }
+    }
 
 
 # ================================
@@ -505,6 +528,7 @@ async def search_products(
 
 @router.post("/search/history", response_model=dict)
 async def add_search_history(
+        request: Request,
         search_data: HomeshoppingSearchHistoryCreate,
         current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
@@ -540,6 +564,7 @@ async def add_search_history(
 
 @router.get("/search/history", response_model=HomeshoppingSearchHistoryResponse)
 async def get_search_history(
+        request: Request,
         limit: int = Query(5, ge=1, le=20, description="조회할 검색 이력 개수"),
         current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
@@ -569,6 +594,7 @@ async def get_search_history(
 
 @router.delete("/search/history", response_model=HomeshoppingSearchHistoryDeleteResponse)
 async def delete_search_history(
+        request: Request,
         delete_data: HomeshoppingSearchHistoryDeleteRequest,
         current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
@@ -614,6 +640,7 @@ async def delete_search_history(
 
 @router.post("/likes/toggle", response_model=HomeshoppingLikesToggleResponse)
 async def toggle_likes(
+        request: Request,
         like_data: HomeshoppingLikesToggleRequest,
         current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
@@ -654,6 +681,7 @@ async def toggle_likes(
 
 @router.get("/likes", response_model=HomeshoppingLikesResponse)
 async def get_liked_products(
+        request: Request,
         limit: int = Query(50, ge=1, le=100, description="조회할 찜한 상품 개수"),
         current_user: UserOut = Depends(get_current_user),
         background_tasks: BackgroundTasks = None,
@@ -687,6 +715,7 @@ async def get_liked_products(
 
 @router.get("/notifications/orders", response_model=HomeshoppingNotificationListResponse)
 async def get_order_notifications_api(
+        request: Request,
         limit: int = Query(20, ge=1, le=100, description="조회할 주문 알림 개수"),
         offset: int = Query(0, ge=0, description="시작 위치"),
         current_user: UserOut = Depends(get_current_user),
@@ -739,6 +768,7 @@ async def get_order_notifications_api(
 
 @router.get("/notifications/broadcasts", response_model=HomeshoppingNotificationListResponse)
 async def get_broadcast_notifications_api(
+        request: Request,
         limit: int = Query(20, ge=1, le=100, description="조회할 방송 알림 개수"),
         offset: int = Query(0, ge=0, description="시작 위치"),
         current_user: UserOut = Depends(get_current_user),
@@ -791,6 +821,7 @@ async def get_broadcast_notifications_api(
 
 @router.get("/notifications/all", response_model=HomeshoppingNotificationListResponse)
 async def get_all_notifications_api(
+        request: Request,
         limit: int = Query(20, ge=1, le=100, description="조회할 알림 개수"),
         offset: int = Query(0, ge=0, description="시작 위치"),
         current_user: UserOut = Depends(get_current_user),

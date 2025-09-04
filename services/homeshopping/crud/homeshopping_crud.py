@@ -8,8 +8,9 @@
 - 트랜잭션 관리(commit/rollback)는 상위 계층(라우터)에서 담당
 """
 import os
+import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, insert, delete, and_, update, or_, text
+from sqlalchemy import select, func, insert, delete, and_, update, or_, text, exists
 from sqlalchemy.orm import selectinload
 from typing import Optional, List, Tuple, Dict
 from datetime import datetime, date, time, timedelta
@@ -32,63 +33,299 @@ from services.order.models.order_model import (
 )
 
 from common.logger import get_logger
+from services.homeshopping.utils.cache_manager import cache_manager
+from services.homeshopping.utils.memory_cache_manager import memory_cache_manager
+
 logger = get_logger("homeshopping_crud")
 
 # -----------------------------
 # 편성표 관련 CRUD 함수
 # -----------------------------
 
-async def get_homeshopping_schedule(
+async def get_homeshopping_schedule_optimized(
     db: AsyncSession,
-    live_date: Optional[date] = None
-) -> List[dict]:
+    live_date: Optional[date] = None,
+    page: int = 1,
+    size: int = 50
+) -> Tuple[List[dict], int]:
     """
-    홈쇼핑 편성표 조회 (식품만)
-    - live_date가 제공되면 해당 날짜의 스케줄만 조회
-    - live_date가 None이면 전체 스케줄 조회
+    홈쇼핑 편성표 조회 (식품만) - 물리적 테이블 사용 최적화 버전
+    - HOMESHOPPING_SCHEDULE_OPTIMIZED 테이블 사용
+    - 복잡한 JOIN 없이 단일 테이블 조회
     """
-    logger.info(f"홈쇼핑 편성표 조회 시작: live_date={live_date}")
+    # 1. 캐시에서 조회 시도
+    cached_result = await cache_manager.get_schedule_cache(live_date, page, size)
+    if cached_result:
+        schedules, total_count = cached_result
+        logger.info(f"캐시에서 스케줄 조회 완료: 결과 수={len(schedules)}, 전체={total_count}")
+        return schedules, total_count
     
-    # 기본 쿼리 구성
-    stmt = (
-        select(HomeshoppingList, HomeshoppingInfo, HomeshoppingProductInfo, HomeshoppingClassify)
-        .join(HomeshoppingInfo, HomeshoppingList.homeshopping_id == HomeshoppingInfo.homeshopping_id)
-        .outerjoin(HomeshoppingProductInfo, HomeshoppingList.product_id == HomeshoppingProductInfo.product_id)
-        .join(HomeshoppingClassify, HomeshoppingList.product_id == HomeshoppingClassify.product_id)
-        .where(HomeshoppingClassify.cls_food == 1)  # 식품만 필터링 (cls_food = 1)
-    )
+    logger.info("캐시 미스 - 최적화된 테이블에서 스케줄 조회")
     
-    # live_date가 제공된 경우 해당 날짜로 필터링
+    # 페이징 계산
+    offset = (page - 1) * size
+    
+    # 극한 최적화: 물리적 테이블 사용으로 단일 테이블 조회
     if live_date:
-        stmt = stmt.where(HomeshoppingList.live_date == live_date)
+        # 특정 날짜 조회
+        sql_query = """
+        SELECT 
+            live_id,
+            homeshopping_id,
+            homeshopping_name,
+            homeshopping_channel,
+            live_date,
+            live_start_time,
+            live_end_time,
+            promotion_type,
+            product_id,
+            product_name,
+            thumb_img_url,
+            sale_price,
+            dc_price,
+            dc_rate
+        FROM HOMESHOPPING_SCHEDULE_OPTIMIZED
+        WHERE live_date = :live_date
+        ORDER BY live_date DESC, live_start_time ASC
+        LIMIT :limit OFFSET :offset
+        """
+        
+        count_sql = """
+        SELECT COUNT(*)
+        FROM HOMESHOPPING_SCHEDULE_OPTIMIZED
+        WHERE live_date = :live_date
+        """
+        
+        params = {"live_date": live_date, "limit": size, "offset": offset}
+        count_params = {"live_date": live_date}
+    else:
+        # 전체 조회
+        sql_query = """
+        SELECT 
+            live_id,
+            homeshopping_id,
+            homeshopping_name,
+            homeshopping_channel,
+            live_date,
+            live_start_time,
+            live_end_time,
+            promotion_type,
+            product_id,
+            product_name,
+            thumb_img_url,
+            sale_price,
+            dc_price,
+            dc_rate
+        FROM HOMESHOPPING_SCHEDULE_OPTIMIZED
+        ORDER BY live_date DESC, live_start_time ASC
+        LIMIT :limit OFFSET :offset
+        """
+        
+        count_sql = """
+        SELECT COUNT(*)
+        FROM HOMESHOPPING_SCHEDULE_OPTIMIZED
+        """
+        
+        params = {"limit": size, "offset": offset}
+        count_params = {}
     
-    # 정렬 (페이징 제거)
-    stmt = stmt.order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.asc())
+    # Raw SQL 실행
+    logger.info("최적화된 테이블에서 스케줄 데이터 조회 시작")
+    result = await db.execute(text(sql_query), params)
+    schedules = result.fetchall()
     
-    results = await db.execute(stmt)
-    schedules = results.all()
+    logger.info("최적화된 테이블에서 스케줄 개수 조회 시작")
+    count_result = await db.execute(text(count_sql), count_params)
+    total_count = count_result.scalar()
     
+    # 결과 변환 - 시간 타입 처리
     schedule_list = []
-    for live, info, product, classify in schedules:
+    for row in schedules:
+        # timedelta를 time으로 변환
+        start_time = row.live_start_time
+        end_time = row.live_end_time
+        
+        if hasattr(start_time, 'total_seconds'):
+            # timedelta인 경우 time으로 변환
+            start_time = (datetime.min + start_time).time()
+        if hasattr(end_time, 'total_seconds'):
+            # timedelta인 경우 time으로 변환
+            end_time = (datetime.min + end_time).time()
+        
         schedule_list.append({
-            "live_id": live.live_id,
-            "homeshopping_id": live.homeshopping_id,
-            "homeshopping_name": info.homeshopping_name,
-            "homeshopping_channel": info.homeshopping_channel,
-            "live_date": live.live_date,
-            "live_start_time": live.live_start_time,
-            "live_end_time": live.live_end_time,
-            "promotion_type": live.promotion_type,
-            "product_id": live.product_id,
-            "product_name": live.product_name,
-            "thumb_img_url": live.thumb_img_url,
-            "sale_price": product.sale_price if product else None,
-            "dc_price": product.dc_price if product else None,
-            "dc_rate": product.dc_rate if product else None
+            "live_id": row.live_id,
+            "homeshopping_id": row.homeshopping_id,
+            "homeshopping_name": row.homeshopping_name,
+            "homeshopping_channel": row.homeshopping_channel,
+            "live_date": row.live_date,
+            "live_start_time": start_time,
+            "live_end_time": end_time,
+            "promotion_type": row.promotion_type,
+            "product_id": row.product_id,
+            "product_name": row.product_name,
+            "thumb_img_url": row.thumb_img_url,
+            "sale_price": row.sale_price,
+            "dc_price": row.dc_price,
+            "dc_rate": row.dc_rate
         })
     
-    logger.info(f"홈쇼핑 편성표 조회 완료: live_date={live_date}, 결과 수={len(schedule_list)}")
-    return schedule_list
+    logger.info(f"최적화된 테이블에서 스케줄 조회 완료: 결과 수={len(schedule_list)}, 전체={total_count}")
+    
+    # Redis 캐시 저장 비활성화 (연결 에러 방지)
+    # asyncio.create_task(
+    #     cache_manager.set_schedule_cache(schedule_list, total_count, live_date, page, size)
+    # )
+    
+    return schedule_list, total_count
+
+async def get_homeshopping_schedule(
+    db: AsyncSession,
+    live_date: Optional[date] = None,
+    page: int = 1,
+    size: int = 50
+) -> Tuple[List[dict], int]:
+    """
+    홈쇼핑 편성표 조회 (식품만) - 캐싱 최적화 버전
+    - live_date가 제공되면 해당 날짜의 스케줄만 조회
+    - live_date가 None이면 전체 스케줄 조회
+    - Redis 캐싱으로 성능 최적화
+    """
+    logger.info(f"홈쇼핑 편성표 조회 시작: live_date={live_date}, page={page}, size={size}")
+    
+    # Redis 캐시 비활성화 (연결 에러 방지)
+    # cached_result = await cache_manager.get_schedule_cache(live_date, page, size)
+    # if cached_result:
+    #     schedules, total_count = cached_result
+    #     logger.info(f"캐시에서 스케줄 조회 완료: 결과 수={len(schedules)}, 전체={total_count}")
+    #     return schedules, total_count
+    
+    # DB에서 직접 조회
+    logger.info("DB에서 스케줄 조회 (캐시 비활성화)")
+    
+    # 페이징 계산
+    offset = (page - 1) * size
+    
+    # 극한 최적화: 더 간단한 Raw SQL 사용
+    if live_date:
+        # 특정 날짜 조회 - 최대한 간단한 쿼리
+        sql_query = """
+        SELECT 
+            hl.live_id,
+            hl.homeshopping_id,
+            hl.live_date,
+            hl.live_start_time,
+            hl.live_end_time,
+            hl.promotion_type,
+            hl.product_id,
+            hl.product_name,
+            hl.thumb_img_url,
+            hi.homeshopping_name,
+            hi.homeshopping_channel,
+            0 as sale_price,
+            0 as dc_price,
+            0 as dc_rate
+        FROM FCT_HOMESHOPPING_LIST hl
+        INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
+        INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
+        WHERE hl.live_date = :live_date
+        AND hc.cls_food = 1
+        ORDER BY hl.live_date DESC, hl.live_start_time ASC
+        LIMIT :limit OFFSET :offset
+        """
+        
+        count_sql = """
+        SELECT COUNT(*)
+        FROM FCT_HOMESHOPPING_LIST hl
+        INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
+        WHERE hl.live_date = :live_date
+        AND hc.cls_food = 1
+        """
+        
+        params = {"live_date": live_date, "limit": size, "offset": offset}
+        count_params = {"live_date": live_date}
+    else:
+        # 전체 조회 - 최대한 간단한 쿼리
+        sql_query = """
+        SELECT 
+            hl.live_id,
+            hl.homeshopping_id,
+            hl.live_date,
+            hl.live_start_time,
+            hl.live_end_time,
+            hl.promotion_type,
+            hl.product_id,
+            hl.product_name,
+            hl.thumb_img_url,
+            hi.homeshopping_name,
+            hi.homeshopping_channel,
+            0 as sale_price,
+            0 as dc_price,
+            0 as dc_rate
+        FROM FCT_HOMESHOPPING_LIST hl
+        INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
+        INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
+        WHERE hc.cls_food = 1
+        ORDER BY hl.live_date DESC, hl.live_start_time ASC
+        LIMIT :limit OFFSET :offset
+        """
+        
+        count_sql = """
+        SELECT COUNT(*)
+        FROM FCT_HOMESHOPPING_LIST hl
+        INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
+        WHERE hc.cls_food = 1
+        """
+        
+        params = {"limit": size, "offset": offset}
+        count_params = {}
+    
+    # Raw SQL 실행
+    logger.info("최적화된 Raw SQL로 스케줄 데이터 조회 시작")
+    result = await db.execute(text(sql_query), params)
+    schedules = result.fetchall()
+    
+    logger.info("최적화된 Raw SQL로 스케줄 개수 조회 시작")
+    count_result = await db.execute(text(count_sql), count_params)
+    total_count = count_result.scalar()
+    
+    # 결과 변환 - 시간 타입 처리
+    schedule_list = []
+    for row in schedules:
+        # timedelta를 time으로 변환
+        start_time = row.live_start_time
+        end_time = row.live_end_time
+        
+        if hasattr(start_time, 'total_seconds'):
+            # timedelta인 경우 time으로 변환
+            start_time = (datetime.min + start_time).time()
+        if hasattr(end_time, 'total_seconds'):
+            # timedelta인 경우 time으로 변환
+            end_time = (datetime.min + end_time).time()
+        
+        schedule_list.append({
+            "live_id": row.live_id,
+            "homeshopping_id": row.homeshopping_id,
+            "homeshopping_name": row.homeshopping_name,
+            "homeshopping_channel": row.homeshopping_channel,
+            "live_date": row.live_date,
+            "live_start_time": start_time,
+            "live_end_time": end_time,
+            "promotion_type": row.promotion_type,
+            "product_id": row.product_id,
+            "product_name": row.product_name,
+            "thumb_img_url": row.thumb_img_url,
+            "sale_price": row.sale_price,
+            "dc_price": row.dc_price,
+            "dc_rate": row.dc_rate
+        })
+    
+    # Redis 캐시 저장 비활성화 (연결 에러 방지)
+    # asyncio.create_task(
+    #     cache_manager.set_schedule_cache(schedule_list, total_count, live_date, page, size)
+    # )
+    
+    logger.info(f"홈쇼핑 편성표 조회 완료: live_date={live_date}, 결과 수={len(schedule_list)}, 전체={total_count}")
+    return schedule_list, total_count
 
 
 # -----------------------------

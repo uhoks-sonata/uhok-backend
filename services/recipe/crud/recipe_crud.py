@@ -921,7 +921,7 @@ async def get_homeshopping_products_by_ingredient(
                 "product_name": product.product_name,
                 "brand_name": None,  # 홈쇼핑 모델에 브랜드명 필드가 없음
                 "price": product.dc_price or product.sale_price or 0,
-                "image_url": product.thumb_img_url
+                "thumb_img_url": product.thumb_img_url
             }
             product_list.append(product_dict)
         
