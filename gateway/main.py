@@ -65,8 +65,9 @@ app.add_middleware(
     allow_origins=[
         # 로컬 개발 환경
         "http://localhost:3001",      # React 포트
+        "http://localhost:5000",      # 도커 포트(Nginx)
         "http://localhost:9001",      # FastAPI 포트
-        "http://localhost:8501",      # Streamlit 포트
+        "http://localhost:8502",      # Streamlit 포트
         
         # hosts 파일에 등록한 alias (팀원별)
         "http://webapp.uhok.com:3001", # 프론트엔드 1
@@ -75,7 +76,7 @@ app.add_middleware(
         "http://api.uhok.com:9000", # 백엔드 1
         "http://api2.uhok.com:9000", # 백엔드 2
 
-        "http://payment.uhok.com:9001", # 결제서버
+        "http://payment.uhok.com:9002", # 결제서버
     ],
     allow_credentials=True,  # 쿠키/인증 헤더 허용
     allow_methods=["*"],
