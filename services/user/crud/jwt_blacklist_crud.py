@@ -36,7 +36,7 @@ async def add_token_to_blacklist(
         await db.commit()
         await db.refresh(blacklisted_token)
         
-        logger.info(f"Token added to blacklist: user_id={user_id}, metadata={metadata}")
+        # logger.info(f"Token added to blacklist: user_id={user_id}, metadata={metadata}")
         return blacklisted_token
         
     except Exception as e:

@@ -66,7 +66,7 @@ async def get_latest_kok_price_id(
         latest_price_id = result.scalar_one_or_none()
         
         if latest_price_id:
-            logger.info(f"최신 가격 ID 조회 완료: kok_product_id={kok_product_id}, latest_kok_price_id={latest_price_id}")
+    # logger.info(f"최신 가격 ID 조회 완료: kok_product_id={kok_product_id}, latest_kok_price_id={latest_price_id}")
             return latest_price_id
         else:
             logger.warning(f"가격 정보를 찾을 수 없음: kok_product_id={kok_product_id}")
@@ -86,7 +86,7 @@ async def get_kok_product_seller_details(
     - KOK_PRODUCT_INFO 테이블에서 판매자 정보
     - KOK_DETAIL_INFO 테이블에서 상세정보 목록
     """
-    logger.info(f"상품 판매자 정보 조회 시작: kok_product_id={kok_product_id}")
+    # logger.info(f"상품 판매자 정보 조회 시작: kok_product_id={kok_product_id}")
     
     # 1. KOK_PRODUCT_INFO 테이블에서 판매자 정보 조회
     product_stmt = (
@@ -135,7 +135,7 @@ async def get_kok_product_seller_details(
         detail_info=detail_info_objects
     )
     
-    logger.info(f"상품 판매자 정보 조회 완료: kok_product_id={kok_product_id}, 상세정보 수={len(detail_info_objects)}")
+    # logger.info(f"상품 판매자 정보 조회 완료: kok_product_id={kok_product_id}, 상세정보 수={len(detail_info_objects)}")
     return result
     
 
@@ -247,7 +247,7 @@ async def get_kok_discounted_products(
     """
     from services.kok.utils.cache_utils import cache_manager
     
-    logger.info(f"할인 상품 조회 시작: page={page}, size={size}, use_cache={use_cache}")
+    # logger.info(f"할인 상품 조회 시작: page={page}, size={size}, use_cache={use_cache}")
     
     # 캐시에서 데이터 조회 시도
     if use_cache:
@@ -257,7 +257,7 @@ async def get_kok_discounted_products(
             size=size
         )
         if cached_data:
-            logger.info(f"캐시에서 할인 상품 조회 완료: page={page}, size={size}, 결과 수={len(cached_data)}")
+    # logger.info(f"캐시에서 할인 상품 조회 완료: page={page}, size={size}, 결과 수={len(cached_data)}")
             return cached_data
     
     offset = (page - 1) * size
@@ -317,7 +317,7 @@ async def get_kok_discounted_products(
             size=size
         )
     
-    logger.info(f"할인 상품 조회 완료: page={page}, size={size}, 결과 수={len(discounted_products)}")
+    # logger.info(f"할인 상품 조회 완료: page={page}, size={size}, 결과 수={len(discounted_products)}")
     return discounted_products
 
 
@@ -341,7 +341,7 @@ async def get_kok_top_selling_products(
     """
     from services.kok.utils.cache_utils import cache_manager
     
-    logger.info(f"인기 상품 조회 시작: page={page}, size={size}, sort_by={sort_by}, use_cache={use_cache}")
+    # logger.info(f"인기 상품 조회 시작: page={page}, size={size}, sort_by={sort_by}, use_cache={use_cache}")
     
     # 캐시에서 데이터 조회 시도
     if use_cache:
@@ -352,7 +352,7 @@ async def get_kok_top_selling_products(
             sort_by=sort_by
         )
         if cached_data:
-            logger.info(f"캐시에서 인기 상품 조회 완료: page={page}, size={size}, 결과 수={len(cached_data)}")
+    # logger.info(f"캐시에서 인기 상품 조회 완료: page={page}, size={size}, 결과 수={len(cached_data)}")
             return cached_data
     
     offset = (page - 1) * size
@@ -434,7 +434,7 @@ async def get_kok_top_selling_products(
             sort_by=sort_by
         )
     
-    logger.info(f"인기 상품 조회 완료: page={page}, size={size}, 결과 수={len(top_selling_products)}")
+    # logger.info(f"인기 상품 조회 완료: page={page}, size={size}, 결과 수={len(top_selling_products)}")
     return top_selling_products
 
 
@@ -515,7 +515,7 @@ async def get_kok_store_best_items(
     """
     from services.kok.utils.cache_utils import cache_manager
     
-    logger.info(f"스토어 베스트 상품 조회 시작: user_id={user_id}, sort_by={sort_by}, use_cache={use_cache}")
+    # logger.info(f"스토어 베스트 상품 조회 시작: user_id={user_id}, sort_by={sort_by}, use_cache={use_cache}")
     
     # 캐시에서 데이터 조회 시도
     if use_cache and user_id:
@@ -525,7 +525,7 @@ async def get_kok_store_best_items(
             sort_by=sort_by
         )
         if cached_data:
-            logger.info(f"캐시에서 스토어 베스트 상품 조회 완료: user_id={user_id}, 결과 수={len(cached_data)}")
+    # logger.info(f"캐시에서 스토어 베스트 상품 조회 완료: user_id={user_id}, 결과 수={len(cached_data)}")
             return cached_data
     
     if user_id:
@@ -544,7 +544,7 @@ async def get_kok_store_best_items(
             logger.warning(f"사용자가 구매한 상품이 없음: user_id={user_id}")
             return []
         
-        logger.info(f"사용자 구매 상품 조회 결과: user_id={user_id}, 구매 상품 수={len(results)}")
+    # logger.info(f"사용자 구매 상품 조회 결과: user_id={user_id}, 구매 상품 수={len(results)}")
         
         # 2. 구매한 상품들의 판매자 정보 수집
         store_names = set()
@@ -555,7 +555,7 @@ async def get_kok_store_best_items(
             else:
                 logger.warning(f"구매 상품의 판매자 정보 누락: product_id={product.kok_product_id}, product_name={product.kok_product_name}")
         
-        logger.info(f"구매한 상품들의 판매자 정보: {store_names}, 판매자 수={len(store_names)}")
+    # logger.info(f"구매한 상품들의 판매자 정보: {store_names}, 판매자 수={len(store_names)}")
         
         if not store_names:
             logger.warning(f"구매한 상품의 판매자 정보가 없음: user_id={user_id}")
@@ -583,7 +583,7 @@ async def get_kok_store_best_items(
             )
     else:
         # user_id가 없으면 전체 베스트 상품 조회
-        logger.info("전체 베스트 상품 조회 모드 (user_id 없음)")
+    # logger.info("전체 베스트 상품 조회 모드 (user_id 없음)")
         
         if sort_by == "rating":
             # 별점 평균 순으로 정렬 (리뷰가 있는 상품만)
@@ -607,7 +607,7 @@ async def get_kok_store_best_items(
     
     store_results = (await db.execute(store_best_stmt)).scalars().all()
     
-    logger.info(f"해당 판매자들의 현재 판매 상품 수: {len(store_results)}")
+    # logger.info(f"해당 판매자들의 현재 판매 상품 수: {len(store_results)}")
     if store_results:
         logger.debug(f"첫 번째 상품 정보: {store_results[0].kok_product_name}, 판매자: {store_results[0].kok_store_name}, 리뷰 수: {store_results[0].kok_review_cnt}")
     
@@ -681,12 +681,13 @@ async def get_kok_store_best_items(
             sort_by=sort_by
         )
     
-    logger.info(f"스토어 베스트 상품 조회 완료: user_id={user_id}, sort_by={sort_by}, 결과 수={len(store_best_products)}")
+    # logger.info(f"스토어 베스트 상품 조회 완료: user_id={user_id}, sort_by={sort_by}, 결과 수={len(store_best_products)}")
     
     # 최종 결과 요약 로그
     if store_best_products:
-        logger.info(f"반환된 상품들의 판매자 분포: {list(set([p['kok_store_name'] for p in store_best_products]))}")
-        logger.info(f"반환된 상품들의 리뷰 수 범위: {min([p['kok_review_cnt'] for p in store_best_products])} ~ {max([p['kok_review_cnt'] for p in store_best_products])}")
+    # logger.info(f"반환된 상품들의 판매자 분포: {list(set([p['kok_store_name'] for p in store_best_products]))}")
+    # logger.info(f"반환된 상품들의 리뷰 수 범위: {min([p['kok_review_cnt'] for p in store_best_products])} ~ {max([p['kok_review_cnt'] for p in store_best_products])}")
+        pass
     else:
         logger.warning(f"빈 결과 반환 - 가능한 원인: 구매 이력 없음, 판매자 정보 누락, 해당 판매자 상품 없음, 리뷰 조건 불충족")
     
@@ -743,7 +744,7 @@ async def get_kok_product_info(
     """
     상품 기본 정보 조회 (API 명세서 형식)
     """
-    logger.info(f"상품 기본 정보 조회 시작: kok_product_id={kok_product_id}, user_id={user_id}")
+    # logger.info(f"상품 기본 정보 조회 시작: kok_product_id={kok_product_id}, user_id={user_id}")
     
     stmt = (
         select(KokProductInfo)
@@ -776,7 +777,7 @@ async def get_kok_product_info(
         like_result = await db.execute(like_stmt)
         is_liked = like_result.scalar_one_or_none() is not None
     
-    logger.info(f"상품 기본 정보 조회 완료: kok_product_id={kok_product_id}, user_id={user_id}, is_liked={is_liked}")
+    # logger.info(f"상품 기본 정보 조회 완료: kok_product_id={kok_product_id}, user_id={user_id}, is_liked={is_liked}")
     
     return KokProductInfoResponse(
         kok_product_id=product.kok_product_id,
@@ -916,7 +917,7 @@ async def toggle_kok_likes(
     """
     찜 등록/해제 토글
     """
-    logger.info(f"찜 토글 시작: user_id={user_id}, product_id={kok_product_id}")
+    # logger.info(f"찜 토글 시작: user_id={user_id}, product_id={kok_product_id}")
     
     # 기존 찜 확인
     stmt = select(KokLikes).where(
@@ -929,7 +930,7 @@ async def toggle_kok_likes(
     if existing_like:
         # 찜 해제
         await db.delete(existing_like)
-        logger.info(f"찜 해제 완료: user_id={user_id}, product_id={kok_product_id}")
+    # logger.info(f"찜 해제 완료: user_id={user_id}, product_id={kok_product_id}")
         return False
     else:
         # 찜 등록
@@ -942,7 +943,7 @@ async def toggle_kok_likes(
         )
         
         db.add(new_like)
-        logger.info(f"찜 등록 완료: user_id={user_id}, product_id={kok_product_id}")
+    # logger.info(f"찜 등록 완료: user_id={user_id}, product_id={kok_product_id}")
         return True
 
 
@@ -1040,12 +1041,12 @@ async def add_kok_cart(
     """
     장바구니에 상품 추가 (자동으로 최신 가격 ID 사용)
     """
-    logger.info(f"장바구니 추가 시작: user_id={user_id}, kok_product_id={kok_product_id}, kok_quantity={kok_quantity}, recipe_id={recipe_id}")
+    # logger.info(f"장바구니 추가 시작: user_id={user_id}, kok_product_id={kok_product_id}, kok_quantity={kok_quantity}, recipe_id={recipe_id}")
     
     # recipe_id가 0이면 None으로 처리 (외래키 제약 조건 위반 방지)
     if recipe_id == 0:
         recipe_id = None
-        logger.info(f"recipe_id가 0이므로 None으로 처리")
+    # logger.info(f"recipe_id가 0이므로 None으로 처리")
     
     # 최신 가격 ID 자동 조회
     latest_price_id = await get_latest_kok_price_id(db, kok_product_id)
@@ -1053,7 +1054,7 @@ async def add_kok_cart(
         logger.warning(f"가격 정보를 찾을 수 없음: kok_product_id={kok_product_id}")
         raise ValueError("상품의 가격 정보를 찾을 수 없습니다.")
     
-    logger.info(f"최신 가격 ID 사용: kok_product_id={kok_product_id}, latest_kok_price_id={latest_price_id}")
+    # logger.info(f"최신 가격 ID 사용: kok_product_id={kok_product_id}, latest_kok_price_id={latest_price_id}")
     
     # 기존 장바구니 항목 확인 (product_id만 고려)
     stmt = select(KokCart).where(
@@ -1066,7 +1067,7 @@ async def add_kok_cart(
     if existing_cart:
         # 수량 업데이트
         existing_cart.kok_quantity += kok_quantity
-        logger.info(f"장바구니 수량 업데이트 완료: kok_cart_id={existing_cart.kok_cart_id}, new_quantity={existing_cart.kok_quantity}")
+    # logger.info(f"장바구니 수량 업데이트 완료: kok_cart_id={existing_cart.kok_cart_id}, new_quantity={existing_cart.kok_quantity}")
         return {
             "kok_cart_id": existing_cart.kok_cart_id,
             "message": f"장바구니 수량이 {existing_cart.kok_quantity}개로 업데이트되었습니다."
@@ -1088,7 +1089,7 @@ async def add_kok_cart(
         # refresh는 commit 후에 호출해야 하므로 여기서는 제거
         # await db.refresh(new_cart)
         
-        logger.info(f"장바구니 새 항목 추가 완료: user_id={user_id}, kok_product_id={kok_product_id}, kok_price_id={latest_price_id}")
+    # logger.info(f"장바구니 새 항목 추가 완료: user_id={user_id}, kok_product_id={kok_product_id}, kok_price_id={latest_price_id}")
         return {
             "kok_cart_id": 0,  # commit 후에 실제 ID를 얻을 수 있음
             "message": "장바구니에 상품이 추가되었습니다."
@@ -1179,7 +1180,7 @@ async def search_kok_products(
     키워드로 콕 상품 검색
     """
     try:
-        logger.info(f"상품 검색 시작: keyword='{keyword}', page={page}, size={size}")
+    # logger.info(f"상품 검색 시작: keyword='{keyword}', page={page}, size={size}")
         offset = (page - 1) * size
         
         # 검색 쿼리
@@ -1229,7 +1230,7 @@ async def search_kok_products(
                     "kok_review_score": product.kok_review_score,
                 })
         
-        logger.info(f"상품 검색 완료: keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
+    # logger.info(f"상품 검색 완료: keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
         return products, total
         
     except Exception as e:
@@ -1272,7 +1273,7 @@ async def add_kok_search_history(
     """
     검색 이력 추가
     """
-    logger.info(f"검색 이력 추가 시작: user_id={user_id}, keyword='{keyword}'")
+    # logger.info(f"검색 이력 추가 시작: user_id={user_id}, keyword='{keyword}'")
     
     searched_at = datetime.now()
     
@@ -1286,7 +1287,7 @@ async def add_kok_search_history(
     await db.flush()  # commit 전에 flush로 ID 생성
     await db.refresh(new_history)
     
-    logger.info(f"검색 이력 추가 완료: user_id={user_id}, keyword={keyword}, history_id={new_history.kok_history_id}")
+    # logger.info(f"검색 이력 추가 완료: user_id={user_id}, keyword={keyword}, history_id={new_history.kok_history_id}")
     return {
         "kok_history_id": new_history.kok_history_id,
         "user_id": user_id,
@@ -1303,7 +1304,7 @@ async def delete_kok_search_history(
     """
     특정 검색 이력 ID로 검색 이력 삭제
     """
-    logger.info(f"검색 이력 삭제 시작: user_id={user_id}, history_id={kok_history_id}")
+    # logger.info(f"검색 이력 삭제 시작: user_id={user_id}, history_id={kok_history_id}")
     
     stmt = (
         select(KokSearchHistory)
@@ -1316,7 +1317,7 @@ async def delete_kok_search_history(
     
     if history:
         await db.delete(history)
-        logger.info(f"검색 이력 삭제 완료: user_id={user_id}, history_id={kok_history_id}")
+    # logger.info(f"검색 이력 삭제 완료: user_id={user_id}, history_id={kok_history_id}")
         return True
     
     logger.warning(f"검색 이력을 찾을 수 없음: user_id={user_id}, history_id={kok_history_id}")
@@ -1365,7 +1366,7 @@ async def get_ingredients_from_selected_cart_items(
     - 상품명에서 식재료 관련 키워드를 추출하여 반환
     - keyword_extraction.py의 로직을 사용하여 정확한 재료 추출
     """
-    logger.info(f"장바구니 상품에서 재료 추출 시작: user_id={user_id}, kok_cart_ids={selected_cart_ids}")
+    # logger.info(f"장바구니 상품에서 재료 추출 시작: user_id={user_id}, kok_cart_ids={selected_cart_ids}")
 
     if not selected_cart_ids:
         logger.warning("선택된 장바구니 항목이 없음")
@@ -1392,10 +1393,10 @@ async def get_ingredients_from_selected_cart_items(
         # 환경변수에서 자동으로 DB 설정을 가져와서 표준 재료 어휘 로드
         db_conf = get_homeshopping_db_config()
         ing_vocab = load_ing_vocab(db_conf)
-        logger.info(f"표준 재료 어휘 로드 완료: {len(ing_vocab)}개")
+    # logger.info(f"표준 재료 어휘 로드 완료: {len(ing_vocab)}개")
     except Exception as e:
         logger.error(f"표준 재료 어휘 로드 실패: {str(e)}")
-        logger.info("기본 키워드로 폴백하여 진행")
+    # logger.info("기본 키워드로 폴백하여 진행")
         # 실패 시 기본 키워드로 폴백
         ing_vocab = {
             "감자", "양파", "당근", "양배추", "상추", "시금치", "깻잎", "청경채", "브로콜리", "콜리플라워",
@@ -1423,7 +1424,7 @@ async def get_ingredients_from_selected_cart_items(
         if not product_name:
             continue
 
-        logger.info(f"상품명 분석 중: {product_name}")
+    # logger.info(f"상품명 분석 중: {product_name}")
 
         try:
             # keyword_extraction.py의 고급 로직으로 재료 추출
@@ -1445,9 +1446,9 @@ async def get_ingredients_from_selected_cart_items(
                 if len(keywords) > 1:
                     keywords = [keywords[0]]  # 첫 번째 키워드만 사용
                 extracted_ingredients.update(keywords)
-                logger.info(f"상품 '{product_name}'에서 추출된 키워드: {keywords}")
+                # logger.info(f"상품 '{product_name}'에서 추출된 키워드: {keywords}")
             else:
-                logger.info(f"상품 '{product_name}'에서 키워드 추출 실패")
+                logger.error(f"상품 '{product_name}'에서 키워드 추출 실패")
 
         except Exception as e:
             logger.error(f"상품 '{product_name}' 키워드 추출 중 오류: {str(e)}")
@@ -1455,7 +1456,7 @@ async def get_ingredients_from_selected_cart_items(
 
     # 중복 제거 및 정렬
     final_ingredients = sorted(list(extracted_ingredients))
-    logger.info(f"최종 추출된 재료: {final_ingredients}")
+    # logger.info(f"최종 추출된 재료: {final_ingredients}")
     return final_ingredients
 
 
@@ -1484,7 +1485,7 @@ async def get_ingredients_from_cart_product_ids(
         kok_product_ids = list(set(kok_product_ids + unified_product_ids))
         homeshopping_product_ids = list(set(homeshopping_product_ids + unified_product_ids))
     
-    logger.info(f"장바구니 상품 ID에서 재료 추출 시작: kok_product_ids={kok_product_ids}, homeshopping_product_ids={homeshopping_product_ids}")
+    # logger.info(f"장바구니 상품 ID에서 재료 추출 시작: kok_product_ids={kok_product_ids}, homeshopping_product_ids={homeshopping_product_ids}")
 
     if not kok_product_ids and not homeshopping_product_ids:
         logger.warning("선택된 상품 ID가 없음")
@@ -1512,7 +1513,7 @@ async def get_ingredients_from_cart_product_ids(
         )
         result = await db.execute(stmt)
         homeshopping_products = result.scalars().all()
-        logger.info(f"홈쇼핑 cls_ing=1인 상품 {len(homeshopping_products)}개 발견")
+        # logger.info(f"홈쇼핑 cls_ing=1인 상품 {len(homeshopping_products)}개 발견")
 
     # 모든 상품을 하나의 리스트로 합치기
     all_products = list(kok_products) + list(homeshopping_products)
@@ -1520,7 +1521,7 @@ async def get_ingredients_from_cart_product_ids(
     # 분류된 상품이 없으면 FCT_KOK_PRODUCT_INFO에서 직접 상품명 조회 (폴백)
     if not all_products and kok_product_ids:
         logger.warning(f"분류된 상품을 찾을 수 없음: kok_product_ids={kok_product_ids}, homeshopping_product_ids={homeshopping_product_ids}")
-        logger.info("FCT_KOK_PRODUCT_INFO에서 직접 상품명 조회 시도 (폴백)")
+        # logger.info("FCT_KOK_PRODUCT_INFO에서 직접 상품명 조회 시도 (폴백)")
         
         # FCT_KOK_PRODUCT_INFO에서 상품명 조회
         product_stmt = (
@@ -1540,7 +1541,7 @@ async def get_ingredients_from_cart_product_ids(
                 })()
                 all_products.append(temp_classify)
             
-            logger.info(f"FCT_KOK_PRODUCT_INFO에서 {len(all_products)}개 상품 발견 (폴백)")
+        # logger.info(f"FCT_KOK_PRODUCT_INFO에서 {len(all_products)}개 상품 발견 (폴백)")
         else:
             logger.warning(f"FCT_KOK_PRODUCT_INFO에서도 상품을 찾을 수 없음: kok_product_ids={kok_product_ids}")
     
@@ -1548,7 +1549,7 @@ async def get_ingredients_from_cart_product_ids(
         logger.warning(f"모든 방법으로 상품을 찾을 수 없음: kok_product_ids={kok_product_ids}, homeshopping_product_ids={homeshopping_product_ids}")
         return []
 
-    logger.info(f"총 {len(all_products)}개 상품에서 키워드 추출 시작")
+    # logger.info(f"총 {len(all_products)}개 상품에서 키워드 추출 시작")
 
     # 표준 재료 어휘 로드 (TEST_MTRL.MATERIAL_NAME)
     ing_vocab = set()
@@ -1556,10 +1557,10 @@ async def get_ingredients_from_cart_product_ids(
         # 환경변수에서 자동으로 DB 설정을 가져와서 표준 재료 어휘 로드
         db_conf = get_homeshopping_db_config()
         ing_vocab = load_ing_vocab(db_conf)
-        logger.info(f"표준 재료 어휘 로드 완료: {len(ing_vocab)}개")
+        # logger.info(f"표준 재료 어휘 로드 완료: {len(ing_vocab)}개")
     except Exception as e:
         logger.error(f"표준 재료 어휘 로드 실패: {str(e)}")
-        logger.info("기본 키워드로 폴백하여 진행")
+        # logger.info("기본 키워드로 폴백하여 진행")
         # 실패 시 기본 키워드로 폴백
         ing_vocab = {
             "감자", "양파", "당근", "양배추", "상추", "시금치", "깻잎", "청경채", "브로콜리", "콜리플라워",
@@ -1587,7 +1588,7 @@ async def get_ingredients_from_cart_product_ids(
         if not product_name:
             continue
 
-        logger.info(f"상품명 분석 중: {product_name}")
+    # logger.info(f"상품명 분석 중: {product_name}")
 
         try:
             # keyword_extraction.py의 고급 로직으로 재료 추출
@@ -1611,18 +1612,17 @@ async def get_ingredients_from_cart_product_ids(
                 extracted_ingredients.update(keywords)
                 
                 # 키워드만 추출하여 저장
-                
-                logger.info(f"상품 '{product_name}'에서 추출된 키워드: {keywords}")
+                # logger.info(f"상품 '{product_name}'에서 추출된 키워드: {keywords}")
             else:
-                logger.info(f"상품 '{product_name}'에서 키워드 추출 실패")
-
+                logger.error(f"상품 '{product_name}'에서 키워드 추출 실패")
+                
         except Exception as e:
             logger.error(f"상품 '{product_name}' 키워드 추출 중 오류: {str(e)}")
             continue
 
     # 중복 제거 및 정렬
     final_ingredients = sorted(list(extracted_ingredients))
-    logger.info(f"최종 추출된 재료: {final_ingredients}")
+    # logger.info(f"최종 추출된 재료: {final_ingredients}")
     return final_ingredients
 
 

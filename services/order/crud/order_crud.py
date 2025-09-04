@@ -611,24 +611,24 @@ async def calculate_order_total_price(db: AsyncSession, order_id: int) -> int:
         - order_price가 없는 경우 계산 함수를 통해 재계산
         - 계산 실패 시 기본값(dc_price * quantity) 사용
     """
-    logger.info(f"주문 총액 계산 시작: order_id={order_id}")
+    # logger.info(f"주문 총액 계산 시작: order_id={order_id}")
     total_price = 0
     
     # 콕 주문 총액 계산
-    logger.info(f"콕 주문 총액 계산 시작: order_id={order_id}")
+    # logger.info(f"콕 주문 총액 계산 시작: order_id={order_id}")
     kok_result = await db.execute(
         select(KokOrder).where(KokOrder.order_id == order_id)
     )
     kok_orders = kok_result.scalars().all()
-    logger.info(f"콕 주문 조회 결과: order_id={order_id}, kok_count={len(kok_orders)}")
+    # logger.info(f"콕 주문 조회 결과: order_id={order_id}, kok_count={len(kok_orders)}")
     
     for kok_order in kok_orders:
         if hasattr(kok_order, 'order_price') and kok_order.order_price:
-            logger.info(f"콕 주문 기존 가격 사용: kok_order_id={kok_order.kok_order_id}, order_price={kok_order.order_price}")
+    # logger.info(f"콕 주문 기존 가격 사용: kok_order_id={kok_order.kok_order_id}, order_price={kok_order.order_price}")
             total_price += kok_order.order_price
         else:
             # order_price가 없는 경우 계산 함수 사용
-            logger.info(f"콕 주문 가격 계산 필요: kok_order_id={kok_order.kok_order_id}, kok_price_id={kok_order.kok_price_id}")
+    # logger.info(f"콕 주문 가격 계산 필요: kok_order_id={kok_order.kok_order_id}, kok_price_id={kok_order.kok_price_id}")
             try:
                 price_info = await calculate_kok_order_price(
                     db, 
@@ -637,29 +637,29 @@ async def calculate_order_total_price(db: AsyncSession, order_id: int) -> int:
                     kok_order.quantity
                 )
                 total_price += price_info["order_price"]
-                logger.info(f"콕 주문 가격 계산 완료: kok_order_id={kok_order.kok_order_id}, calculated_price={price_info['order_price']}")
+    # logger.info(f"콕 주문 가격 계산 완료: kok_order_id={kok_order.kok_order_id}, calculated_price={price_info['order_price']}")
             except Exception as e:
                 logger.warning(f"콕 주문 금액 계산 실패: kok_order_id={kok_order.kok_order_id}, error={str(e)}")
                 # 기본값 사용 (KokOrder는 dc_price가 없으므로 order_price가 없으면 0으로 처리)
                 fallback_price = 0
                 total_price += fallback_price
-                logger.info(f"콕 주문 기본값 사용: kok_order_id={kok_order.kok_order_id}, fallback_price={fallback_price}")
+    # logger.info(f"콕 주문 기본값 사용: kok_order_id={kok_order.kok_order_id}, fallback_price={fallback_price}")
     
     # 홈쇼핑 주문 총액 계산
-    logger.info(f"홈쇼핑 주문 총액 계산 시작: order_id={order_id}")
+    # logger.info(f"홈쇼핑 주문 총액 계산 시작: order_id={order_id}")
     homeshopping_result = await db.execute(
         select(HomeShoppingOrder).where(HomeShoppingOrder.order_id == order_id)
     )
     homeshopping_orders = homeshopping_result.scalars().all()
-    logger.info(f"홈쇼핑 주문 조회 결과: order_id={order_id}, hs_count={len(homeshopping_orders)}")
+    # logger.info(f"홈쇼핑 주문 조회 결과: order_id={order_id}, hs_count={len(homeshopping_orders)}")
     
     for hs_order in homeshopping_orders:
         if hasattr(hs_order, 'order_price') and hs_order.order_price:
-            logger.info(f"홈쇼핑 주문 기존 가격 사용: hs_order_id={hs_order.homeshopping_order_id}, order_price={hs_order.order_price}")
+    # logger.info(f"홈쇼핑 주문 기존 가격 사용: hs_order_id={hs_order.homeshopping_order_id}, order_price={hs_order.order_price}")
             total_price += hs_order.order_price
         else:
             # order_price가 없는 경우 계산 함수 사용
-            logger.info(f"홈쇼핑 주문 가격 계산 필요: hs_order_id={hs_order.homeshopping_order_id}, product_id={hs_order.product_id}")
+    # logger.info(f"홈쇼핑 주문 가격 계산 필요: hs_order_id={hs_order.homeshopping_order_id}, product_id={hs_order.product_id}")
             try:
                 price_info = await calculate_homeshopping_order_price(
                     db, 
@@ -667,15 +667,15 @@ async def calculate_order_total_price(db: AsyncSession, order_id: int) -> int:
                     hs_order.quantity
                 )
                 total_price += price_info["order_price"]
-                logger.info(f"홈쇼핑 주문 가격 계산 완료: hs_order_id={hs_order.homeshopping_order_id}, calculated_price={price_info['order_price']}")
+    # logger.info(f"홈쇼핑 주문 가격 계산 완료: hs_order_id={hs_order.homeshopping_order_id}, calculated_price={price_info['order_price']}")
             except Exception as e:
                 logger.warning(f"홈쇼핑 주문 금액 계산 실패: homeshopping_order_id={hs_order.homeshopping_order_id}, error={str(e)}")
                 # 기본값 사용
                 fallback_price = getattr(hs_order, 'dc_price', 0) * getattr(hs_order, 'quantity', 1)
                 total_price += fallback_price
-                logger.info(f"홈쇼핑 주문 기본값 사용: hs_order_id={hs_order.homeshopping_order_id}, fallback_price={fallback_price}")
+    # logger.info(f"홈쇼핑 주문 기본값 사용: hs_order_id={hs_order.homeshopping_order_id}, fallback_price={fallback_price}")
     
-    logger.info(f"주문 총액 계산 완료: order_id={order_id}, total_price={total_price}")
+    # logger.info(f"주문 총액 계산 완료: order_id={order_id}, total_price={total_price}")
     return total_price
 
 
@@ -715,12 +715,12 @@ async def _get_json(url: str, timeout: float = 15.0) -> httpx.Response:
         - 상세한 로깅을 통한 디버깅 지원
         - 예외 발생 시 에러 타입과 함께 로깅
     """
-    logger.info(f"HTTP GET 요청 시작: url={url}, timeout={timeout}초")
+    # logger.info(f"HTTP GET 요청 시작: url={url}, timeout={timeout}초")
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            logger.info(f"httpx.AsyncClient 생성 완료, GET 요청 전송: {url}")
+    # logger.info(f"httpx.AsyncClient 생성 완료, GET 요청 전송: {url}")
             response = await client.get(url)
-            logger.info(f"HTTP GET 응답 수신: url={url}, status_code={response.status_code}")
+    # logger.info(f"HTTP GET 응답 수신: url={url}, status_code={response.status_code}")
             return response
     except Exception as e:
         logger.error(f"HTTP GET 요청 실패: url={url}, error={str(e)}, error_type={type(e).__name__}")
@@ -752,7 +752,7 @@ async def _mark_all_children_payment_requested(
         - 실패 시 상위에서 롤백 처리
         - 모든 하위 주문의 상태를 PAYMENT_REQUESTED로 변경
     """
-    logger.info(f"하위 주문 상태를 PAYMENT_REQUESTED로 갱신 시작: kok_count={len(kok_orders)}, hs_count={len(hs_orders)}")
+    # logger.info(f"하위 주문 상태를 PAYMENT_REQUESTED로 갱신 시작: kok_count={len(kok_orders)}, hs_count={len(hs_orders)}")
     
     # 콕 주문 상태 갱신
     for k in kok_orders:
@@ -763,7 +763,7 @@ async def _mark_all_children_payment_requested(
                 new_status_code="PAYMENT_REQUESTED",
                 changed_by=user_id,
             )
-            logger.info(f"콕 주문 상태를 PAYMENT_REQUESTED로 갱신 완료: kok_order_id={k.kok_order_id}")
+    # logger.info(f"콕 주문 상태를 PAYMENT_REQUESTED로 갱신 완료: kok_order_id={k.kok_order_id}")
         except Exception as e:
             logger.error(f"콕 주문 상태 갱신 실패: kok_order_id={k.kok_order_id}, error={str(e)}")
             raise
@@ -777,12 +777,12 @@ async def _mark_all_children_payment_requested(
                 new_status_code="PAYMENT_REQUESTED",
                 changed_by=user_id,
             )
-            logger.info(f"홈쇼핑 주문 상태를 PAYMENT_REQUESTED로 갱신 완료: hs_order_id={h.homeshopping_order_id}")
+    # logger.info(f"홈쇼핑 주문 상태를 PAYMENT_REQUESTED로 갱신 완료: hs_order_id={h.homeshopping_order_id}")
         except Exception as e:
             logger.error(f"홈쇼핑 주문 상태 갱신 실패: homeshopping_order_id={h.homeshopping_order_id}, error={str(e)}")
             raise
     
-    logger.info(f"모든 하위 주문 상태를 PAYMENT_REQUESTED로 갱신 완료")
+    # logger.info(f"모든 하위 주문 상태를 PAYMENT_REQUESTED로 갱신 완료")
 
 
 async def _mark_all_children_payment_completed(
@@ -810,7 +810,7 @@ async def _mark_all_children_payment_completed(
         - 실패 시 상위에서 롤백 처리
         - 모든 하위 주문의 상태를 PAYMENT_COMPLETED로 변경
     """
-    logger.info(f"하위 주문 상태를 PAYMENT_COMPLETED로 갱신 시작: kok_count={len(kok_orders)}, hs_count={len(hs_orders)}")
+    # logger.info(f"하위 주문 상태를 PAYMENT_COMPLETED로 갱신 시작: kok_count={len(kok_orders)}, hs_count={len(hs_orders)}")
     
     # 콕 주문 상태 갱신
     for k in kok_orders:
@@ -821,7 +821,7 @@ async def _mark_all_children_payment_completed(
                 new_status_code="PAYMENT_COMPLETED",
                 changed_by=user_id,
             )
-            logger.info(f"콕 주문 상태를 PAYMENT_COMPLETED로 갱신 완료: kok_order_id={k.kok_order_id}")
+    # logger.info(f"콕 주문 상태를 PAYMENT_COMPLETED로 갱신 완료: kok_order_id={k.kok_order_id}")
         except Exception as e:
             logger.error(f"콕 주문 상태 갱신 실패: kok_order_id={k.kok_order_id}, error={str(e)}")
             raise
@@ -835,12 +835,12 @@ async def _mark_all_children_payment_completed(
                 new_status_code="PAYMENT_COMPLETED",
                 changed_by=user_id,
             )
-            logger.info(f"홈쇼핑 주문 상태를 PAYMENT_COMPLETED로 갱신 완료: hs_order_id={h.homeshopping_order_id}")
+    # logger.info(f"홈쇼핑 주문 상태를 PAYMENT_COMPLETED로 갱신 완료: hs_order_id={h.homeshopping_order_id}")
         except Exception as e:
             logger.error(f"홈쇼핑 주문 상태 갱신 실패: homeshopping_order_id={h.homeshopping_order_id}, error={str(e)}")
             raise
     
-    logger.info(f"모든 하위 주문 상태를 PAYMENT_COMPLETED로 갱신 완료")
+    # logger.info(f"모든 하위 주문 상태를 PAYMENT_COMPLETED로 갱신 완료")
 
 
 async def _ensure_order_access(db: AsyncSession, order_id: int, user_id: int) -> Dict[str, Any]:
@@ -863,10 +863,10 @@ async def _ensure_order_access(db: AsyncSession, order_id: int, user_id: int) ->
         - 해당 order_id가 존재하고, 소유자가 user_id인지 확인
         - 권한이 없으면 404 에러 반환
     """
-    logger.info(f"주문 접근 권한 확인: order_id={order_id}, user_id={user_id}")
+    # logger.info(f"주문 접근 권한 확인: order_id={order_id}, user_id={user_id}")
     
     order_data = await get_order_by_id(db, order_id)
-    logger.info(f"주문 데이터 조회 결과: order_id={order_id}, order_data={order_data is not None}")
+    # logger.info(f"주문 데이터 조회 결과: order_id={order_id}, order_data={order_data is not None}")
     
     if not order_data:
         logger.error(f"주문을 찾을 수 없음: order_id={order_id}")
@@ -876,7 +876,7 @@ async def _ensure_order_access(db: AsyncSession, order_id: int, user_id: int) ->
         logger.error(f"주문 접근 권한 없음: order_id={order_id}, order_user_id={order_data['user_id']}, request_user_id={user_id}")
         raise HTTPException(status_code=404, detail="주문 내역이 없습니다.")
     
-    logger.info(f"주문 접근 권한 확인 완료: order_id={order_id}, user_id={user_id}")
+    # logger.info(f"주문 접근 권한 확인 완료: order_id={order_id}, user_id={user_id}")
     return order_data
 
 async def cancel_order(db: AsyncSession, order_id: int, reason: str):
@@ -951,7 +951,7 @@ async def cancel_order(db: AsyncSession, order_id: int, reason: str):
         
         await db.commit()
         
-        logger.info(f"주문 취소 완료: order_id={order_id}, cancel_time={current_time}, reason={reason}")
+    # logger.info(f"주문 취소 완료: order_id={order_id}, cancel_time={current_time}, reason={reason}")
         
         return {
             "order_id": order_id,
@@ -1008,7 +1008,7 @@ async def get_recent_orders_with_ingredients(
     Returns:
         키워드 추출 결과 딕셔너리
     """
-    logger.info(f"최근 {days}일 주문 내역 키워드 추출 시작: user_id={user_id}")
+    # logger.info(f"최근 {days}일 주문 내역 키워드 추출 시작: user_id={user_id}")
     
     # 7일 전 날짜 계산
     from datetime import datetime, timedelta
@@ -1161,5 +1161,5 @@ async def get_recent_orders_with_ingredients(
         }
     }
     
-    logger.info(f"최근 {days}일 주문 내역 키워드 추출 완료: 총 {len(all_products)}개 상품, {len(all_keywords)}개 키워드")
+    # logger.info(f"최근 {days}일 주문 내역 키워드 추출 완료: 총 {len(all_products)}개 상품, {len(all_keywords)}개 키워드")
     return result

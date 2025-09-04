@@ -59,6 +59,8 @@ async def list_orders(
         - 각 주문에 배송 정보, 레시피 정보, 재료 보유 현황 포함
         - 사용자 행동 로그 기록
     """
+    logger.info(f"주문 리스트 조회 요청: user_id={user.user_id}, limit={limit}")
+    
     # CRUD 계층에 주문 조회 위임
     order_list = await get_user_orders(db, user.user_id, limit, 0)
     
@@ -164,6 +166,8 @@ async def list_orders(
             **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
+    logger.info(f"주문 리스트 조회 완료: user_id={user.user_id}, 결과 수={len(order_groups)}")
+    
     return OrdersListResponse(
         limit=limit,
         total_count=len(order_groups),
@@ -195,6 +199,8 @@ async def get_order_count(
         - COUNT 쿼리만 실행하여 성능 최적화
         - 사용자 행동 로그 기록
     """
+    logger.info(f"주문 개수 조회 요청: user_id={user.user_id}")
+    
     # CRUD 계층에 주문 개수만 조회 위임 (성능 최적화)
     order_count = await get_user_order_counts(db, user.user_id)
     

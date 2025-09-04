@@ -41,7 +41,7 @@ async def get_recipe_detail(db: AsyncSession, recipe_id: int) -> Optional[Dict]:
     """
     레시피 상세정보(+재료 리스트, recipe_url 포함) 반환
     """
-    logger.info(f"레시피 상세정보 조회 시작: recipe_id={recipe_id}")
+    # logger.info(f"레시피 상세정보 조회 시작: recipe_id={recipe_id}")
     
     stmt = select(Recipe).where(Recipe.recipe_id == recipe_id)  # type: ignore
     recipe_row = await db.execute(stmt)
@@ -55,7 +55,7 @@ async def get_recipe_detail(db: AsyncSession, recipe_id: int) -> Optional[Dict]:
     recipe_url = get_recipe_url(recipe_id)
     result_dict = {**recipe.__dict__, "materials": materials, "recipe_url": recipe_url}
     
-    logger.info(f"레시피 상세정보 조회 완료: recipe_id={recipe_id}, 재료 개수={len(materials)}")
+    # logger.info(f"레시피 상세정보 조회 완료: recipe_id={recipe_id}, 재료 개수={len(materials)}")
     return result_dict
 
 
@@ -74,7 +74,7 @@ async def recommend_recipes_by_ingredients(
     - 순차적 재고 소진 알고리즘 적용
     - 효율적인 DB 쿼리로 타임아웃 방지
     """
-    logger.info(f"재료 기반 레시피 추천 시작: 재료={ingredients}, 분량={amounts}, 단위={units}, 페이지={page}, 크기={size}")
+    # logger.info(f"재료 기반 레시피 추천 시작: 재료={ingredients}, 분량={amounts}, 단위={units}, 페이지={page}, 크기={size}")
     
     # 기본 쿼리 (인기순)
     base_stmt = (
@@ -86,7 +86,7 @@ async def recommend_recipes_by_ingredients(
     )
     
     # 순차적 재고 소진 알고리즘 적용
-    logger.info("순차적 재고 소진 알고리즘 모드")
+    # logger.info("순차적 재고 소진 알고리즘 모드")
     
     return await execute_standard_inventory_algorithm(
         db, base_stmt, ingredients, amounts, units, page, size
@@ -106,7 +106,7 @@ async def recommend_recipes_combination_1(
     - 사용자별로 다른 시드를 사용하여 다양한 결과 제공
     - 캐싱 추가로 성능 향상 (로직 변경 없음)
     """
-    logger.info(f"1조합 레시피 추천 시작: 재료={ingredients}, 분량={amounts}, 단위={units}, user_id={user_id}")
+    # logger.info(f"1조합 레시피 추천 시작: 재료={ingredients}, 분량={amounts}, 단위={units}, user_id={user_id}")
     
     # 캐시에서 결과 조회 시도 (로직 변경 없음)
     if user_id:
@@ -115,7 +115,7 @@ async def recommend_recipes_combination_1(
         )
         if cached_result:
             recipes, total = cached_result
-            logger.info(f"1조합 캐시 히트: {len(recipes)}개 레시피")
+    # logger.info(f"1조합 캐시 히트: {len(recipes)}개 레시피")
             return recipes, total
     
     # 기존 로직 그대로 유지
@@ -136,7 +136,7 @@ async def recommend_recipes_combination_1(
             .group_by(Recipe.recipe_id)
             .order_by(desc(Recipe.scrap_count))
         )
-        logger.info(f"1조합: 인기순 정렬 사용 (시드: {seed})")
+    # logger.info(f"1조합: 인기순 정렬 사용 (시드: {seed})")
     elif seed == 1:
         # 최신순 정렬 (recipe_id 기준)
         base_stmt = (
@@ -146,7 +146,7 @@ async def recommend_recipes_combination_1(
             .group_by(Recipe.recipe_id)
             .order_by(desc(Recipe.recipe_id))
         )
-        logger.info(f"1조합: 최신순 정렬 사용 (시드: {seed})")
+    # logger.info(f"1조합: 최신순 정렬 사용 (시드: {seed})")
     else:
         # 조합별 정렬 (재료 개수 + 인기도)
         base_stmt = (
@@ -156,7 +156,7 @@ async def recommend_recipes_combination_1(
             .group_by(Recipe.recipe_id)
             .order_by(desc(func.count(Material.material_name)), desc(Recipe.scrap_count))
         )
-        logger.info(f"1조합: 재료 개수 + 인기도 정렬 사용 (시드: {seed})")
+    # logger.info(f"1조합: 재료 개수 + 인기도 정렬 사용 (시드: {seed})")
     
     # 기존 알고리즘 그대로 실행
     recipes, total = await execute_standard_inventory_algorithm(
@@ -185,7 +185,7 @@ async def recommend_recipes_combination_2(
     2조합: 1조합에서 사용된 레시피를 제외한 나머지 레시피 풀에서 선택
     - 캐싱 추가로 성능 향상 (로직 변경 없음)
     """
-    logger.info(f"2조합 레시피 추천 시작: 재료={ingredients}, 제외할 레시피={exclude_recipe_ids}")
+    # logger.info(f"2조합 레시피 추천 시작: 재료={ingredients}, 제외할 레시피={exclude_recipe_ids}")
     
     # 캐시에서 결과 조회 시도 (제외할 레시피가 없는 경우만)
     if user_id and not exclude_recipe_ids:
@@ -194,7 +194,7 @@ async def recommend_recipes_combination_2(
         )
         if cached_result:
             recipes, total = cached_result
-            logger.info(f"2조합 캐시 히트: {len(recipes)}개 레시피")
+    # logger.info(f"2조합 캐시 히트: {len(recipes)}개 레시피")
             return recipes, total
     
     # 기존 로직 그대로 유지
@@ -210,7 +210,7 @@ async def recommend_recipes_combination_2(
     # 제외할 레시피가 있으면 쿼리에 추가
     if exclude_recipe_ids:
         base_stmt = base_stmt.where(Recipe.recipe_id.notin_(exclude_recipe_ids))
-        logger.info(f"제외할 레시피 ID: {exclude_recipe_ids}")
+    # logger.info(f"제외할 레시피 ID: {exclude_recipe_ids}")
     
     # 기존 알고리즘 그대로 실행
     recipes, total = await execute_standard_inventory_algorithm(
@@ -239,7 +239,7 @@ async def recommend_recipes_combination_3(
     3조합: 1조합, 2조합에서 사용된 레시피를 제외한 나머지 레시피 풀에서 선택
     - 캐싱 추가로 성능 향상 (로직 변경 없음)
     """
-    logger.info(f"3조합 레시피 추천 시작: 재료={ingredients}, 제외할 레시피={exclude_recipe_ids}")
+    # logger.info(f"3조합 레시피 추천 시작: 재료={ingredients}, 제외할 레시피={exclude_recipe_ids}")
     
     # 캐시에서 결과 조회 시도 (제외할 레시피가 없는 경우만)
     if user_id and not exclude_recipe_ids:
@@ -248,7 +248,7 @@ async def recommend_recipes_combination_3(
         )
         if cached_result:
             recipes, total = cached_result
-            logger.info(f"3조합 캐시 히트: {len(recipes)}개 레시피")
+    # logger.info(f"3조합 캐시 히트: {len(recipes)}개 레시피")
             return recipes, total
     
     # 기존 로직 그대로 유지
@@ -264,7 +264,7 @@ async def recommend_recipes_combination_3(
     # 제외할 레시피가 있으면 쿼리에 추가
     if exclude_recipe_ids:
         base_stmt = base_stmt.where(Recipe.recipe_id.notin_(exclude_recipe_ids))
-        logger.info(f"제외할 레시피 ID: {exclude_recipe_ids}")
+    # logger.info(f"제외할 레시피 ID: {exclude_recipe_ids}")
     
     # 기존 알고리즘 그대로 실행
     recipes, total = await execute_standard_inventory_algorithm(
@@ -293,7 +293,7 @@ async def execute_standard_inventory_algorithm(
     - 후보 레시피는 이미 정렬되어 있음 (인기순/난이도순/시간순)
     - 선택 로직은 "가장 많은 재료 사용하는 순"으로 동일
     """
-    logger.info(f"표준 재고 소진 알고리즘 실행: 페이지={page}, 크기={size}")
+    # logger.info(f"표준 재고 소진 알고리즘 실행: 페이지={page}, 크기={size}")
     
     # 2-1. 초기 재고 설정
     initial_ingredients = []
@@ -317,9 +317,9 @@ async def execute_standard_inventory_algorithm(
         })
     
     # 2-2. 전체 후보 레시피를 한 번에 조회 (페이지네이션을 위해)
-    logger.info("전체 후보 레시피 조회 시작")
+    # logger.info("전체 후보 레시피 조회 시작")
     candidate_recipes = (await db.execute(base_stmt)).scalars().unique().all()
-    logger.info(f"전체 후보 레시피 개수: {len(candidate_recipes)}")
+    # logger.info(f"전체 후보 레시피 개수: {len(candidate_recipes)}")
     
     # 2-3. 레시피별 재료 정보를 효율적으로 조회
     recipe_ids = [r.recipe_id for r in candidate_recipes]
@@ -366,14 +366,14 @@ async def execute_standard_inventory_algorithm(
     # DataFrame으로 변환 (measure_amount가 None인 경우 처리)
     try:
         recipe_df = pd.DataFrame(recipe_df)
-        logger.info(f"DataFrame 생성 완료: {len(recipe_df)}행")
+    # logger.info(f"DataFrame 생성 완료: {len(recipe_df)}행")
     except Exception as e:
         logger.error(f"DataFrame 생성 실패: {e}")
         return [], 0
     
     # 2-5. 순차적 재고 소진 알고리즘 실행 (요청 페이지의 끝까지 생성하면 조기 중단)
     max_results_needed = page * size
-    logger.info(f"알고리즘 실행: 최대 {max_results_needed}개까지 생성")
+    # logger.info(f"알고리즘 실행: 최대 {max_results_needed}개까지 생성")
     
     recommended, remaining_stock, early_stopped = recommend_sequentially_for_inventory(
         initial_ingredients,
@@ -382,7 +382,7 @@ async def execute_standard_inventory_algorithm(
         max_results=max_results_needed
     )
     
-    logger.info(f"알고리즘 완료: {len(recommended)}개 생성, 조기중단: {early_stopped}")
+    # logger.info(f"알고리즘 완료: {len(recommended)}개 생성, 조기중단: {early_stopped}")
     
     # 2-6. 페이지네이션 적용
     start, end = (page-1)*size, (page-1)*size + size
@@ -392,11 +392,11 @@ async def execute_standard_inventory_algorithm(
     if early_stopped:
         # 조기중단이면 정확한 total 계산이 어려우므로 근사값 반환
         approx_total = (page - 1) * size + len(paginated_recommended) + 1
-        logger.info(f"조기중단으로 인한 근사 total: {approx_total}")
+    # logger.info(f"조기중단으로 인한 근사 total: {approx_total}")
         return paginated_recommended, approx_total
     else:
         total = len(recommended)
-        logger.info(f"정확한 total: {total}")
+    # logger.info(f"정확한 total: {total}")
         return paginated_recommended, total
 
 
@@ -781,7 +781,7 @@ async def fetch_recipe_ingredients_status(
     - 장바구니: 현재 장바구니에 담긴 상품
     - 미보유: 레시피 식재료 중 보유/장바구니 상태를 제외한 식재료
     """
-    logger.info(f"레시피 식재료 상태 조회 시작: recipe_id={recipe_id}, user_id={user_id}")
+    # logger.info(f"레시피 식재료 상태 조회 시작: recipe_id={recipe_id}, user_id={user_id}")
     
     # 1. 레시피의 모든 식재료 조회
     materials_stmt = select(Material).where(Material.recipe_id == recipe_id)
@@ -836,12 +836,12 @@ async def fetch_recipe_ingredients_status(
         # 콕 주문 조회
         kok_orders_result = await db.execute(kok_orders_stmt)
         kok_orders = kok_orders_result.all()
-        logger.info(f"콕 주문 조회 완료: {len(kok_orders)}개 주문")
+    # logger.info(f"콕 주문 조회 완료: {len(kok_orders)}개 주문")
         
         # 홈쇼핑 주문 조회
         homeshopping_orders_result = await db.execute(homeshopping_orders_stmt)
         homeshopping_orders = homeshopping_orders_result.all()
-        logger.info(f"홈쇼핑 주문 조회 완료: {len(homeshopping_orders)}개 주문")
+    # logger.info(f"홈쇼핑 주문 조회 완료: {len(homeshopping_orders)}개 주문")
         
         # 주문한 상품명으로 보유 재료 구성
         owned_materials = []
@@ -877,12 +877,12 @@ async def fetch_recipe_ingredients_status(
         # 콕 장바구니 조회
         from services.kok.crud.kok_crud import get_kok_cart_items
         kok_cart_items = await get_kok_cart_items(db, user_id)
-        logger.info(f"콕 장바구니 조회 완료: {len(kok_cart_items)}개 아이템")
+    # logger.info(f"콕 장바구니 조회 완료: {len(kok_cart_items)}개 아이템")
         
         # 홈쇼핑 장바구니 조회
         from services.homeshopping.crud.homeshopping_crud import get_homeshopping_cart_items
         homeshopping_cart_items = await get_homeshopping_cart_items(db, user_id)
-        logger.info(f"홈쇼핑 장바구니 조회 완료: {len(homeshopping_cart_items)}개 아이템")
+    # logger.info(f"홈쇼핑 장바구니 조회 완료: {len(homeshopping_cart_items)}개 아이템")
         
         # 콕 장바구니 처리 (딕셔너리 형태로 반환됨)
         for cart_item in kok_cart_items:
@@ -945,7 +945,7 @@ async def fetch_recipe_ingredients_status(
         "summary": summary
     }
     
-    logger.info(f"레시피 식재료 상태 조회 완료: recipe_id={recipe_id}, 총 재료={summary['total_ingredients']}, 보유={summary['owned_count']}, 장바구니={summary['cart_count']}, 미보유={summary['not_owned_count']}")
+    # logger.info(f"레시피 식재료 상태 조회 완료: recipe_id={recipe_id}, 총 재료={summary['total_ingredients']}, 보유={summary['owned_count']}, 장바구니={summary['cart_count']}, 미보유={summary['not_owned_count']}")
     return result
 
 
@@ -957,7 +957,7 @@ async def get_homeshopping_products_by_ingredient(
     홈쇼핑 쇼핑몰 내 ingredient(식재료명) 관련 상품 정보 조회
     - 상품 이미지, 상품명, 브랜드명, 가격 포함
     """
-    logger.info(f"홈쇼핑 상품 검색 시작: ingredient={ingredient}")
+    # logger.info(f"홈쇼핑 상품 검색 시작: ingredient={ingredient}")
     
     try:
         stmt = (
@@ -991,7 +991,7 @@ async def get_homeshopping_products_by_ingredient(
             }
             product_list.append(product_dict)
         
-        logger.info(f"홈쇼핑 상품 검색 완료: ingredient={ingredient}, 상품 개수={len(product_list)}")
+    # logger.info(f"홈쇼핑 상품 검색 완료: ingredient={ingredient}, 상품 개수={len(product_list)}")
         return product_list
         
     except Exception as e:
@@ -1015,7 +1015,7 @@ async def get_recipe_ingredients_status(
     Returns:
         식재료 상태 정보 딕셔너리
     """
-    logger.info(f"레시피 식재료 상태 조회 시작: user_id={user_id}, recipe_id={recipe_id}")
+    # logger.info(f"레시피 식재료 상태 조회 시작: user_id={user_id}, recipe_id={recipe_id}")
     
     try:
         # 1. 레시피와 재료 정보 조회
@@ -1131,7 +1131,7 @@ async def get_recipe_ingredients_status(
             )
             kok_cart_result = await db.execute(kok_cart_stmt)
             kok_cart_items = kok_cart_result.all()
-            logger.info(f"콕 장바구니 조회 완료: {len(kok_cart_items)}개 아이템")
+    # logger.info(f"콕 장바구니 조회 완료: {len(kok_cart_items)}개 아이템")
         except Exception as e:
             logger.warning(f"콕 장바구니 조회 실패: {e}")
             kok_cart_items = []
@@ -1186,7 +1186,7 @@ async def get_recipe_ingredients_status(
             
             if best_match:
                 order_matches[material] = best_match
-                logger.info(f"주문 매칭: {material} -> {best_match['product_name']} (점수: {best_match['match_score']:.2f})")
+    # logger.info(f"주문 매칭: {material} -> {best_match['product_name']} (점수: {best_match['match_score']:.2f})")
         
         # 장바구니와 재료 매칭 (장바구니 상태, 보유 상태인 재료는 제외)
         owned_materials = list(order_matches.keys())
@@ -1215,7 +1215,7 @@ async def get_recipe_ingredients_status(
             
             if best_match:
                 cart_matches[material] = best_match
-                logger.info(f"장바구니 매칭: {material} -> {best_match['product_name']} (점수: {best_match['match_score']:.2f})")
+    # logger.info(f"장바구니 매칭: {material} -> {best_match['product_name']} (점수: {best_match['match_score']:.2f})")
         
         # 최종 상태 판별
         ingredients_status = []
@@ -1266,7 +1266,7 @@ async def get_recipe_ingredients_status(
             "summary": summary
         }
         
-        logger.info(f"레시피 식재료 상태 조회 완료: recipe_id={recipe_id}, 총 재료={len(materials)}, 보유={owned_count}, 장바구니={cart_count}, 미보유={not_owned_count}")
+    # logger.info(f"레시피 식재료 상태 조회 완료: recipe_id={recipe_id}, 총 재료={len(materials)}, 보유={owned_count}, 장바구니={cart_count}, 미보유={not_owned_count}")
         
         return result
         

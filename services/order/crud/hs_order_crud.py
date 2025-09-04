@@ -54,7 +54,7 @@ async def create_homeshopping_order(
         - 주문 생성 알림 자동 생성
         - 트랜잭션으로 처리하여 일관성 보장
     """
-    logger.info(f"홈쇼핑 주문 생성 시작: user_id={user_id}, product_id={product_id}, quantity={quantity}")
+    # logger.info(f"홈쇼핑 주문 생성 시작: user_id={user_id}, product_id={product_id}, quantity={quantity}")
     
     try:
         # 1. 주문 금액 계산 (별도 함수 사용)
@@ -114,7 +114,7 @@ async def create_homeshopping_order(
         db.add(new_notification)
         await db.commit()
         
-        logger.info(f"홈쇼핑 주문 생성 완료: user_id={user_id}, order_id={new_order.order_id}, homeshopping_order_id={new_homeshopping_order.homeshopping_order_id}")
+    # logger.info(f"홈쇼핑 주문 생성 완료: user_id={user_id}, order_id={new_order.order_id}, homeshopping_order_id={new_homeshopping_order.homeshopping_order_id}")
         
         return {
             "order_id": new_order.order_id,
@@ -240,7 +240,7 @@ async def create_hs_notification_for_status_change(
     
     db.add(notification)
     await db.commit()
-    logger.info(f"홈쇼핑 주문 알림 생성 완료: homeshopping_order_id={homeshopping_order_id}, status_id={status_id}")
+    # logger.info(f"홈쇼핑 주문 알림 생성 완료: homeshopping_order_id={homeshopping_order_id}, status_id={status_id}")
 
 
 async def update_hs_order_status(
@@ -307,7 +307,7 @@ async def update_hs_order_status(
     )
     
     await db.commit()
-    logger.info(f"홈쇼핑 주문 상태 변경 완료: homeshopping_order_id={homeshopping_order_id}, status={new_status_code}")
+    # logger.info(f"홈쇼핑 주문 상태 변경 완료: homeshopping_order_id={homeshopping_order_id}, status={new_status_code}")
     
     return hs_order
 
@@ -395,12 +395,13 @@ async def get_hs_order_with_status(
     status_history = await get_hs_order_status_history(db, homeshopping_order_id)
     
     # 디버깅을 위한 로그 추가
-    logger.info(f"상태 이력 조회 결과: homeshopping_order_id={homeshopping_order_id}, count={len(status_history) if status_history else 0}")
+    # logger.info(f"상태 이력 조회 결과: homeshopping_order_id={homeshopping_order_id}, count={len(status_history) if status_history else 0}")
     if status_history:
         for i, history in enumerate(status_history):
-            logger.info(f"상태 이력 {i}: history_id={history.history_id}, changed_at={history.changed_at}, status_id={history.status_id}")
+            # logger.info(f"상태 이력 {i}: history_id={history.history_id}, changed_at={history.changed_at}, status_id={history.status_id}")
             if history.status:
-                logger.info(f"  - status: {history.status.status_code} ({history.status.status_name})")
+                # logger.info(f"  - status: {history.status.status_code} ({history.status.status_name})")
+                pass
     
     # 가장 최근 상태를 현재 상태로 사용
     if status_history and len(status_history) > 0:
@@ -413,7 +414,7 @@ async def get_hs_order_with_status(
                 "status_code": latest_status_history.status.status_code,
                 "status_name": latest_status_history.status.status_name
             }
-            logger.info(f"최근 상태 이력에서 현재 상태 사용: {current_status_data}")
+    # logger.info(f"최근 상태 이력에서 현재 상태 사용: {current_status_data}")
         else:
             # status 관계가 로드되지 않은 경우 기본 상태 사용
             default_status_result = await db.execute(
@@ -426,7 +427,7 @@ async def get_hs_order_with_status(
                 "status_code": default_status.status_code if default_status else "ORDER_RECEIVED",
                 "status_name": default_status.status_name if default_status else "주문 접수"
             }
-            logger.info(f"기본 상태 사용: {current_status_data}")
+    # logger.info(f"기본 상태 사용: {current_status_data}")
     else:
         # 상태 이력이 없는 경우 기본 상태 사용
         default_status_result = await db.execute(
@@ -439,7 +440,7 @@ async def get_hs_order_with_status(
             "status_code": default_status.status_code if default_status else "ORDER_RECEIVED",
             "status_name": default_status.status_name if default_status else "주문 접수"
         }
-        logger.info(f"상태 이력 없음, 기본 상태 사용: {current_status_data}")
+    # logger.info(f"상태 이력 없음, 기본 상태 사용: {current_status_data}")
     
     # 상태 이력은 이미 위에서 조회했으므로 재사용
     
@@ -602,7 +603,7 @@ async def start_hs_auto_update(
         if not current_status.status:
             raise ValueError("주문 상태 정보가 올바르지 않습니다")
         
-        logger.info(f"자동 상태 업데이트 시작: homeshopping_order_id={homeshopping_order_id}, current_status={current_status.status.status_code}")
+        # logger.info(f"자동 상태 업데이트 시작: homeshopping_order_id={homeshopping_order_id}, current_status={current_status.status.status_code}")
         
         # 3. 현재 상태에 따른 다음 상태 결정 및 업데이트
         current_status_code = current_status.status.status_code
@@ -636,7 +637,7 @@ async def start_hs_auto_update(
         
         # 4. 상태 업데이트 실행
         if next_status_code:
-            logger.info(f"상태 업데이트 실행: {current_status_code} -> {next_status_code}")
+            # logger.info(f"상태 업데이트 실행: {current_status_code} -> {next_status_code}")
             
             # 상태 업데이트 함수 호출
             updated_order = await update_hs_order_status(
@@ -648,13 +649,13 @@ async def start_hs_auto_update(
             
             # 상태 업데이트 후 commit하여 DB에 반영
             await db.commit()
-            logger.info(f"상태 업데이트 완료 및 DB 반영: homeshopping_order_id={homeshopping_order_id}, {current_status_code} -> {next_status_code}")
+            # logger.info(f"상태 업데이트 완료 및 DB 반영: homeshopping_order_id={homeshopping_order_id}, {current_status_code} -> {next_status_code}")
             
             # 5. 백그라운드에서 나머지 상태 업데이트 시작
             try:
                 # 현재 세션을 사용하여 백그라운드에서 자동 업데이트 시작
                 asyncio.create_task(auto_update_hs_order_status(homeshopping_order_id, db))
-                logger.info(f"백그라운드 자동 상태 업데이트 시작: homeshopping_order_id={homeshopping_order_id}")
+                # logger.info(f"백그라운드 자동 상태 업데이트 시작: homeshopping_order_id={homeshopping_order_id}")
             except Exception as e:
                 logger.warning(f"백그라운드 자동 상태 업데이트 시작 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
             
@@ -709,7 +710,7 @@ async def auto_update_hs_order_status(homeshopping_order_id: int, db: AsyncSessi
         try:
             # 첫 단계는 이미 설정되었을 수 있으므로 건너뜀
             if i == 0:
-                logger.info(f"홈쇼핑 주문 {homeshopping_order_id} 상태가 '{status_code}'로 이미 설정되어 있습니다.")
+            # logger.info(f"홈쇼핑 주문 {homeshopping_order_id} 상태가 '{status_code}'로 이미 설정되어 있습니다.")
                 continue
                 
             # 5초 대기
@@ -726,7 +727,7 @@ async def auto_update_hs_order_status(homeshopping_order_id: int, db: AsyncSessi
             # 상태 업데이트 후 commit하여 DB에 반영
             await db.commit()
             
-            logger.info(f"홈쇼핑 주문 {homeshopping_order_id} 상태가 '{status_code}'로 업데이트되었습니다.")
+            # logger.info(f"홈쇼핑 주문 {homeshopping_order_id} 상태가 '{status_code}'로 업데이트되었습니다.")
             
         except Exception as e:
             logger.error(f"홈쇼핑 주문 {homeshopping_order_id} 상태 업데이트 실패: {str(e)}")
@@ -786,7 +787,7 @@ async def calculate_homeshopping_order_price(
         - 최종 주문 금액 = 할인가 × 수량
         - 상품명도 함께 조회하여 반환
     """
-    logger.info(f"홈쇼핑 주문 금액 계산 시작: product_id={product_id}, quantity={quantity}")
+    # logger.info(f"홈쇼핑 주문 금액 계산 시작: product_id={product_id}, quantity={quantity}")
     
     try:
         # 1. 상품 정보 조회 (할인가 확인)
@@ -815,7 +816,7 @@ async def calculate_homeshopping_order_price(
                 or 0
         order_price = dc_price * quantity
         
-        logger.info(f"홈쇼핑 주문 금액 계산 완료: product_id={product_id}, dc_price={dc_price}, quantity={quantity}, order_price={order_price}")
+        # logger.info(f"홈쇼핑 주문 금액 계산 완료: product_id={product_id}, dc_price={dc_price}, quantity={quantity}, order_price={order_price}")
         
         return {
             "product_id": product_id,

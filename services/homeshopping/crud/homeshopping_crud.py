@@ -57,7 +57,7 @@ async def get_homeshopping_schedule_optimized(
     cached_result = await cache_manager.get_schedule_cache(live_date, page, size)
     if cached_result:
         schedules, total_count = cached_result
-        logger.info(f"캐시에서 스케줄 조회 완료: 결과 수={len(schedules)}, 전체={total_count}")
+        # logger.info(f"캐시에서 스케줄 조회 완료: 결과 수={len(schedules)}, 전체={total_count}")
         return schedules, total_count
     
     logger.info("캐시 미스 - 최적화된 테이블에서 스케줄 조회")
@@ -130,11 +130,11 @@ async def get_homeshopping_schedule_optimized(
         count_params = {}
     
     # Raw SQL 실행
-    logger.info("최적화된 테이블에서 스케줄 데이터 조회 시작")
+    # logger.info("최적화된 테이블에서 스케줄 데이터 조회 시작")
     result = await db.execute(text(sql_query), params)
     schedules = result.fetchall()
     
-    logger.info("최적화된 테이블에서 스케줄 개수 조회 시작")
+    # logger.info("최적화된 테이블에서 스케줄 개수 조회 시작")
     count_result = await db.execute(text(count_sql), count_params)
     total_count = count_result.scalar()
     
@@ -169,7 +169,7 @@ async def get_homeshopping_schedule_optimized(
             "dc_rate": row.dc_rate
         })
     
-    logger.info(f"최적화된 테이블에서 스케줄 조회 완료: 결과 수={len(schedule_list)}, 전체={total_count}")
+    # logger.info(f"최적화된 테이블에서 스케줄 조회 완료: 결과 수={len(schedule_list)}, 전체={total_count}")
     
     # Redis 캐시 저장 비활성화 (연결 에러 방지)
     # asyncio.create_task(
@@ -190,7 +190,7 @@ async def get_homeshopping_schedule(
     - live_date가 None이면 전체 스케줄 조회
     - Redis 캐싱으로 성능 최적화
     """
-    logger.info(f"홈쇼핑 편성표 조회 시작: live_date={live_date}, page={page}, size={size}")
+    # logger.info(f"홈쇼핑 편성표 조회 시작: live_date={live_date}, page={page}, size={size}")
     
     # Redis 캐시 비활성화 (연결 에러 방지)
     # cached_result = await cache_manager.get_schedule_cache(live_date, page, size)
@@ -200,7 +200,7 @@ async def get_homeshopping_schedule(
     #     return schedules, total_count
     
     # DB에서 직접 조회
-    logger.info("DB에서 스케줄 조회 (캐시 비활성화)")
+    # logger.info("DB에서 스케줄 조회 (캐시 비활성화)")
     
     # 페이징 계산
     offset = (page - 1) * size
@@ -282,11 +282,11 @@ async def get_homeshopping_schedule(
         count_params = {}
     
     # Raw SQL 실행
-    logger.info("최적화된 Raw SQL로 스케줄 데이터 조회 시작")
+    # logger.info("최적화된 Raw SQL로 스케줄 데이터 조회 시작")
     result = await db.execute(text(sql_query), params)
     schedules = result.fetchall()
     
-    logger.info("최적화된 Raw SQL로 스케줄 개수 조회 시작")
+    # logger.info("최적화된 Raw SQL로 스케줄 개수 조회 시작")
     count_result = await db.execute(text(count_sql), count_params)
     total_count = count_result.scalar()
     
@@ -326,7 +326,7 @@ async def get_homeshopping_schedule(
     #     cache_manager.set_schedule_cache(schedule_list, total_count, live_date, page, size)
     # )
     
-    logger.info(f"홈쇼핑 편성표 조회 완료: live_date={live_date}, 결과 수={len(schedule_list)}, 전체={total_count}")
+    # logger.info(f"홈쇼핑 편성표 조회 완료: live_date={live_date}, 결과 수={len(schedule_list)}, 전체={total_count}")
     return schedule_list, total_count
 
 
@@ -344,7 +344,7 @@ async def get_homeshopping_live_url(
     """
     홈쇼핑 ID로 live_url(m3u8) 조회
     """
-    logger.info(f"홈쇼핑 live_url 조회 시작: homeshopping_id={homeshopping_id}")
+    # logger.info(f"홈쇼핑 live_url 조회 시작: homeshopping_id={homeshopping_id}")
     
     try:
         homeshopping_stmt = (
@@ -358,7 +358,7 @@ async def get_homeshopping_live_url(
             logger.warning(f"홈쇼핑 live_url을 찾을 수 없음: homeshopping_id={homeshopping_id}")
             return None
         
-        logger.info(f"홈쇼핑 live_url 조회 완료: homeshopping_id={homeshopping_id}")
+    # logger.info(f"홈쇼핑 live_url 조회 완료: homeshopping_id={homeshopping_id}")
         return live_url
         
     except Exception as e:
@@ -373,7 +373,7 @@ async def get_homeshopping_stream_info(
     """
     홈쇼핑 라이브 스트리밍 정보 조회
     """
-    logger.info(f"홈쇼핑 스트리밍 정보 조회 시작: live_url={live_url}")
+    # logger.info(f"홈쇼핑 스트리밍 정보 조회 시작: live_url={live_url}")
     
     try:
         # 1단계: live_url로 HomeshoppingInfo 조회
@@ -423,7 +423,7 @@ async def get_homeshopping_stream_info(
             "thumb_img_url": live_info.thumb_img_url
         }
         
-        logger.info(f"홈쇼핑 스트리밍 정보 조회 완료: live_id={live_info.live_id}, is_live={is_live}")
+        # logger.info(f"홈쇼핑 스트리밍 정보 조회 완료: live_id={live_info.live_id}, is_live={is_live}")
         return stream_info
         
     except Exception as e:
@@ -445,7 +445,7 @@ async def search_homeshopping_products(
     """
     홈쇼핑 상품 검색
     """
-    logger.info(f"홈쇼핑 상품 검색 시작: keyword='{keyword}'")
+    # logger.info(f"홈쇼핑 상품 검색 시작: keyword='{keyword}'")
     
     # 상품명, 판매자명에서 키워드 검색
     stmt = (
@@ -476,7 +476,7 @@ async def search_homeshopping_products(
             "live_end_time": live.live_end_time
         })
     
-    logger.info(f"홈쇼핑 상품 검색 완료: keyword='{keyword}', 결과 수={len(product_list)}")
+    # logger.info(f"홈쇼핑 상품 검색 완료: keyword='{keyword}', 결과 수={len(product_list)}")
     return product_list
 
 
@@ -492,7 +492,7 @@ async def add_homeshopping_search_history(
     """
     홈쇼핑 검색 이력 추가
     """
-    logger.info(f"홈쇼핑 검색 이력 추가 시작: user_id={user_id}, keyword='{keyword}'")
+    # logger.info(f"홈쇼핑 검색 이력 추가 시작: user_id={user_id}, keyword='{keyword}'")
     
     # user_id와 keyword 검증
     if user_id <= 0:
@@ -515,7 +515,7 @@ async def add_homeshopping_search_history(
     await db.flush()  # commit 전에 flush로 ID 생성
     await db.refresh(new_history)
     
-    logger.info(f"홈쇼핑 검색 이력 추가 완료: history_id={new_history.homeshopping_history_id}")
+    # logger.info(f"홈쇼핑 검색 이력 추가 완료: history_id={new_history.homeshopping_history_id}")
     return {
         "homeshopping_history_id": new_history.homeshopping_history_id,
         "user_id": new_history.user_id,
@@ -532,7 +532,7 @@ async def get_homeshopping_search_history(
     """
     홈쇼핑 검색 이력 조회
     """
-    logger.info(f"홈쇼핑 검색 이력 조회 시작: user_id={user_id}, limit={limit}")
+    # logger.info(f"홈쇼핑 검색 이력 조회 시작: user_id={user_id}, limit={limit}")
     
     # user_id와 limit 검증
     if user_id <= 0:
@@ -562,7 +562,7 @@ async def get_homeshopping_search_history(
             "homeshopping_searched_at": item.homeshopping_searched_at
         })
     
-    logger.info(f"홈쇼핑 검색 이력 조회 완료: user_id={user_id}, 결과 수={len(history_list)}")
+    # logger.info(f"홈쇼핑 검색 이력 조회 완료: user_id={user_id}, 결과 수={len(history_list)}")
     return history_list
 
 
@@ -574,7 +574,7 @@ async def delete_homeshopping_search_history(
     """
     홈쇼핑 검색 이력 삭제
     """
-    logger.info(f"홈쇼핑 검색 이력 삭제 시작: user_id={user_id}, history_id={homeshopping_history_id}")
+    # logger.info(f"홈쇼핑 검색 이력 삭제 시작: user_id={user_id}, history_id={homeshopping_history_id}")
     
     # user_id와 history_id 검증
     if user_id <= 0:
@@ -599,7 +599,7 @@ async def delete_homeshopping_search_history(
     
     await db.delete(history)
     
-    logger.info(f"홈쇼핑 검색 이력 삭제 완료: user_id={user_id}, history_id={homeshopping_history_id}")
+    # logger.info(f"홈쇼핑 검색 이력 삭제 완료: user_id={user_id}, history_id={homeshopping_history_id}")
     return True
 
 
@@ -615,7 +615,7 @@ async def get_homeshopping_product_detail(
     """
     홈쇼핑 상품 상세 정보 조회
     """
-    logger.info(f"홈쇼핑 상품 상세 조회 시작: live_id={live_id}, user_id={user_id}")
+    # logger.info(f"홈쇼핑 상품 상세 조회 시작: live_id={live_id}, user_id={user_id}")
     
     # live_id로 방송 정보 조회 (채널 정보 포함)
     stmt = (
@@ -700,7 +700,7 @@ async def get_homeshopping_product_detail(
         ]
     }
     
-    logger.info(f"홈쇼핑 상품 상세 조회 완료: live_id={live_id}, user_id={user_id}")
+    # logger.info(f"홈쇼핑 상품 상세 조회 완료: live_id={live_id}, user_id={user_id}")
     return product_detail
 
 
@@ -715,7 +715,7 @@ async def get_homeshopping_classify_cls_ing(
     """
     HOMESHOPPING_CLASSIFY 테이블에서 CLS_ING 값 조회
     """
-    logger.info(f"홈쇼핑 상품 분류 CLS_ING 조회 시작: homeshopping_product_id={homeshopping_product_id}")
+    # logger.info(f"홈쇼핑 상품 분류 CLS_ING 조회 시작: homeshopping_product_id={homeshopping_product_id}")
     
     try:
         # HOMESHOPPING_CLASSIFY 테이블에서 CLS_ING 값 조회
@@ -728,7 +728,7 @@ async def get_homeshopping_classify_cls_ing(
             # 해당 상품이 분류 테이블에 없는 경우 기본값 0(완제품) 반환
             return 0
         
-        logger.info(f"홈쇼핑 상품 분류 CLS_ING 조회 완료: homeshopping_product_id={homeshopping_product_id}, cls_ing={cls_ing}")
+        # logger.info(f"홈쇼핑 상품 분류 CLS_ING 조회 완료: homeshopping_product_id={homeshopping_product_id}, cls_ing={cls_ing}")
         return cls_ing
         
     except Exception as e:
@@ -744,7 +744,7 @@ async def get_recipe_recommendations_for_ingredient(
     """
     식재료에 대한 레시피 추천 조회
     """
-    logger.info(f"식재료 레시피 추천 조회 시작: homeshopping_product_id={homeshopping_product_id}")
+    # logger.info(f"식재료 레시피 추천 조회 시작: homeshopping_product_id={homeshopping_product_id}")
     
     try:
         # TODO: 레시피 서비스와 연동하여 실제 레시피 추천 로직 구현
@@ -782,14 +782,14 @@ async def toggle_homeshopping_likes(
     - product_id를 찜 목록에서 조회한 후 없을 경우 추가
     - product_id를 찜 목록에서 조회했을 때 있는 경우에는 삭제
     """
-    logger.info(f"홈쇼핑 찜 토글 시작: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}")
+    # logger.info(f"홈쇼핑 찜 토글 시작: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}")
     
     try:
         # 데이터베이스 연결 상태 확인
-        logger.info(f"데이터베이스 세션 상태 확인: {db.is_active}")
+        # logger.info(f"데이터베이스 세션 상태 확인: {db.is_active}")
         
         # 기존 찜 여부 확인
-        logger.info(f"기존 찜 조회 시작: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}")
+        # logger.info(f"기존 찜 조회 시작: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}")
         existing_like_result = await db.execute(
             select(HomeshoppingLikes).where(
                 and_(
@@ -799,29 +799,29 @@ async def toggle_homeshopping_likes(
             )
         )
         existing_like = existing_like_result.scalar_one_or_none()
-        logger.info(f"기존 찜 조회 결과: {existing_like is not None}")
+        # logger.info(f"기존 찜 조회 결과: {existing_like is not None}")
         
         if existing_like:
             # 기존 찜이 있으면 찜 해제
-            logger.info(f"기존 찜 발견, 찜 해제 처리: like_id={existing_like.homeshopping_like_id}")
+        # logger.info(f"기존 찜 발견, 찜 해제 처리: like_id={existing_like.homeshopping_like_id}")
             
             try:
                 # 방송 알림도 함께 삭제
                 await delete_broadcast_notification(db, user_id, existing_like.homeshopping_like_id)
-                logger.info("방송 알림 삭제 완료")
+                # logger.info("방송 알림 삭제 완료")
             except Exception as e:
                 logger.warning(f"방송 알림 삭제 실패 (무시하고 진행): {str(e)}")
             
             # 찜 레코드 삭제
             await db.delete(existing_like)
-            logger.info("찜 레코드 삭제 완료")
+            # logger.info("찜 레코드 삭제 완료")
             
-            logger.info(f"홈쇼핑 찜 해제 완료: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}")
+            # logger.info(f"홈쇼핑 찜 해제 완료: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}")
             return False
             
         else:
             # 기존 찜이 없으면 찜 등록
-            logger.info(f"새로운 찜 등록 처리: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}")
+            # logger.info(f"새로운 찜 등록 처리: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}")
             
             # 찜 레코드 생성
             new_like = HomeshoppingLikes(
@@ -830,18 +830,18 @@ async def toggle_homeshopping_likes(
                 homeshopping_like_created_at=datetime.now()
             )
             db.add(new_like)
-            logger.info("찜 레코드 생성 완료")
+            # logger.info("찜 레코드 생성 완료")
             
             try:
                 # 방송 정보 조회하여 알림 생성 (가장 최근 방송 정보 선택)
-                logger.info(f"방송 정보 조회 시작: homeshopping_product_id={homeshopping_product_id}")
+                # logger.info(f"방송 정보 조회 시작: homeshopping_product_id={homeshopping_product_id}")
                 live_info_result = await db.execute(
                     select(HomeshoppingList).where(
                         HomeshoppingList.product_id == homeshopping_product_id
                     ).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
                 )
                 live_info = live_info_result.scalar_one_or_none()
-                logger.info(f"방송 정보 조회 결과: {live_info is not None}")
+                # logger.info(f"방송 정보 조회 결과: {live_info is not None}")
                 
                 if live_info and live_info.live_date and live_info.live_start_time:
                     # 방송 시작 알림 생성
@@ -854,13 +854,13 @@ async def toggle_homeshopping_likes(
                         broadcast_date=live_info.live_date,
                         broadcast_start_time=live_info.live_start_time
                     )
-                    logger.info(f"방송 시작 알림 생성 완료: like_id={new_like.homeshopping_like_id}")
+                    # logger.info(f"방송 시작 알림 생성 완료: like_id={new_like.homeshopping_like_id}")
                 else:
-                    logger.info("방송 정보가 부족하여 알림을 생성하지 않음")
+                    logger.warning("방송 정보가 부족하여 알림을 생성하지 않음")
             except Exception as e:
                 logger.warning(f"방송 알림 생성 실패 (무시하고 진행): {str(e)}")
             
-            logger.info(f"홈쇼핑 찜 등록 완료: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}, like_id={new_like.homeshopping_like_id}")
+            # logger.info(f"홈쇼핑 찜 등록 완료: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}, like_id={new_like.homeshopping_like_id}")
             return True
             
     except Exception as e:
@@ -880,7 +880,7 @@ async def get_homeshopping_liked_products(
     """
     홈쇼핑 찜한 상품 목록 조회 (중복 제거)
     """
-    logger.info(f"홈쇼핑 찜한 상품 조회 시작: user_id={user_id}, limit={limit}")
+    # logger.info(f"홈쇼핑 찜한 상품 조회 시작: user_id={user_id}, limit={limit}")
     
     # user_id 검증 (논리 FK이므로 실제 USERS 테이블 존재 여부는 확인하지 않음)
     if user_id <= 0:
@@ -939,7 +939,7 @@ async def get_homeshopping_liked_products(
             if len(product_list) >= limit:
                 break
     
-    logger.info(f"홈쇼핑 찜한 상품 조회 완료: user_id={user_id}, 결과 수={len(product_list)}")
+    # logger.info(f"홈쇼핑 찜한 상품 조회 완료: user_id={user_id}, 결과 수={len(product_list)}")
     return product_list
 
 
@@ -959,7 +959,7 @@ async def create_broadcast_notification(
     """
     방송 찜 알림 생성
     """
-    logger.info(f"방송 찜 알림 생성 시작: user_id={user_id}, homeshopping_like_id={homeshopping_like_id}, homeshopping_product_id={homeshopping_product_id}")
+    # logger.info(f"방송 찜 알림 생성 시작: user_id={user_id}, homeshopping_like_id={homeshopping_like_id}, homeshopping_product_id={homeshopping_product_id}")
     
     try:
         # 방송 시작 알림 생성
@@ -983,7 +983,7 @@ async def create_broadcast_notification(
         
         notification_id = result.inserted_primary_key[0]
         
-        logger.info(f"방송 찜 알림 생성 완료: notification_id={notification_id}")
+        # logger.info(f"방송 찜 알림 생성 완료: notification_id={notification_id}")
         
         return {
             "notification_id": notification_id,
@@ -1003,7 +1003,7 @@ async def delete_broadcast_notification(
     """
     방송 찜 알림 삭제 (찜 해제 시)
     """
-    logger.info(f"방송 찜 알림 삭제 시작: user_id={user_id}, like_id={homeshopping_like_id}")
+    # logger.info(f"방송 찜 알림 삭제 시작: user_id={user_id}, like_id={homeshopping_like_id}")
     
     try:
         # 해당 찜에 대한 방송 알림 삭제
@@ -1020,7 +1020,7 @@ async def delete_broadcast_notification(
         deleted_count = result.rowcount
         
         if deleted_count > 0:
-            logger.info(f"방송 찜 알림 삭제 완료: deleted_count={deleted_count}")
+            # logger.info(f"방송 찜 알림 삭제 완료: deleted_count={deleted_count}")
             return True
         else:
             logger.warning(f"삭제할 방송 찜 알림이 없음: user_id={user_id}, like_id={homeshopping_like_id}")
@@ -1042,7 +1042,7 @@ async def create_order_status_notification(
     """
     주문 상태 변경 알림 생성
     """
-    logger.info(f"주문 상태 변경 알림 생성 시작: user_id={user_id}, homeshopping_order_id={homeshopping_order_id}, status={status_name}")
+    # logger.info(f"주문 상태 변경 알림 생성 시작: user_id={user_id}, homeshopping_order_id={homeshopping_order_id}, status={status_name}")
     
     try:
         # 주문 상태 변경 알림 생성
@@ -1066,7 +1066,7 @@ async def create_order_status_notification(
         
         notification_id = result.inserted_primary_key[0]
         
-        logger.info(f"주문 상태 변경 알림 생성 완료: notification_id={notification_id}")
+        # logger.info(f"주문 상태 변경 알림 생성 완료: notification_id={notification_id}")
         
         return {
             "notification_id": notification_id,
@@ -1090,7 +1090,7 @@ async def get_notifications_with_filter(
     """
     필터링된 알림 조회
     """
-    logger.info(f"필터링된 알림 조회 시작: user_id={user_id}, type={notification_type}, entity_type={related_entity_type}, is_read={is_read}")
+    # logger.info(f"필터링된 알림 조회 시작: user_id={user_id}, type={notification_type}, entity_type={related_entity_type}, is_read={is_read}")
     
     try:
         # 기본 쿼리 구성
@@ -1154,7 +1154,7 @@ async def get_notifications_with_filter(
                 "read_at": notification.read_at
             })
         
-        logger.info(f"필터링된 알림 조회 완료: user_id={user_id}, 결과 수={len(notifications)}, 전체 개수={total_count}")
+        # logger.info(f"필터링된 알림 조회 완료: user_id={user_id}, 결과 수={len(notifications)}, 전체 개수={total_count}")
         
         return notifications, total_count
         
@@ -1171,7 +1171,7 @@ async def mark_notification_as_read(
     """
     알림을 읽음으로 표시
     """
-    logger.info(f"알림 읽음 처리 시작: user_id={user_id}, notification_id={notification_id}")
+    # logger.info(f"알림 읽음 처리 시작: user_id={user_id}, notification_id={notification_id}")
     
     try:
         stmt = update(HomeshoppingNotification).where(
@@ -1189,7 +1189,7 @@ async def mark_notification_as_read(
         updated_count = result.rowcount
         
         if updated_count > 0:
-            logger.info(f"알림 읽음 처리 완료: notification_id={notification_id}")
+            # logger.info(f"알림 읽음 처리 완료: notification_id={notification_id}")
             return True
         else:
             logger.warning(f"읽음 처리할 알림을 찾을 수 없음: notification_id={notification_id}")
@@ -1207,7 +1207,7 @@ async def get_pending_broadcast_notifications(
     """
     발송 대기 중인 방송 알림 조회 (알림 스케줄러용)
     """
-    logger.info(f"발송 대기 중인 방송 알림 조회 시작: current_time={current_time}")
+    # logger.info(f"발송 대기 중인 방송 알림 조회 시작: current_time={current_time}")
     
     try:
         # 현재 시간 기준으로 발송해야 할 방송 알림 조회
@@ -1241,7 +1241,7 @@ async def get_pending_broadcast_notifications(
                 "dc_price": product.dc_price
             })
         
-        logger.info(f"발송 대기 중인 방송 알림 조회 완료: 결과 수={len(notifications)}")
+        # logger.info(f"발송 대기 중인 방송 알림 조회 완료: 결과 수={len(notifications)}")
         return notifications
         
     except Exception as e:
@@ -1259,7 +1259,7 @@ async def get_homeshopping_product_name(
     """
     홈쇼핑 상품명 조회
     """
-    logger.info(f"홈쇼핑 상품명 조회 시작: homeshopping_product_id={homeshopping_product_id}")
+    # logger.info(f"홈쇼핑 상품명 조회 시작: homeshopping_product_id={homeshopping_product_id}")
     
     try:
         stmt = select(HomeshoppingList.product_name).where(HomeshoppingList.product_id == homeshopping_product_id).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
@@ -1267,7 +1267,7 @@ async def get_homeshopping_product_name(
         product_name = result.scalar()
         
         if product_name:
-            logger.info(f"홈쇼핑 상품명 조회 완료: homeshopping_product_id={homeshopping_product_id}, name={product_name}")
+            # logger.info(f"홈쇼핑 상품명 조회 완료: homeshopping_product_id={homeshopping_product_id}, name={product_name}")
             return product_name
         else:
             logger.warning(f"홈쇼핑 상품을 찾을 수 없음: homeshopping_product_id={homeshopping_product_id}")
@@ -1285,7 +1285,7 @@ async def get_kok_product_infos(
     """
     콕 상품 정보 조회 (실제 DB 연동)
     """
-    logger.info(f"콕 상품 정보 조회 시작: kok_product_ids={kok_product_ids}")
+    # logger.info(f"콕 상품 정보 조회 시작: kok_product_ids={kok_product_ids}")
     
     if not kok_product_ids:
         logger.warning("조회할 상품 ID가 없음")
@@ -1342,7 +1342,7 @@ async def get_kok_product_infos(
                 "kok_store_name": product.kok_store_name or ""
             })
         
-        logger.info(f"콕 상품 정보 조회 완료: 결과 수={len(products)}")
+        # logger.info(f"콕 상품 정보 조회 완료: 결과 수={len(products)}")
         return products
         
     except Exception as e:
@@ -1359,7 +1359,7 @@ async def get_pgvector_topk_within(
     """
     pgvector를 사용한 유사도 기반 정렬 (실제 DB 연동)
     """
-    logger.info(f"pgvector 유사도 정렬 시작: product_id={product_id}, candidates={len(candidate_ids)}, k={k}")
+    # logger.info(f"pgvector 유사도 정렬 시작: product_id={product_id}, candidates={len(candidate_ids)}, k={k}")
     
     if not candidate_ids:
         logger.warning("후보 상품 ID가 없음")
@@ -1410,7 +1410,7 @@ async def get_pgvector_topk_within(
             sims: List[Tuple[int, float]] = [
                 (int(r.pid), float(r.distance)) for r in rows
             ]
-            logger.info(f"pgvector 정렬 완료: 결과 수={len(sims)}")
+            # logger.info(f"pgvector 정렬 완료: 결과 수={len(sims)}")
             return sims
         
         return []
@@ -1432,7 +1432,7 @@ async def get_kok_candidates_by_keywords_improved(
     - optional: 여전히 부족하면 OR로 보충
     - GATE_COMPARE_STORE=true면 스토어명도 검색에 포함
     """
-    logger.info(f"키워드 기반 콕 상품 검색 시작: must={must_keywords}, optional={optional_keywords}, limit={limit}")
+    # logger.info(f"키워드 기반 콕 상품 검색 시작: must={must_keywords}, optional={optional_keywords}, limit={limit}")
     
     if not must_keywords and not optional_keywords:
         logger.warning("검색 키워드가 없음")
@@ -1443,7 +1443,7 @@ async def get_kok_candidates_by_keywords_improved(
         search_columns = [KokProductInfo.kok_product_name]
         if GATE_COMPARE_STORE:
             search_columns.append(KokProductInfo.kok_store_name)
-            logger.info("스토어명도 검색에 포함")
+            # logger.info("스토어명도 검색에 포함")
         
         # 1단계: must 키워드로 검색 (OR 조건)
         must_candidates = []
@@ -1465,7 +1465,7 @@ async def get_kok_candidates_by_keywords_improved(
                 
                 result = await db.execute(must_stmt)
                 must_candidates = [row[0] for row in result.fetchall()]
-                logger.info(f"must 키워드 검색 결과: {len(must_candidates)}개")
+                # logger.info(f"must 키워드 검색 결과: {len(must_candidates)}개")
         
         # 2단계: must 키워드가 부족하면 AND 조건으로 재검색
         if len(must_candidates) < min_if_all_fail and len(must_keywords) >= 2:
@@ -1494,7 +1494,7 @@ async def get_kok_candidates_by_keywords_improved(
                 
                 result = await db.execute(and_stmt)
                 and_candidates = [row[0] for row in result.fetchall()]
-                logger.info(f"AND 조건 검색 결과: {len(and_candidates)}개")
+                # logger.info(f"AND 조건 검색 결과: {len(and_candidates)}개")
                 
                 # AND 결과가 더 많으면 교체
                 if len(and_candidates) > len(must_candidates):
@@ -1520,12 +1520,12 @@ async def get_kok_candidates_by_keywords_improved(
                 
                 result = await db.execute(optional_stmt)
                 optional_candidates = [row[0] for row in result.fetchall()]
-                logger.info(f"optional 키워드 검색 결과: {len(optional_candidates)}개")
+                # logger.info(f"optional 키워드 검색 결과: {len(optional_candidates)}개")
         
         # 4단계: 결과 합치기 및 중복 제거
         all_candidates = list(dict.fromkeys(must_candidates + optional_candidates))[:limit]
         
-        logger.info(f"키워드 기반 검색 완료: 총 {len(all_candidates)}개 후보")
+        # logger.info(f"키워드 기반 검색 완료: 총 {len(all_candidates)}개 후보")
         return all_candidates
         
     except Exception as e:
@@ -1556,7 +1556,7 @@ async def test_kok_db_connection(db: AsyncSession) -> bool:
         result = await db.execute(stmt)
         count = result.scalar()
         
-        logger.info(f"콕 상품 DB 연결 성공: 총 상품 수 = {count}")
+        # logger.info(f"콕 상품 DB 연결 성공: 총 상품 수 = {count}")
         return True
         
     except Exception as e:
@@ -1571,15 +1571,9 @@ async def test_kok_db_connection(db: AsyncSession) -> bool:
 # ----- 옵션: 게이트에서 스토어명도 LIKE 비교할지 (기본 False) -----
 GATE_COMPARE_STORE = os.getenv("GATE_COMPARE_STORE", "false").lower() in ("1","true","yes","on")
 
-
-
-
 # -----------------------------
 # 추천 시스템 함수들
 # -----------------------------
-
-# homeshopping_kok.py 관련 의존성 제거됨
-
 
 async def recommend_homeshopping_to_kok(
     db,
@@ -1625,7 +1619,7 @@ async def recommend_homeshopping_to_kok(
         must_kws = list(dict.fromkeys([*tail_k, *core_k, *root_k]))[:12]
         optional_kws = list(dict.fromkeys([*ngram_k]))[:DYN_MAX_TERMS]
 
-        logger.info(f"키워드 구성: must={must_kws}, optional={optional_kws}")
+        # logger.info(f"키워드 구성: must={must_kws}, optional={optional_kws}")
 
         # 3. LIKE 게이트로 후보 (최적화된 버전)
         # 키워드가 적으면 더 작은 후보 수로 제한하여 성능 개선
@@ -1641,12 +1635,12 @@ async def recommend_homeshopping_to_kok(
             logger.warning("키워드 기반 후보 수집 결과가 비어있음")
             return []
 
-        logger.info(f"후보 수집 완료: {len(cand_ids)}개")
+        # logger.info(f"후보 수집 완료: {len(cand_ids)}개")
 
         # 4. 후보 내 pgvector 정렬 (최적화된 버전)
         # 후보가 적으면 pgvector 정렬 생략하고 바로 상세 조회
         if len(cand_ids) <= k * 2:
-            logger.info(f"후보 수가 적어 pgvector 정렬 생략: {len(cand_ids)}개")
+            logger.warning(f"후보 수가 적어 pgvector 정렬 생략: {len(cand_ids)}개")
             pid_order = cand_ids[:k]
             dist_map = {}
         else:
@@ -1693,7 +1687,7 @@ async def recommend_homeshopping_to_kok(
 
         # 8. 최대 k개까지 반환
         result = filtered[:k]
-        logger.info(f"추천 완료: {len(result)}개 상품")
+        # logger.info(f"추천 완료: {len(result)}개 상품")
         return result
         
     except Exception as e:
@@ -1710,7 +1704,7 @@ async def simple_recommend_homeshopping_to_kok(
     간단한 추천 데이터 반환 (실제 DB 연동 시도)
     - 오케스트레이터 실패 시 폴백 시스템
     """
-    logger.info(f"간단한 추천 시스템 호출: homeshopping_product_id={homeshopping_product_id}, k={k}")
+    # logger.info(f"간단한 추천 시스템 호출: homeshopping_product_id={homeshopping_product_id}, k={k}")
     
     # DB가 있고 실제 DB 연동이 가능한 경우 시도
     if db:
@@ -1721,7 +1715,7 @@ async def simple_recommend_homeshopping_to_kok(
             recommendations = await get_kok_product_infos(db, popular_ids[:k])
             
             if recommendations:
-                logger.info(f"실제 DB에서 추천 데이터 조회 완료: {len(recommendations)}개 상품")
+                # logger.info(f"실제 DB에서 추천 데이터 조회 완료: {len(recommendations)}개 상품")
                 return recommendations
                 
         except Exception as e:
@@ -1973,7 +1967,7 @@ async def get_homeshopping_cart_items(
     Returns:
         홈쇼핑 장바구니 아이템 리스트
     """
-    logger.info(f"홈쇼핑 장바구니 조회 시작: user_id={user_id}")
+    # logger.info(f"홈쇼핑 장바구니 조회 시작: user_id={user_id}")
     
     try:
         # 장바구니 테이블과 상품 정보를 조인하여 조회
@@ -2002,7 +1996,7 @@ async def get_homeshopping_cart_items(
             cart.thumb_img_url = thumb_img_url
             cart_list.append(cart)
         
-        logger.info(f"홈쇼핑 장바구니 조회 완료: user_id={user_id}, 아이템 수={len(cart_list)}")
+        # logger.info(f"홈쇼핑 장바구니 조회 완료: user_id={user_id}, 아이템 수={len(cart_list)}")
         return cart_list
         
     except Exception as e:

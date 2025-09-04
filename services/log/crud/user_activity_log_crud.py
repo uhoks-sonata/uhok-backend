@@ -60,7 +60,7 @@ async def create_user_activity_log(
         await db.commit()
         await db.refresh(user_log)
         
-        logger.info(f"사용자 활동 로그 생성 성공: user_id={user_id}, action={activity.action}, log_id={user_log.log_id}")
+    # logger.info(f"사용자 활동 로그 생성 성공: user_id={user_id}, action={activity.action}, log_id={user_log.log_id}")
         return user_log
         
     except Exception as e:
@@ -98,7 +98,7 @@ async def get_user_activity_logs(
         result = await db.execute(query)
         logs = result.scalars().all()
         
-        logger.info(f"사용자 활동 로그 조회 성공: user_id={user_id}, action={action}, count={len(logs)}")
+    # logger.info(f"사용자 활동 로그 조회 성공: user_id={user_id}, action={action}, count={len(logs)}")
         return logs
         
     except Exception as e:

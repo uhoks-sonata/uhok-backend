@@ -53,7 +53,7 @@ async def calculate_kok_order_price(
         - 할인 가격이 있으면 할인 가격 사용, 없으면 상품 기본 가격 사용
         - 최종 주문 금액 = 단가 × 수량
     """
-    logger.info(f"콕 주문 금액 계산 시작: kok_price_id={kok_price_id}, kok_product_id={kok_product_id}, quantity={quantity}")
+    # logger.info(f"콕 주문 금액 계산 시작: kok_price_id={kok_price_id}, kok_product_id={kok_product_id}, quantity={quantity}")
     
     try:
         # 1. 할인 가격 정보 조회
@@ -76,7 +76,7 @@ async def calculate_kok_order_price(
         unit_price = price_info.kok_discounted_price or product_info.kok_product_price or 0
         order_price = unit_price * quantity
         
-        logger.info(f"콕 주문 금액 계산 완료: kok_price_id={kok_price_id}, unit_price={unit_price}, quantity={quantity}, order_price={order_price}")
+        # logger.info(f"콕 주문 금액 계산 완료: kok_price_id={kok_price_id}, unit_price={unit_price}, quantity={quantity}, order_price={order_price}")
         
         return {
             "kok_price_id": kok_price_id,
@@ -460,7 +460,7 @@ async def auto_update_order_status(kok_order_id: int, db: AsyncSession):
         try:
             # 첫 단계는 이미 설정되었을 수 있으므로 건너뜀
             if i == 0:
-                logger.info(f"주문 {kok_order_id} 상태가 '{status_code}'로 이미 설정되어 있습니다.")
+    # logger.info(f"주문 {kok_order_id} 상태가 '{status_code}'로 이미 설정되어 있습니다.")
                 continue
                 
             # 5초 대기
@@ -474,7 +474,7 @@ async def auto_update_order_status(kok_order_id: int, db: AsyncSession):
                 changed_by=1  # 시스템 자동 업데이트
             )
             
-            logger.info(f"주문 {kok_order_id} 상태가 '{status_code}'로 업데이트되었습니다.")
+    # logger.info(f"주문 {kok_order_id} 상태가 '{status_code}'로 업데이트되었습니다.")
             
         except Exception as e:
             logger.error(f"주문 {kok_order_id} 상태 업데이트 실패: {str(e)}")
