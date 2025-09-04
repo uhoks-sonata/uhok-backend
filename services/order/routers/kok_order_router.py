@@ -74,7 +74,8 @@ async def order_from_selected_carts(
         - 주문 생성 후 사용자 행동 로그 기록
         - 단일 상품 주문 대신 멀티 카트 주문 방식 사용
     """
-    logger.info(f"장바구니 주문 시작: user_id={current_user.user_id}, selected_items_count={len(request.selected_items)}")
+    logger.debug(f"장바구니 주문 시작: user_id={current_user.user_id}, selected_items_count={len(request.selected_items)}")
+    logger.info(f"장바구니 주문 요청: user_id={current_user.user_id}, selected_items_count={len(request.selected_items)}")
     
     if not request.selected_items:
         logger.warning(f"선택된 항목이 없음: user_id={current_user.user_id}")
@@ -85,6 +86,7 @@ async def order_from_selected_carts(
         result = await create_orders_from_selected_carts(
             db, current_user.user_id, [i.model_dump() for i in request.selected_items]
         )
+        logger.debug(f"장바구니 주문 생성 성공: user_id={current_user.user_id}, order_id={result['order_id']}")
 
         logger.info(f"장바구니 주문 생성 완료: user_id={current_user.user_id}, order_id={result['order_id']}, order_count={result['order_count']}")
 
@@ -158,6 +160,9 @@ async def update_kok_order_status_api(
         - 상태 변경 시 자동으로 알림 생성
         - 상태 변경 이력 기록 및 사용자 행동 로그 기록
     """
+    logger.debug(f"콕 주문 상태 업데이트 시작: user_id={user.user_id}, kok_order_id={kok_order_id}, new_status={status_update.status_code}")
+    logger.info(f"콕 주문 상태 업데이트 요청: user_id={user.user_id}, kok_order_id={kok_order_id}, new_status={status_update.status_code}")
+    
     try:
         # 사용자 권한 확인 - order 정보 명시적으로 로드
         kok_order_result = await db.execute(
@@ -165,14 +170,18 @@ async def update_kok_order_status_api(
         )
         kok_order = kok_order_result.scalars().first()
         if not kok_order:
+            logger.warning(f"콕 주문을 찾을 수 없음: kok_order_id={kok_order_id}, user_id={user.user_id}")
             raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+        logger.debug(f"콕 주문 조회 성공: kok_order_id={kok_order_id}")
         
         order_result = await db.execute(
             select(Order).where(Order.order_id == kok_order.order_id)
         )
         order = order_result.scalars().first()
         if not order or order.user_id != user.user_id:
+            logger.warning(f"콕 주문 접근 권한 없음: kok_order_id={kok_order_id}, 요청 user_id={user.user_id}, 주문자 user_id={order.user_id if order else None}")
             raise HTTPException(status_code=403, detail="해당 주문에 대한 권한이 없습니다.")
+        logger.debug(f"콕 주문 권한 확인 성공: kok_order_id={kok_order_id}, user_id={user.user_id}")
         
         # 상태 업데이트 (INSERT만 사용)
         updated_order = await update_kok_order_status(
@@ -181,6 +190,7 @@ async def update_kok_order_status_api(
             status_update.new_status_code, 
             status_update.changed_by or user.user_id
         )
+        logger.debug(f"콕 주문 상태 업데이트 성공: kok_order_id={kok_order_id}, new_status={status_update.new_status_code}")
         
         # 업데이트된 주문과 상태 정보 조회
         order_with_status = await get_kok_order_with_current_status(db, kok_order_id)
@@ -214,7 +224,7 @@ async def update_kok_order_status_api(
         )
         
     except Exception as e:
-        logger.error(f"주문 상태 업데이트 실패: kok_order_id={kok_order_id}, error={str(e)}")
+        logger.error(f"콕 주문 상태 업데이트 실패: kok_order_id={kok_order_id}, user_id={user.user_id}, error={str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -245,6 +255,9 @@ async def get_kok_order_status(
         - 가장 최근 상태 이력을 기준으로 현재 상태 판단
         - 상태 변경 이력 전체 조회
     """
+    logger.debug(f"콕 주문 상태 조회 시작: user_id={user.user_id}, kok_order_id={kok_order_id}")
+    logger.info(f"콕 주문 상태 조회 요청: user_id={user.user_id}, kok_order_id={kok_order_id}")
+    
     # 1. 주문 존재 여부 확인
     kok_order_result = await db.execute(
         select(KokOrder).where(KokOrder.kok_order_id == kok_order_id)
@@ -473,7 +486,7 @@ async def start_auto_status_update_api(
                 detail="주문이 생성되었지만 아직 상태 이력이 없습니다."
             )
         
-        logger.info(f"상태 이력 조회 성공: history_id={current_history.history_id}, status_id={current_history.status_id}")
+    # logger.info(f"상태 이력 조회 성공: history_id={current_history.history_id}, status_id={current_history.status_id}")
         
         # 2단계: 상태 정보 조회
         status_result = await db.execute(
@@ -488,7 +501,7 @@ async def start_auto_status_update_api(
                 detail=f"상태 ID {current_history.status_id}에 해당하는 상태 정보를 찾을 수 없습니다."
             )
         
-        logger.info(f"상태 정보 조회 성공: status_id={current_status.status_id}, status_code={current_status.status_code}, status_name={current_status.status_name}")
+    # logger.info(f"상태 정보 조회 성공: status_id={current_status.status_id}, status_code={current_status.status_code}, status_name={current_status.status_name}")
         
         # 결제 완료 상태가 아니면 에러 반환
         if current_status.status_code != "PAYMENT_COMPLETED":
