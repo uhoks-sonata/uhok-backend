@@ -1432,12 +1432,20 @@ async def get_pgvector_topk_within(
             logger.warning(f"pgvector 정렬 실패: 홈쇼핑 상품명을 찾을 수 없음, product_id={product_id}")
             return []
 
-        # 2) 임베딩 생성 (레시피 모듈의 모델 재사용)
-        from services.recipe.utils.core import get_model  # lazy import
-        import numpy as np  # noqa: F401 (타입 힌트/변환용)
-        model = await get_model()
-        query_vec_np = model.encode(prod_name, normalize_embeddings=True)
-        query_vec = [float(x) for x in query_vec_np.tolist()]
+        # 2) 임베딩 생성 (ML 서비스 사용)
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                embed_response = await client.post(
+                    "http://ml-inference:8001/api/v1/embed",
+                    json={"text": prod_name, "normalize": True}
+                )
+                embed_response.raise_for_status()
+                embed_data = embed_response.json()
+                query_vec = embed_data["embedding"]
+        except Exception as e:
+            logger.error(f"ML 서비스 임베딩 생성 실패: {e}")
+            return []
 
         # 3) PostgreSQL(pgvector)로 후보 내 유사도 정렬
         from sqlalchemy import text, bindparam
