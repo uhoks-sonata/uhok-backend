@@ -107,6 +107,7 @@ from services.kok.crud.kok_crud import (
 from services.kok.utils.kok_homeshopping import (
     get_recommendation_strategy
 )
+from services.kok.utils.cache_utils import cache_manager
 from services.recipe.crud.recipe_crud import recommend_by_recipe_pgvector
 
 logger = get_logger("kok_router")
@@ -122,18 +123,29 @@ async def get_discounted_products(
         request: Request,
         page: int = Query(1, ge=1, description="페이지 번호"),
         size: int = Query(20, ge=1, le=100, description="페이지 크기"),
+        use_cache: bool = Query(True, description="캐시 사용 여부"),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    할인 특가 상품 리스트 조회
+    할인 특가 상품 리스트 조회 (성능 최적화 적용)
+    - N+1 쿼리 문제 해결
+    - Redis 캐싱 적용 (5분 TTL)
+    - 데이터베이스 인덱스 최적화
     """
+    import time
+    start_time = time.time()
+    
     # 공통 디버깅 함수 사용
     current_user = await get_current_user_optional(request)
     user_id = current_user.user_id if current_user else None
-    logger.info(f"할인 상품 조회 요청: user_id={user_id}, page={page}, size={size}")
+    logger.info(f"할인 상품 조회 요청: user_id={user_id}, page={page}, size={size}, use_cache={use_cache}")
     
-    products = await get_kok_discounted_products(db, page=page, size=size)
+    products = await get_kok_discounted_products(db, page=page, size=size, use_cache=use_cache)
+    
+    # 성능 측정
+    execution_time = (time.time() - start_time) * 1000  # ms 단위
+    logger.info(f"할인 상품 조회 성능: user_id={user_id}, 실행시간={execution_time:.2f}ms, 결과 수={len(products)}")
     
     # 인증된 사용자의 경우에만 로그 기록
     if current_user and background_tasks:
@@ -142,12 +154,15 @@ async def get_discounted_products(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="kok_discounted_products_view", 
-            event_data={"product_count": len(products)},
+            event_data={
+                "product_count": len(products),
+                "execution_time_ms": round(execution_time, 2),
+                "use_cache": use_cache
+            },
             **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
-    logger.info(f"할인 상품 조회 완료: user_id={user_id}, 결과 수={len(products)}")
-    return {"products": products}
+    return KokDiscountedProductsResponse(products=products)
 
 
 @router.get("/top-selling", response_model=KokTopSellingProductsResponse)
@@ -1138,4 +1153,74 @@ async def get_homeshopping_recommend(
             status_code=500,
             detail=f"홈쇼핑 추천 중 오류가 발생했습니다: {str(e)}"
         )
+
+
+# ================================
+# 캐시 관리 API
+# ================================
+
+@router.post("/cache/invalidate/discounted")
+async def invalidate_discounted_cache():
+    """
+    할인 상품 캐시 무효화
+    """
+    try:
+        deleted_count = cache_manager.invalidate_discounted_products()
+        logger.info(f"할인 상품 캐시 무효화 완료: 삭제된 키 수={deleted_count}")
+        return {"message": f"할인 상품 캐시가 무효화되었습니다. 삭제된 키 수: {deleted_count}"}
+    except Exception as e:
+        logger.error(f"할인 상품 캐시 무효화 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"캐시 무효화 중 오류가 발생했습니다: {str(e)}")
+
+@router.post("/cache/invalidate/top-selling")
+async def invalidate_top_selling_cache():
+    """
+    인기 상품 캐시 무효화
+    """
+    try:
+        deleted_count = cache_manager.invalidate_top_selling_products()
+        logger.info(f"인기 상품 캐시 무효화 완료: 삭제된 키 수={deleted_count}")
+        return {"message": f"인기 상품 캐시가 무효화되었습니다. 삭제된 키 수: {deleted_count}"}
+    except Exception as e:
+        logger.error(f"인기 상품 캐시 무효화 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"캐시 무효화 중 오류가 발생했습니다: {str(e)}")
+
+@router.post("/cache/invalidate/store-best")
+async def invalidate_store_best_cache():
+    """
+    스토어 베스트 상품 캐시 무효화
+    """
+    try:
+        deleted_count = cache_manager.invalidate_store_best_items()
+        logger.info(f"스토어 베스트 상품 캐시 무효화 완료: 삭제된 키 수={deleted_count}")
+        return {"message": f"스토어 베스트 상품 캐시가 무효화되었습니다. 삭제된 키 수: {deleted_count}"}
+    except Exception as e:
+        logger.error(f"스토어 베스트 상품 캐시 무효화 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"캐시 무효화 중 오류가 발생했습니다: {str(e)}")
+
+@router.post("/cache/invalidate/all")
+async def invalidate_all_cache():
+    """
+    모든 KOK 관련 캐시 무효화
+    """
+    try:
+        discounted_count = cache_manager.invalidate_discounted_products()
+        top_selling_count = cache_manager.invalidate_top_selling_products()
+        store_best_count = cache_manager.invalidate_store_best_items()
+        
+        total_count = discounted_count + top_selling_count + store_best_count
+        
+        logger.info(f"모든 KOK 캐시 무효화 완료: 총 삭제된 키 수={total_count}")
+        return {
+            "message": f"모든 KOK 캐시가 무효화되었습니다.",
+            "deleted_keys": {
+                "discounted_products": discounted_count,
+                "top_selling_products": top_selling_count,
+                "store_best_items": store_best_count,
+                "total": total_count
+            }
+        }
+    except Exception as e:
+        logger.error(f"모든 KOK 캐시 무효화 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"캐시 무효화 중 오류가 발생했습니다: {str(e)}")
         
