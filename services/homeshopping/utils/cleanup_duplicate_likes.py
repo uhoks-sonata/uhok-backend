@@ -13,7 +13,7 @@ from sqlalchemy import select, and_, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # 프로젝트 루트를 Python 경로에 추가
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 from common.database.mariadb_service import get_maria_service_db, SessionLocal
 from services.homeshopping.models.homeshopping_model import HomeshoppingLikes, HomeshoppingNotification
