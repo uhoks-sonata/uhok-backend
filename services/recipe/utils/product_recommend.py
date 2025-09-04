@@ -125,11 +125,14 @@ SELECT
     hc.CLS_ING as cls_ing,
     hpi.SALE_PRICE as sale_price,
     hpi.STORE_NAME as store_name,
+    hpi.DC_RATE as dc_rate,
     hfl.THUMB_IMG_URL as thumb_img_url,
-    COALESCE(hfl.LIVE_ID, hc.PRODUCT_ID) as live_id
+    hfl.LIVE_ID as live_id,
+    hi.HOMESHOPPING_ID as homeshopping_id
 FROM HOMESHOPPING_CLASSIFY hc
 LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hc.PRODUCT_ID = hpi.PRODUCT_ID
 LEFT JOIN FCT_HOMESHOPPING_LIST hfl ON hc.PRODUCT_ID = hfl.PRODUCT_ID
+LEFT JOIN HOMESHOPPING_INFO hi ON hfl.HOMESHOPPING_ID = hi.HOMESHOPPING_ID
 WHERE hc.CLS_FOOD = 1
   AND hc.CLS_ING  = 1
   AND (
@@ -149,9 +152,13 @@ SELECT
     kc.CLS_ING as cls_ing,
     kpi.KOK_PRODUCT_PRICE as kok_product_price,
     kpi.KOK_STORE_NAME as kok_store_name,
-    kpi.KOK_THUMBNAIL as kok_thumbnail
+    kpi.KOK_THUMBNAIL as kok_thumbnail,
+    kpi.KOK_REVIEW_CNT as kok_review_cnt,
+    kpi.KOK_REVIEW_SCORE as kok_review_score,
+    kpri.KOK_DISCOUNT_RATE as kok_discount_rate
 FROM KOK_CLASSIFY kc
 LEFT JOIN FCT_KOK_PRODUCT_INFO kpi ON kc.PRODUCT_ID = kpi.KOK_PRODUCT_ID
+LEFT JOIN FCT_KOK_PRICE_INFO kpri ON kc.PRODUCT_ID = kpri.KOK_PRODUCT_ID
 WHERE kc.CLS_ING = 1
   AND (
         kc.PRODUCT_NAME REGEXP :pat
@@ -195,7 +202,7 @@ async def search_kok(session: AsyncSession, ingredient: str, limit_n: int) -> pd
 # ---------- 추천 메인 ----------
 async def recommend_for_ingredient(session: AsyncSession, ingredient: str, max_total: int = 5, max_home: int = 2):
     """
-    반환: list of dict(source, table, name, id, image_url/thumb_img_url, brand_name, price)
+    반환: list of dict(source, name, id, image_url/thumb_img_url, brand_name, price, ...)
     """
     recs = []
     seen = set()
@@ -210,13 +217,13 @@ async def recommend_for_ingredient(session: AsyncSession, ingredient: str, max_t
             seen.add(key)
             recs.append({
                 "source": "homeshopping",
-                "table":  "HOMESHOPPING_CLASSIFY",
                 "name":   name,
                 "id":     r.get('live_id'),
                 "thumb_img_url": r.get('thumb_img_url'),
                 "brand_name": r.get('store_name'),
                 "price": safe_price(r.get('sale_price')),
-                "homeshopping_id": r.get('live_id'),
+                "homeshopping_id": r.get('homeshopping_id'),
+                "dc_rate": safe_price(r.get('dc_rate')),
             })
             if len(recs) >= max_home:
                 break
@@ -235,13 +242,15 @@ async def recommend_for_ingredient(session: AsyncSession, ingredient: str, max_t
                 seen.add(key)
                 recs.append({
                     "source": "kok",
-                    "table":  "KOK_CLASSIFY",
                     "name":   name,
                     "id":     r.get('product_id'),
                     "image_url": r.get('kok_thumbnail'),
                     "brand_name": r.get('kok_store_name'),
                     "price": safe_price(r.get('kok_product_price')),
                     "homeshopping_id": None,
+                    "kok_discount_rate": safe_price(r.get('kok_discount_rate')),
+                    "kok_review_cnt": safe_price(r.get('kok_review_cnt')),
+                    "kok_review_score": safe_price(r.get('kok_review_score')),
                 })
 
     return recs

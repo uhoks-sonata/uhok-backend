@@ -207,7 +207,7 @@ async def get_homeshopping_schedule(
     
     # 극한 최적화: 더 간단한 Raw SQL 사용
     if live_date:
-        # 특정 날짜 조회 - 최대한 간단한 쿼리
+        # 특정 날짜 조회 - 가격 정보 포함
         sql_query = """
         SELECT 
             hl.live_id,
@@ -221,12 +221,13 @@ async def get_homeshopping_schedule(
             hl.thumb_img_url,
             hi.homeshopping_name,
             hi.homeshopping_channel,
-            0 as sale_price,
-            0 as dc_price,
-            0 as dc_rate
+            COALESCE(hpi.sale_price, 0) as sale_price,
+            COALESCE(hpi.dc_price, 0) as dc_price,
+            COALESCE(hpi.dc_rate, 0) as dc_rate
         FROM FCT_HOMESHOPPING_LIST hl
         INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
         INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
+        LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
         WHERE hl.live_date = :live_date
         AND hc.cls_food = 1
         ORDER BY hl.live_date DESC, hl.live_start_time ASC
@@ -244,7 +245,7 @@ async def get_homeshopping_schedule(
         params = {"live_date": live_date, "limit": size, "offset": offset}
         count_params = {"live_date": live_date}
     else:
-        # 전체 조회 - 최대한 간단한 쿼리
+        # 전체 조회 - 가격 정보 포함
         sql_query = """
         SELECT 
             hl.live_id,
@@ -258,12 +259,13 @@ async def get_homeshopping_schedule(
             hl.thumb_img_url,
             hi.homeshopping_name,
             hi.homeshopping_channel,
-            0 as sale_price,
-            0 as dc_price,
-            0 as dc_rate
+            COALESCE(hpi.sale_price, 0) as sale_price,
+            COALESCE(hpi.dc_price, 0) as dc_price,
+            COALESCE(hpi.dc_rate, 0) as dc_rate
         FROM FCT_HOMESHOPPING_LIST hl
         INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
         INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
+        LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
         WHERE hc.cls_food = 1
         ORDER BY hl.live_date DESC, hl.live_start_time ASC
         LIMIT :limit OFFSET :offset
@@ -1605,23 +1607,35 @@ async def recommend_homeshopping_to_kok(
             logger.warning(f"홈쇼핑 상품명을 찾을 수 없음: homeshopping_product_id={homeshopping_product_id}")
             return []
 
-        # 2. 키워드 구성 (원본 로직 그대로)
-        tail_k = extract_tail_keywords(prod_name, max_n=2)          # 뒤쪽 핵심(희소 가능성이 높은 토큰)
-        core_k = extract_core_keywords(prod_name, max_n=3)          # 앞/강한 핵심
-        root_k = roots_in_name(prod_name)                           # 루트 힌트(사전 기반)
-        ngram_k = infer_terms_from_name_via_ngrams(prod_name, max_terms=DYN_MAX_TERMS)
+        # 2. 키워드 구성 (최적화된 버전)
+        # 병렬로 키워드 추출하여 성능 개선
+        import asyncio
+        
+        # 동시에 키워드 추출 실행
+        tail_task = asyncio.create_task(asyncio.to_thread(extract_tail_keywords, prod_name, 2))
+        core_task = asyncio.create_task(asyncio.to_thread(extract_core_keywords, prod_name, 3))
+        root_task = asyncio.create_task(asyncio.to_thread(roots_in_name, prod_name))
+        ngram_task = asyncio.create_task(asyncio.to_thread(infer_terms_from_name_via_ngrams, prod_name, DYN_MAX_TERMS))
+        
+        # 모든 키워드 추출 완료 대기
+        tail_k, core_k, root_k, ngram_k = await asyncio.gather(
+            tail_task, core_task, root_task, ngram_task
+        )
 
         must_kws = list(dict.fromkeys([*tail_k, *core_k, *root_k]))[:12]
         optional_kws = list(dict.fromkeys([*ngram_k]))[:DYN_MAX_TERMS]
 
         logger.info(f"키워드 구성: must={must_kws}, optional={optional_kws}")
 
-        # 3. LIKE 게이트로 후보 (기존 프로젝트 함수 사용)
+        # 3. LIKE 게이트로 후보 (최적화된 버전)
+        # 키워드가 적으면 더 작은 후보 수로 제한하여 성능 개선
+        optimized_limit = min(max(candidate_n * 2, 150), 300) if len(must_kws) <= 3 else max(candidate_n * 3, 300)
+        
         cand_ids = await get_kok_candidates_by_keywords_improved(
             db=db,
             must_keywords=must_kws,
             optional_keywords=optional_kws,
-            limit=max(candidate_n * 3, 300)
+            limit=optimized_limit
         )
         if not cand_ids:
             logger.warning("키워드 기반 후보 수집 결과가 비어있음")
@@ -1629,30 +1643,42 @@ async def recommend_homeshopping_to_kok(
 
         logger.info(f"후보 수집 완료: {len(cand_ids)}개")
 
-        # 4. 후보 내 pgvector 정렬
-        sims = await get_pgvector_topk_within(
-            db,
-            homeshopping_product_id,
-            cand_ids,
-            max(k, candidate_n),
-        )
-        if not sims:
-            return []
+        # 4. 후보 내 pgvector 정렬 (최적화된 버전)
+        # 후보가 적으면 pgvector 정렬 생략하고 바로 상세 조회
+        if len(cand_ids) <= k * 2:
+            logger.info(f"후보 수가 적어 pgvector 정렬 생략: {len(cand_ids)}개")
+            pid_order = cand_ids[:k]
+            dist_map = {}
+        else:
+            sims = await get_pgvector_topk_within(
+                db,
+                homeshopping_product_id,
+                cand_ids,
+                max(k, candidate_n),
+            )
+            if not sims:
+                return []
 
-        pid_order = [pid for pid, _ in sims]
-        dist_map = {pid: dist for pid, dist in sims}
+            pid_order = [pid for pid, _ in sims]
+            dist_map = {pid: dist for pid, dist in sims}
 
         # 5. 상세 조인
         details = await get_kok_product_infos(db, pid_order)
         if not details:
             return []
+        
+        # 거리 정보 추가 (있는 경우만)
         for d in details:
-            d["distance"] = dist_map.get(d["kok_product_id"])
+            if d["kok_product_id"] in dist_map:
+                d["distance"] = dist_map[d["kok_product_id"]]
 
-        # 6. (옵션) 리랭크 or 거리 정렬
-        ranked = sorted(details, key=lambda x: x.get("distance", 1e9))  # 기본: 거리 오름차순
+        # 6. 거리 정렬 (거리 정보가 있는 경우만)
+        if dist_map:
+            ranked = sorted(details, key=lambda x: x.get("distance", 1e9))
+        else:
+            ranked = details
 
-        # 7. 최종 AND 필터 적용 (tail ≥1 AND n-gram ≥1)
+        # 7. 최종 AND 필터 적용 (tail ≥1 AND n-gram ≥1) - 간소화
         # 필터링을 위해 키 변환
         for d in ranked:
             d["KOK_PRODUCT_NAME"] = d.get("kok_product_name", "")
