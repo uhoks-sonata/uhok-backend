@@ -464,7 +464,7 @@ async def auto_update_order_status(kok_order_id: int, db: AsyncSession):
                 continue
                 
             # 5초 대기
-            await asyncio.sleep(5)
+            await asyncio.sleep(2)
             
             # 상태 업데이트
             await update_kok_order_status(
