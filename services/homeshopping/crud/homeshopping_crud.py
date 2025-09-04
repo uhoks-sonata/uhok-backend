@@ -131,12 +131,16 @@ async def get_homeshopping_schedule_optimized(
     
     # Raw SQL 실행
     # logger.info("최적화된 테이블에서 스케줄 데이터 조회 시작")
-    result = await db.execute(text(sql_query), params)
-    schedules = result.fetchall()
-    
-    # logger.info("최적화된 테이블에서 스케줄 개수 조회 시작")
-    count_result = await db.execute(text(count_sql), count_params)
-    total_count = count_result.scalar()
+    try:
+        result = await db.execute(text(sql_query), params)
+        schedules = result.fetchall()
+        
+        # logger.info("최적화된 테이블에서 스케줄 개수 조회 시작")
+        count_result = await db.execute(text(count_sql), count_params)
+        total_count = count_result.scalar()
+    except Exception as e:
+        logger.error(f"스케줄 조회 SQL 실행 실패: live_date={live_date}, page={page}, size={size}, error={str(e)}")
+        raise
     
     # 결과 변환 - 시간 타입 처리
     schedule_list = []
@@ -283,12 +287,16 @@ async def get_homeshopping_schedule(
     
     # Raw SQL 실행
     # logger.info("최적화된 Raw SQL로 스케줄 데이터 조회 시작")
-    result = await db.execute(text(sql_query), params)
-    schedules = result.fetchall()
-    
-    # logger.info("최적화된 Raw SQL로 스케줄 개수 조회 시작")
-    count_result = await db.execute(text(count_sql), count_params)
-    total_count = count_result.scalar()
+    try:
+        result = await db.execute(text(sql_query), params)
+        schedules = result.fetchall()
+        
+        # logger.info("최적화된 Raw SQL로 스케줄 개수 조회 시작")
+        count_result = await db.execute(text(count_sql), count_params)
+        total_count = count_result.scalar()
+    except Exception as e:
+        logger.error(f"스케줄 조회 Raw SQL 실행 실패: live_date={live_date}, page={page}, size={size}, error={str(e)}")
+        raise
     
     # 결과 변환 - 시간 타입 처리
     schedule_list = []
@@ -458,12 +466,17 @@ async def search_homeshopping_products(
         .order_by(HomeshoppingList.live_date.desc())
     )
     
-    results = await db.execute(stmt)
-    products = results.all()
+    try:
+        results = await db.execute(stmt)
+        products = results.all()
+    except Exception as e:
+        logger.error(f"홈쇼핑 상품 검색 SQL 실행 실패: keyword='{keyword}', error={str(e)}")
+        raise
     
     product_list = []
     for live, product in products:
         product_list.append({
+            "live_id": live.live_id,
             "product_id": live.product_id,
             "product_name": live.product_name,
             "store_name": product.store_name,
@@ -625,8 +638,12 @@ async def get_homeshopping_product_detail(
         .where(HomeshoppingList.live_id == live_id)
     )
     
-    result = await db.execute(stmt)
-    product_data = result.first()
+    try:
+        result = await db.execute(stmt)
+        product_data = result.first()
+    except Exception as e:
+        logger.error(f"홈쇼핑 상품 상세 조회 SQL 실행 실패: live_id={live_id}, error={str(e)}")
+        raise
     
     if not product_data:
         logger.warning(f"상품을 찾을 수 없음: live_id={live_id}")
@@ -650,8 +667,12 @@ async def get_homeshopping_product_detail(
         .where(HomeshoppingDetailInfo.product_id == live.product_id)
         .order_by(HomeshoppingDetailInfo.detail_id)
     )
-    detail_result = await db.execute(detail_stmt)
-    detail_infos = detail_result.scalars().all()
+    try:
+        detail_result = await db.execute(detail_stmt)
+        detail_infos = detail_result.scalars().all()
+    except Exception as e:
+        logger.warning(f"상품 상세 정보 조회 실패: product_id={live.product_id}, error={str(e)}")
+        detail_infos = []
     
     # 이미지 조회
     img_stmt = (
@@ -659,8 +680,12 @@ async def get_homeshopping_product_detail(
         .where(HomeshoppingImgUrl.product_id == live.product_id)
         .order_by(HomeshoppingImgUrl.sort_order)
     )
-    img_result = await db.execute(img_stmt)
-    images = img_result.scalars().all()
+    try:
+        img_result = await db.execute(img_stmt)
+        images = img_result.scalars().all()
+    except Exception as e:
+        logger.warning(f"상품 이미지 조회 실패: product_id={live.product_id}, error={str(e)}")
+        images = []
     
     # 응답 데이터 구성 (채널 정보 포함)
     product_detail = {
@@ -889,6 +914,7 @@ async def get_homeshopping_liked_products(
     
     stmt = (
         select(
+            HomeshoppingList.live_id,
             HomeshoppingLikes.product_id,
             HomeshoppingLikes.homeshopping_like_created_at,
             HomeshoppingList.product_name,
@@ -896,10 +922,10 @@ async def get_homeshopping_liked_products(
             HomeshoppingProductInfo.store_name,
             HomeshoppingProductInfo.dc_price,
             HomeshoppingProductInfo.dc_rate,
-            HomeshoppingList.live_start_time,
             HomeshoppingList.live_date,
-            HomeshoppingList.homeshopping_id,
-            HomeshoppingList.live_id
+            HomeshoppingList.live_start_time,
+            HomeshoppingList.live_end_time,
+            HomeshoppingList.homeshopping_id
         )
         .select_from(HomeshoppingLikes)
         .join(HomeshoppingList, HomeshoppingLikes.product_id == HomeshoppingList.product_id)
@@ -911,8 +937,12 @@ async def get_homeshopping_liked_products(
         )
     )
     
-    results = await db.execute(stmt)
-    all_liked_products = results.all()
+    try:
+        results = await db.execute(stmt)
+        all_liked_products = results.all()
+    except Exception as e:
+        logger.error(f"홈쇼핑 찜한 상품 조회 SQL 실행 실패: user_id={user_id}, error={str(e)}")
+        raise
     
     # Python에서 중복 제거 (product_id 기준)
     seen_products = set()
@@ -922,6 +952,7 @@ async def get_homeshopping_liked_products(
         if row.product_id not in seen_products:
             seen_products.add(row.product_id)
             product_list.append({
+                "live_id": row.live_id,
                 "product_id": row.product_id,
                 "product_name": row.product_name,
                 "store_name": row.store_name if row.store_name else None,
@@ -929,10 +960,10 @@ async def get_homeshopping_liked_products(
                 "dc_rate": row.dc_rate if row.dc_rate else None,
                 "thumb_img_url": row.thumb_img_url,
                 "homeshopping_like_created_at": row.homeshopping_like_created_at,
-                "live_start_time": row.live_start_time,
                 "live_date": row.live_date,
-                "homeshopping_id": row.homeshopping_id,
-                "live_id": row.live_id
+                "live_start_time": row.live_start_time,
+                "live_end_time": row.live_end_time,
+                "homeshopping_id": row.homeshopping_id
             })
             
             # limit에 도달하면 중단
@@ -979,9 +1010,12 @@ async def create_broadcast_notification(
         
         # 알림 레코드 생성
         stmt = insert(HomeshoppingNotification).values(**notification_data)
-        result = await db.execute(stmt)
-        
-        notification_id = result.inserted_primary_key[0]
+        try:
+            result = await db.execute(stmt)
+            notification_id = result.inserted_primary_key[0]
+        except Exception as e:
+            logger.error(f"방송 알림 생성 SQL 실행 실패: user_id={user_id}, homeshopping_like_id={homeshopping_like_id}, error={str(e)}")
+            raise
         
         # logger.info(f"방송 찜 알림 생성 완료: notification_id={notification_id}")
         
@@ -1062,9 +1096,12 @@ async def create_order_status_notification(
         
         # 알림 레코드 생성
         stmt = insert(HomeshoppingNotification).values(**notification_data)
-        result = await db.execute(stmt)
-        
-        notification_id = result.inserted_primary_key[0]
+        try:
+            result = await db.execute(stmt)
+            notification_id = result.inserted_primary_key[0]
+        except Exception as e:
+            logger.error(f"주문 상태 변경 알림 생성 SQL 실행 실패: user_id={user_id}, homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
+            raise
         
         # logger.info(f"주문 상태 변경 알림 생성 완료: notification_id={notification_id}")
         
@@ -1110,14 +1147,22 @@ async def get_notifications_with_filter(
         
         # 전체 개수 조회
         count_query = select(func.count()).select_from(query.subquery())
-        total_count = await db.scalar(count_query)
+        try:
+            total_count = await db.scalar(count_query)
+        except Exception as e:
+            logger.error(f"알림 개수 조회 실패: user_id={user_id}, error={str(e)}")
+            total_count = 0
         
         # 페이지네이션 적용
         query = query.order_by(HomeshoppingNotification.created_at.desc()).offset(offset).limit(limit)
         
         # 결과 조회
-        result = await db.execute(query)
-        notifications = []
+        try:
+            result = await db.execute(query)
+            notifications = []
+        except Exception as e:
+            logger.error(f"알림 목록 조회 실패: user_id={user_id}, error={str(e)}")
+            return [], 0
         
         for notification in result.scalars().all():
             # 주문 알림인 경우 상품명 조회
@@ -1184,9 +1229,12 @@ async def mark_notification_as_read(
             read_at=datetime.now()
         )
         
-        result = await db.execute(stmt)
-        
-        updated_count = result.rowcount
+        try:
+            result = await db.execute(stmt)
+            updated_count = result.rowcount
+        except Exception as e:
+            logger.error(f"알림 읽음 처리 SQL 실행 실패: notification_id={notification_id}, error={str(e)}")
+            raise
         
         if updated_count > 0:
             # logger.info(f"알림 읽음 처리 완료: notification_id={notification_id}")
@@ -1225,8 +1273,12 @@ async def get_pending_broadcast_notifications(
             .order_by(HomeshoppingList.live_start_time.asc())
         )
         
-        results = await db.execute(stmt)
-        notifications = []
+        try:
+            results = await db.execute(stmt)
+            notifications = []
+        except Exception as e:
+            logger.error(f"발송 대기 방송 알림 조회 SQL 실행 실패: current_time={current_time}, error={str(e)}")
+            raise
         
         for notification, like, live, product in results.all():
             notifications.append({
@@ -1263,8 +1315,12 @@ async def get_homeshopping_product_name(
     
     try:
         stmt = select(HomeshoppingList.product_name).where(HomeshoppingList.product_id == homeshopping_product_id).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
-        result = await db.execute(stmt)
-        product_name = result.scalar()
+        try:
+            result = await db.execute(stmt)
+            product_name = result.scalar()
+        except Exception as e:
+            logger.error(f"홈쇼핑 상품명 조회 SQL 실행 실패: homeshopping_product_id={homeshopping_product_id}, error={str(e)}")
+            return None
         
         if product_name:
             # logger.info(f"홈쇼핑 상품명 조회 완료: homeshopping_product_id={homeshopping_product_id}, name={product_name}")
@@ -1304,8 +1360,12 @@ async def get_kok_product_infos(
         # 가격 정보도 함께 로드
         stmt = stmt.options(selectinload(KokProductInfo.price_infos))
         
-        result = await db.execute(stmt)
-        kok_products = result.scalars().all()
+        try:
+            result = await db.execute(stmt)
+            kok_products = result.scalars().all()
+        except Exception as e:
+            logger.error(f"콕 상품 정보 조회 SQL 실행 실패: kok_product_ids={kok_product_ids}, error={str(e)}")
+            return []
         
         # 응답 형태로 변환
         products = []
@@ -1362,14 +1422,14 @@ async def get_pgvector_topk_within(
     # logger.info(f"pgvector 유사도 정렬 시작: product_id={product_id}, candidates={len(candidate_ids)}, k={k}")
     
     if not candidate_ids:
-        logger.warning("후보 상품 ID가 없음")
+        logger.warning("pgvector 유사도 정렬: 후보 상품 ID가 없음")
         return []
     
     try:
         # 1) 쿼리 텍스트 준비: 홈쇼핑 상품명 사용
         prod_name = await get_homeshopping_product_name(db, product_id) or ""
         if not prod_name:
-            logger.warning("pgvector 정렬 실패: 홈쇼핑 상품명을 찾을 수 없음")
+            logger.warning(f"pgvector 정렬 실패: 홈쇼핑 상품명을 찾을 수 없음, product_id={product_id}")
             return []
 
         # 2) 임베딩 생성 (레시피 모듈의 모델 재사용)
@@ -1435,7 +1495,7 @@ async def get_kok_candidates_by_keywords_improved(
     # logger.info(f"키워드 기반 콕 상품 검색 시작: must={must_keywords}, optional={optional_keywords}, limit={limit}")
     
     if not must_keywords and not optional_keywords:
-        logger.warning("검색 키워드가 없음")
+        logger.warning("키워드 기반 콕 상품 검색: 검색 키워드가 없음")
         return []
     
     try:
@@ -1632,7 +1692,7 @@ async def recommend_homeshopping_to_kok(
             limit=optimized_limit
         )
         if not cand_ids:
-            logger.warning("키워드 기반 후보 수집 결과가 비어있음")
+            logger.warning(f"키워드 기반 후보 수집 결과가 비어있음: product_id={homeshopping_product_id}, must_keywords={must_kws}")
             return []
 
         # logger.info(f"후보 수집 완료: {len(cand_ids)}개")
@@ -1640,7 +1700,7 @@ async def recommend_homeshopping_to_kok(
         # 4. 후보 내 pgvector 정렬 (최적화된 버전)
         # 후보가 적으면 pgvector 정렬 생략하고 바로 상세 조회
         if len(cand_ids) <= k * 2:
-            logger.warning(f"후보 수가 적어 pgvector 정렬 생략: {len(cand_ids)}개")
+            logger.warning(f"후보 수가 적어 pgvector 정렬 생략: product_id={homeshopping_product_id}, 후보 수={len(cand_ids)}개")
             pid_order = cand_ids[:k]
             dist_map = {}
         else:
@@ -1651,6 +1711,7 @@ async def recommend_homeshopping_to_kok(
                 max(k, candidate_n),
             )
             if not sims:
+                logger.warning(f"pgvector 정렬 결과가 비어있음: product_id={homeshopping_product_id}")
                 return []
 
             pid_order = [pid for pid, _ in sims]
@@ -1659,6 +1720,7 @@ async def recommend_homeshopping_to_kok(
         # 5. 상세 조인
         details = await get_kok_product_infos(db, pid_order)
         if not details:
+            logger.warning(f"콕 상품 상세 정보 조회 결과가 비어있음: product_id={homeshopping_product_id}, pid_order={pid_order[:5]}")
             return []
         
         # 거리 정보 추가 (있는 경우만)
@@ -1985,8 +2047,12 @@ async def get_homeshopping_cart_items(
             .order_by(HomeshoppingCart.created_at.desc())
         )
         
-        result = await db.execute(stmt)
-        cart_items = result.all()
+        try:
+            result = await db.execute(stmt)
+            cart_items = result.all()
+        except Exception as e:
+            logger.error(f"홈쇼핑 장바구니 조회 SQL 실행 실패: user_id={user_id}, error={str(e)}")
+            return []
         
         # 결과를 객체 리스트로 변환
         cart_list = []
