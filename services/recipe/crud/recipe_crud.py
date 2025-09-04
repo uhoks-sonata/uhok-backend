@@ -14,6 +14,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 from common.logger import get_logger
+from services.recipe.utils.simple_cache import recipe_cache
 
 from services.order.models.order_model import Order, KokOrder, HomeShoppingOrder
 from services.homeshopping.models.homeshopping_model import (
@@ -103,9 +104,21 @@ async def recommend_recipes_combination_1(
     """
     1조합: 전체 레시피 풀에서 가장 많은 재료 사용하는 순으로 선택
     - 사용자별로 다른 시드를 사용하여 다양한 결과 제공
+    - 캐싱 추가로 성능 향상 (로직 변경 없음)
     """
     logger.info(f"1조합 레시피 추천 시작: 재료={ingredients}, 분량={amounts}, 단위={units}, user_id={user_id}")
     
+    # 캐시에서 결과 조회 시도 (로직 변경 없음)
+    if user_id:
+        cached_result = recipe_cache.get_cached_result(
+            user_id, ingredients, amounts or [], units or [], 1
+        )
+        if cached_result:
+            recipes, total = cached_result
+            logger.info(f"1조합 캐시 히트: {len(recipes)}개 레시피")
+            return recipes, total
+    
+    # 기존 로직 그대로 유지
     # 사용자별로 다른 시드를 사용하여 다양한 결과 제공
     if user_id:
         seed = user_id % 3  # 사용자 ID를 3으로 나눈 나머지를 시드로 사용
@@ -145,9 +158,18 @@ async def recommend_recipes_combination_1(
         )
         logger.info(f"1조합: 재료 개수 + 인기도 정렬 사용 (시드: {seed})")
     
-    return await execute_standard_inventory_algorithm(
+    # 기존 알고리즘 그대로 실행
+    recipes, total = await execute_standard_inventory_algorithm(
         db, base_stmt, ingredients, amounts, units, page, size
     )
+    
+    # 결과를 캐시에 저장 (로직 변경 없음)
+    if user_id and recipes:
+        recipe_cache.set_cached_result(
+            user_id, ingredients, amounts or [], units or [], 1, recipes, total
+        )
+    
+    return recipes, total
 
 async def recommend_recipes_combination_2(
     db: AsyncSession,
@@ -156,13 +178,26 @@ async def recommend_recipes_combination_2(
     units: Optional[List[str]] = None,
     page: int = 1,
     size: int = 10,
-    exclude_recipe_ids: List[int] = None
+    exclude_recipe_ids: List[int] = None,
+    user_id: Optional[int] = None
 ) -> Tuple[List[Dict], int]:
     """
     2조합: 1조합에서 사용된 레시피를 제외한 나머지 레시피 풀에서 선택
+    - 캐싱 추가로 성능 향상 (로직 변경 없음)
     """
     logger.info(f"2조합 레시피 추천 시작: 재료={ingredients}, 제외할 레시피={exclude_recipe_ids}")
     
+    # 캐시에서 결과 조회 시도 (제외할 레시피가 없는 경우만)
+    if user_id and not exclude_recipe_ids:
+        cached_result = recipe_cache.get_cached_result(
+            user_id, ingredients, amounts or [], units or [], 2
+        )
+        if cached_result:
+            recipes, total = cached_result
+            logger.info(f"2조합 캐시 히트: {len(recipes)}개 레시피")
+            return recipes, total
+    
+    # 기존 로직 그대로 유지
     # 1조합에서 사용된 레시피를 제외한 레시피 풀
     base_stmt = (
         select(Recipe)
@@ -177,9 +212,18 @@ async def recommend_recipes_combination_2(
         base_stmt = base_stmt.where(Recipe.recipe_id.notin_(exclude_recipe_ids))
         logger.info(f"제외할 레시피 ID: {exclude_recipe_ids}")
     
-    return await execute_standard_inventory_algorithm(
+    # 기존 알고리즘 그대로 실행
+    recipes, total = await execute_standard_inventory_algorithm(
         db, base_stmt, ingredients, amounts, units, page, size
     )
+    
+    # 결과를 캐시에 저장 (제외할 레시피가 없는 경우만)
+    if user_id and recipes and not exclude_recipe_ids:
+        recipe_cache.set_cached_result(
+            user_id, ingredients, amounts or [], units or [], 2, recipes, total
+        )
+    
+    return recipes, total
 
 async def recommend_recipes_combination_3(
     db: AsyncSession,
@@ -188,13 +232,26 @@ async def recommend_recipes_combination_3(
     units: Optional[List[str]] = None,
     page: int = 1,
     size: int = 10,
-    exclude_recipe_ids: List[int] = None
+    exclude_recipe_ids: List[int] = None,
+    user_id: Optional[int] = None
 ) -> Tuple[List[Dict], int]:
     """
     3조합: 1조합, 2조합에서 사용된 레시피를 제외한 나머지 레시피 풀에서 선택
+    - 캐싱 추가로 성능 향상 (로직 변경 없음)
     """
     logger.info(f"3조합 레시피 추천 시작: 재료={ingredients}, 제외할 레시피={exclude_recipe_ids}")
     
+    # 캐시에서 결과 조회 시도 (제외할 레시피가 없는 경우만)
+    if user_id and not exclude_recipe_ids:
+        cached_result = recipe_cache.get_cached_result(
+            user_id, ingredients, amounts or [], units or [], 3
+        )
+        if cached_result:
+            recipes, total = cached_result
+            logger.info(f"3조합 캐시 히트: {len(recipes)}개 레시피")
+            return recipes, total
+    
+    # 기존 로직 그대로 유지
     # 1조합, 2조합에서 사용된 레시피를 제외한 레시피 풀
     base_stmt = (
         select(Recipe)
@@ -209,9 +266,18 @@ async def recommend_recipes_combination_3(
         base_stmt = base_stmt.where(Recipe.recipe_id.notin_(exclude_recipe_ids))
         logger.info(f"제외할 레시피 ID: {exclude_recipe_ids}")
     
-    return await execute_standard_inventory_algorithm(
+    # 기존 알고리즘 그대로 실행
+    recipes, total = await execute_standard_inventory_algorithm(
         db, base_stmt, ingredients, amounts, units, page, size
     )
+    
+    # 결과를 캐시에 저장 (제외할 레시피가 없는 경우만)
+    if user_id and recipes and not exclude_recipe_ids:
+        recipe_cache.set_cached_result(
+            user_id, ingredients, amounts or [], units or [], 3, recipes, total
+        )
+    
+    return recipes, total
 
 async def execute_standard_inventory_algorithm(
     db: AsyncSession,
