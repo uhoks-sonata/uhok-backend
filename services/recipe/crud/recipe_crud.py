@@ -410,9 +410,6 @@ async def execute_standard_inventory_algorithm(
         return paginated_recommended, total
 
 
-# recommend_sequentially_for_inventory 함수는 utils/inventory_recipe.py로 이동됨
-
-
 async def recommend_by_recipe_pgvector(
     *,
     mariadb: AsyncSession,
