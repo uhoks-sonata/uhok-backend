@@ -23,6 +23,7 @@ class MemoryCacheManager:
             "schedule_count": 14400,  # 4시간
             "product_detail": 14400,  # 4시간
             "food_product_ids": 28800,  # 8시간
+            "kok_recommendation": 3600,  # 1시간 (KOK 추천 결과)
         }
     
     def _generate_cache_key(self, cache_type: str, **kwargs) -> str:
@@ -126,6 +127,60 @@ class MemoryCacheManager:
             
         except Exception as e:
             logger.error(f"메모리 캐시 무효화 실패: {e}")
+            return False
+
+    async def get_kok_recommendation_cache(
+        self, 
+        product_id: int,
+        k: int = 5
+    ) -> Optional[List[Dict]]:
+        """KOK 추천 결과 캐시 조회"""
+        try:
+            cache_key = self._generate_cache_key(
+                "kok_recommendation", 
+                product_id=product_id,
+                k=k
+            )
+            
+            if cache_key in self.cache and not self._is_expired(cache_key):
+                data = self.cache[cache_key]
+                logger.info(f"KOK 추천 캐시 히트: {cache_key}")
+                return data["recommendations"]
+            
+            logger.info(f"KOK 추천 캐시 미스: {cache_key}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"KOK 추천 캐시 조회 실패: {e}")
+            return None
+    
+    async def set_kok_recommendation_cache(
+        self, 
+        product_id: int,
+        recommendations: List[Dict],
+        k: int = 5
+    ) -> bool:
+        """KOK 추천 결과 캐시 저장"""
+        try:
+            cache_key = self._generate_cache_key(
+                "kok_recommendation", 
+                product_id=product_id,
+                k=k
+            )
+            
+            cache_data = {
+                "recommendations": recommendations,
+                "cached_at": datetime.now().isoformat()
+            }
+            
+            self.cache[cache_key] = cache_data
+            self.cache_ttl[cache_key] = datetime.now().timestamp() + self.cache_ttl_seconds["kok_recommendation"]
+            
+            logger.info(f"KOK 추천 캐시 저장: {cache_key}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"KOK 추천 캐시 저장 실패: {e}")
             return False
 
     async def close(self):

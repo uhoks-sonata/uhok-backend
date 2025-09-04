@@ -261,14 +261,29 @@ async def get_kok_recommendations(
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    홈쇼핑 상품에 대한 콕 유사 상품 추천 조회
+    홈쇼핑 상품에 대한 콕 유사 상품 추천 조회 (캐싱 적용)
     """
+    import time
+    start_time = time.time()
+    
     current_user = await get_current_user_optional(request)
     user_id = current_user.user_id if current_user else None
     logger.info(f"홈쇼핑 콕 유사 상품 추천 조회 요청: user_id={user_id}, product_id={product_id}")
     
     try:
-        # 추천 오케스트레이터 호출 (통합된 CRUD에서)        
+        # 1. 캐시에서 먼저 조회
+        from services.homeshopping.utils.memory_cache_manager import memory_cache_manager
+        cached_recommendations = await memory_cache_manager.get_kok_recommendation_cache(
+            product_id=product_id,
+            k=5
+        )
+        
+        if cached_recommendations is not None:
+            elapsed_time = (time.time() - start_time) * 1000
+            logger.info(f"캐시에서 KOK 추천 결과 반환: product_id={product_id}, 결과 수={len(cached_recommendations)}, 응답시간={elapsed_time:.2f}ms")
+            return {"products": cached_recommendations}
+        
+        # 2. 캐시 미스 시 실제 추천 로직 실행
         recommendations = await recommend_homeshopping_to_kok(
             db=db,
             homeshopping_product_id=product_id,
@@ -276,7 +291,16 @@ async def get_kok_recommendations(
             use_rerank=False
         )
         
-        logger.info(f"홈쇼핑 콕 유사 상품 추천 조회 완료: user_id={user_id}, product_id={product_id}, 결과 수={len(recommendations)}")
+        # 3. 결과를 캐시에 저장
+        if recommendations:
+            await memory_cache_manager.set_kok_recommendation_cache(
+                product_id=product_id,
+                recommendations=recommendations,
+                k=5
+            )
+        
+        elapsed_time = (time.time() - start_time) * 1000
+        logger.info(f"홈쇼핑 콕 유사 상품 추천 조회 완료: user_id={user_id}, product_id={product_id}, 결과 수={len(recommendations)}, 응답시간={elapsed_time:.2f}ms")
         return {"products": recommendations}
         
     except Exception as e:
