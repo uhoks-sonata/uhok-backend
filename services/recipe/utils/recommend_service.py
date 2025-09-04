@@ -3,15 +3,13 @@ from typing import List, Tuple, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from .ports import VectorSearcherPort, RecommenderPort
-from .core import get_model
+# get_model은 ML 서비스로 분리됨
 import pandas as pd
 from .core import recommend_by_recipe_name_core  # 로컬 코사인용
 from common.logger import get_logger
 import time
 # (import 보강)
-from sqlalchemy import text, bindparam
-from pgvector.sqlalchemy import Vector  # ← 추가
-import numpy as np
+# pgvector와 numpy는 ML 서비스로 분리됨
 
 logger = get_logger(__name__)
 
@@ -26,76 +24,12 @@ class DBVectorRecommender(VectorSearcherPort):
         top_k: int,
         exclude_ids: Optional[List[int]] = None,
     ) -> List[Tuple[int, float]]:
-        """pgvector <-> 연산자로 DB에서 유사 레시피를 조회한다(비동기).
-        - 입력: query(문자열), top_k, exclude_ids(제외할 RECIPE_ID 목록)
-        - 처리: query를 임베딩 → :qv 를 Vector(384) 타입으로 바인딩
-        - 전제: RECIPE_VECTOR_TABLE."VECTOR_NAME" 이 vector(384) 이어야 함
-        - 반환: [(recipe_id, distance)]  # distance가 작을수록 유사
+        """로컬 모델을 사용한 pgvector 검색 (더 이상 사용하지 않음)
+        - 이 클래스는 ML 서비스로 분리되어 더 이상 사용되지 않습니다.
+        - 대신 RemoteMLAdapter를 사용하세요.
         """
-        start_time = time.time()
-
-        # 1) 임베딩 생성
-        model_t0 = time.time()
-        model = await get_model()
-        model_loading_time = time.time() - model_t0
-
-        enc_t0 = time.time()
-        query_vec_np: np.ndarray = model.encode(query, normalize_embeddings=True)
-        query_vec: List[float] = [float(x) for x in query_vec_np.tolist()]  # list[float]
-        encoding_time = time.time() - enc_t0
-
-        # 2) SQL 준비
-        if exclude_ids:
-            sql = text(f"""
-                SELECT "RECIPE_ID" AS recipe_id,
-                       {VECTOR_COL} <-> :qv AS distance
-                FROM "RECIPE_VECTOR_TABLE"
-                WHERE "RECIPE_ID" NOT IN :ex_ids
-                ORDER BY distance ASC
-                LIMIT :k
-            """
-            ).bindparams(
-                bindparam("qv", type_=Vector(EMBEDDING_DIM)),  # ★ vector로 바인딩
-                bindparam("ex_ids", expanding=True),           # ★ 리스트 안전 확장
-                bindparam("k")
-            )
-            params = {
-                "qv": query_vec,
-                "ex_ids": [int(i) for i in exclude_ids],
-                "k": int(top_k),
-            }
-        else:
-            sql = text(f"""
-                SELECT "RECIPE_ID" AS recipe_id,
-                       {VECTOR_COL} <-> :qv AS distance
-                FROM "RECIPE_VECTOR_TABLE"
-                ORDER BY distance ASC
-                LIMIT :k
-            """
-            ).bindparams(
-                bindparam("qv", type_=Vector(EMBEDDING_DIM)),  # ★ vector로 바인딩
-                bindparam("k")
-            )
-            params = {"qv": query_vec, "k": int(top_k)}
-
-        logger.debug(f"임베딩 차원={len(query_vec)}, top_k={top_k}, exclude={len(exclude_ids) if exclude_ids else 0}")
-
-        # 3) DB 실행
-        db_t0 = time.time()
-        rows = (await pg_db.execute(sql, params)).all()
-        db_execution_time = time.time() - db_t0
-
-        # 4) 결과 정리
-        result: List[Tuple[int, float]] = [(int(r.recipe_id), float(r.distance)) for r in rows]
-
-        # 5) 로깅
-        total = time.time() - start_time
-        logger.info(
-            f"find_similar_ids 완료: query='{query}', top_k={top_k}, exclude={len(exclude_ids) if exclude_ids else 0}, "
-            f"총 {total:.3f}s (모델 {model_loading_time:.3f}s, 인코딩 {encoding_time:.3f}s, 쿼리 {db_execution_time:.3f}s), "
-            f"결과 {len(result)}건"
-        )
-        return result
+        logger.warning("DBVectorRecommender는 더 이상 사용되지 않습니다. RemoteMLAdapter를 사용하세요.")
+        raise NotImplementedError("로컬 모델은 ML 서비스로 분리되었습니다. ML_MODE=remote_embed로 설정하세요.")
 
 
 class LocalRecommender(RecommenderPort):
@@ -118,9 +52,21 @@ class LocalRecommender(RecommenderPort):
 
 async def get_db_vector_searcher() -> VectorSearcherPort:
     """
-    DB(pgvector) 기반 검색 어댑터를 반환한다.
+    환경 설정에 따라 원격 ML 서비스를 사용하는 검색 어댑터를 반환한다.
+    로컬 모델은 ML 서비스로 분리되어 더 이상 사용되지 않습니다.
     """
-    return DBVectorRecommender()
+    import os
+    ml_mode = os.getenv("ML_MODE", "remote_embed")  # 기본값을 remote_embed로 변경
+    
+    if ml_mode == "remote_embed":
+        from .remote_ml_adapter import get_remote_ml_searcher
+        logger.info("원격 ML 서비스 모드로 벡터 검색 어댑터 사용")
+        return await get_remote_ml_searcher()
+    else:
+        logger.warning(f"ML_MODE='{ml_mode}'는 더 이상 지원되지 않습니다. remote_embed로 설정하세요.")
+        logger.info("기본값으로 원격 ML 서비스 모드를 사용합니다.")
+        from .remote_ml_adapter import get_remote_ml_searcher
+        return await get_remote_ml_searcher()
 
 async def get_recommender() -> RecommenderPort:
     """

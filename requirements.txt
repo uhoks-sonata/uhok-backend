@@ -23,6 +23,7 @@ watchfiles==1.1.0              # 코드 변경 시 자동 재시작 기능 (Fast
 websockets==15.0.1             # WebSocket 구현 (FastAPI 실시간 통신 기능 지원)
 requests==2.32.4              # 외부 API 호출(로그 적재 등)용, BackgroundTasks에서 사용
 httpx==0.28.1                  # 비동기 HTTP 클라이언트 (FastAPI와 함께 사용 시 권장, 테스트 등에 유용)
+jinja2==3.1.2                  # 템플릿 엔진 (FastAPI Jinja2Templates 사용)
 
 # ==================== [DB/ORM/마이그레이션] ====================
 sqlalchemy==2.0.42             # ORM 및 데이터베이스 연결/쿼리용 라이브러리
@@ -39,13 +40,9 @@ passlib[bcrypt]==1.7.4         # 비밀번호 해싱 라이브러리 (bcrypt 포
 bcrypt==4.0.1                  # 암호화/해싱 라이브러리 (passlib, 인증용)
 
 # ==================== [ML/AI/NLP/임베딩/딥러닝] ====================
-torch==2.7.1                   # PyTorch 공식 패키지명 (딥러닝 모델 동작 필수)
-torchvision==0.22.1            # PyTorch용 이미지 처리 확장 라이브러리
-sentence-transformers==5.0.0   # BERT, SBERT 등 문장 임베딩(문장 벡터화) 라이브러리
-huggingface_hub==0.34.3        # HuggingFace 허브에서 모델 다운로드/관리용 유틸리티
-transformers==4.54.1           # HuggingFace의 트랜스포머 기반 사전학습 모델 라이브러리
-scikit-learn==1.7.1            # 머신러닝/유사도계산 등 데이터 분석용 라이브러리 (cosine_similarity 등)
-scipy                          # 수치 해석 및 과학계산 지원 라이브러리 (scikit-learn 의존)
+# ML 관련 패키지들은 uhok-ml-inference 서비스로 분리됨
+# scikit-learn==1.7.1            # 머신러닝/유사도계산 등 데이터 분석용 라이브러리 (cosine_similarity 등)
+# scipy                          # 수치 해석 및 과학계산 지원 라이브러리 (scikit-learn 의존)
 
 # ==================== [데이터 분석/처리/시각화/실험] ====================
 pandas==2.3.1                  # 데이터프레임/분석 라이브러리
