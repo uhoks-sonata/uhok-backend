@@ -237,6 +237,7 @@ class HomeshoppingLikedProduct(BaseModel):
     homeshopping_id: Optional[int] = None
     live_id: Optional[int] = None
     live_start_time: Optional[time] = None
+    live_end_time: Optional[time] = None
     live_date: Optional[date] = None
     
     class Config:
