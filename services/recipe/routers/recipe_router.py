@@ -8,6 +8,7 @@
 
 from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, Path, Body, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
 from typing import List, Optional, Dict, Set, Any
 import pandas as pd
 import time
@@ -15,6 +16,7 @@ import re
 import os
 import yaml
 from collections import Counter
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -52,6 +54,7 @@ from ..utils.recommend_service import get_db_vector_searcher
 from ..utils.ports import VectorSearcherPort
 from services.recipe.utils.combination_tracker import CombinationTracker
 from services.recipe.utils.product_recommend import recommend_for_ingredient
+from services.recipe.utils.simple_cache import recipe_cache
 
 # combination_tracker 인스턴스 생성
 combination_tracker = CombinationTracker()
@@ -494,11 +497,11 @@ async def by_ingredients(
         )
     elif combination_number == 2:
         recipes, total = await recommend_recipes_combination_2(
-            db, ingredient, amount, unit, 1, size, excluded_recipe_ids
+            db, ingredient, amount, unit, 1, size, excluded_recipe_ids, current_user.user_id
         )
     elif combination_number == 3:
         recipes, total = await recommend_recipes_combination_3(
-            db, ingredient, amount, unit, 1, size, excluded_recipe_ids
+            db, ingredient, amount, unit, 1, size, excluded_recipe_ids, current_user.user_id
         )
     else:
         # 3페이지 이상은 빈 결과 반환
@@ -546,6 +549,22 @@ async def by_ingredients(
         "has_more_combinations": combination_number < 3
     }
 
+
+@router.get("/cache/stats")
+async def get_cache_stats(current_user = Depends(get_current_user)):
+    """
+    레시피 캐시 통계 조회
+    - 캐시 크기 및 상태 정보
+    """
+    logger.info(f"캐시 통계 조회 요청: user_id={current_user.user_id}")
+    
+    stats = recipe_cache.get_stats()
+    
+    return {
+        "cache_stats": stats,
+        "timestamp": datetime.now().isoformat()
+    }
+
 # ============================================================================
 # 2. 레시피 검색 API
 # ============================================================================
@@ -554,7 +573,7 @@ async def search_recipe(
     request: Request,
     recipe: str = Query(..., description="레시피명 또는 식재료 키워드"),
     page: int = Query(1, ge=1),
-    size: int = Query(5, ge=1, le=50),   # 이 함수는 top_k 중심이라 page/size는 외부에서 활용
+    size: int = Query(15, ge=1, le=50),   # 이 함수는 top_k 중심이라 page/size는 외부에서 활용
     method: str = Query("recipe", pattern="^(recipe|ingredient)$", description="검색 방식: recipe|ingredient"),
     current_user = Depends(get_current_user),
     mariadb: AsyncSession = Depends(get_maria_service_db),
@@ -583,16 +602,38 @@ async def search_recipe(
         method=method,
         top_k=requested_top_k,
         vector_searcher=vector_searcher,
+        page=page,
+        size=size,
     )
 
-    # 2) 현재 페이지 구간 슬라이싱
-    start, end = (page - 1) * size, page * size
-    has_more = len(df) > end
-    page_df = df.iloc[start:end] if not df.empty else df
-
-    # 3) total 근사값 계산 (기존 정책과 동일하게 근사)
-    #    현재까지 집계된 개수 + (다음 페이지가 존재하면 +1)
-    total_approx = (page - 1) * size + len(page_df) + (1 if has_more else 0)
+    # 2) 현재 페이지 구간 슬라이싱 (method=ingredient일 때는 이미 페이지네이션 처리됨)
+    if method == "ingredient":
+        # method=ingredient일 때는 recommend_by_recipe_pgvector에서 이미 페이지네이션 처리
+        page_df = df
+        
+        # 전체 개수 조회 (method=ingredient일 때만)
+        ingredients = [i.strip() for i in (recipe or "").split(",") if i.strip()]
+        if ingredients:
+            from services.recipe.models.recipe_model import Material
+            total_stmt = (
+                select(Material.recipe_id)
+                .where(Material.material_name.in_(ingredients))
+                .group_by(Material.recipe_id)
+                .having(func.count(func.distinct(Material.material_name)) == len(ingredients))
+            )
+            total_rows = await mariadb.execute(total_stmt)
+            total_count = len(total_rows.all())
+        else:
+            total_count = 0
+            
+        has_more = len(df) == size and (page * size) < total_count
+        total_approx = total_count
+    else:
+        # method=recipe일 때는 기존 로직 유지
+        start, end = (page - 1) * size, page * size
+        has_more = len(df) > end
+        page_df = df.iloc[start:end] if not df.empty else df
+        total_approx = (page - 1) * size + len(page_df) + (1 if has_more else 0)
 
     # 기능 시간 체크 완료 및 로깅
     execution_time = time.time() - start_time

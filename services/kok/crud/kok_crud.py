@@ -238,47 +238,84 @@ async def get_kok_product_list(
 async def get_kok_discounted_products(
         db: AsyncSession,
         page: int = 1,
-        size: int = 20
+        size: int = 20,
+        use_cache: bool = True
 ) -> List[dict]:
     """
     할인 특가 상품 목록 조회 (할인율 높은 순으로 정렬)
+    최적화: 단일 쿼리로 N+1 문제 해결 + Redis 캐싱
     """
-    logger.info(f"할인 상품 조회 시작: page={page}, size={size}")
+    from services.kok.utils.cache_utils import cache_manager
     
-    # KokProductInfo와 KokPriceInfo를 JOIN해서 할인율 정보 가져오기
+    logger.info(f"할인 상품 조회 시작: page={page}, size={size}, use_cache={use_cache}")
+    
+    # 캐시에서 데이터 조회 시도
+    if use_cache:
+        cached_data = cache_manager.get(
+            'discounted_products',
+            page=page,
+            size=size
+        )
+        if cached_data:
+            logger.info(f"캐시에서 할인 상품 조회 완료: page={page}, size={size}, 결과 수={len(cached_data)}")
+            return cached_data
+    
     offset = (page - 1) * size
-    stmt = (
-        select(KokProductInfo, func.max(KokPriceInfo.kok_price_id))
-        .join(KokPriceInfo, KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id)
+    
+    # 서브쿼리로 각 상품의 최신 가격 ID를 구함
+    latest_price_subquery = (
+        select(
+            KokPriceInfo.kok_product_id,
+            func.max(KokPriceInfo.kok_price_id).label('latest_price_id')
+        )
         .where(KokPriceInfo.kok_discount_rate > 0)
-        .group_by(KokProductInfo.kok_product_id)
-        .order_by(func.max(KokPriceInfo.kok_discount_rate).desc())
+        .group_by(KokPriceInfo.kok_product_id)
+        .subquery()
+    )
+    
+    # 메인 쿼리: 상품 정보와 최신 가격 정보를 한 번에 조회
+    stmt = (
+        select(
+            KokProductInfo,
+            KokPriceInfo.kok_discount_rate,
+            KokPriceInfo.kok_discounted_price
+        )
+        .join(
+            latest_price_subquery,
+            KokProductInfo.kok_product_id == latest_price_subquery.c.kok_product_id
+        )
+        .join(
+            KokPriceInfo,
+            KokPriceInfo.kok_price_id == latest_price_subquery.c.latest_price_id
+        )
+        .order_by(KokPriceInfo.kok_discount_rate.desc())
         .offset(offset)
         .limit(size)
     )
+    
     results = (await db.execute(stmt)).all()
     
     discounted_products = []
-    for product, max_price_id in results:
-        # 최신 가격 정보 조회
-        latest_price_info = await get_latest_kok_price_id(db, product.kok_product_id)
-        if latest_price_info:
-            # 최신 가격 정보로 상세 정보 조회
-            price_stmt = select(KokPriceInfo).where(KokPriceInfo.kok_price_id == latest_price_info)
-            price_result = await db.execute(price_stmt)
-            price_info = price_result.scalar_one_or_none()
-            
-            if price_info:
-                discounted_products.append({
-                    "kok_product_id": product.kok_product_id,
-                    "kok_thumbnail": product.kok_thumbnail,
-                    "kok_discount_rate": price_info.kok_discount_rate,
-                    "kok_discounted_price": price_info.kok_discounted_price,
-                    "kok_product_name": product.kok_product_name,
-                    "kok_store_name": product.kok_store_name,
-                    "kok_review_cnt": product.kok_review_cnt,
-                    "kok_review_score": product.kok_review_score,
-                })
+    for product, discount_rate, discounted_price in results:
+        discounted_products.append({
+            "kok_product_id": product.kok_product_id,
+            "kok_thumbnail": product.kok_thumbnail,
+            "kok_discount_rate": discount_rate,
+            "kok_discounted_price": discounted_price,
+            "kok_product_name": product.kok_product_name,
+            "kok_store_name": product.kok_store_name,
+            "kok_review_cnt": product.kok_review_cnt,
+            "kok_review_score": product.kok_review_score,
+        })
+    
+    # 캐시에 데이터 저장
+    if use_cache:
+        cache_manager.set(
+            'discounted_products',
+            discounted_products,
+            page=page,
+            size=size
+        )
     
     logger.info(f"할인 상품 조회 완료: page={page}, size={size}, 결과 수={len(discounted_products)}")
     return discounted_products
@@ -288,67 +325,116 @@ async def get_kok_top_selling_products(
         db: AsyncSession,
         page: int = 1,
         size: int = 20,
-        sort_by: str = "review_count"  # "review_count" 또는 "rating"
+        sort_by: str = "review_count",  # "review_count" 또는 "rating"
+        use_cache: bool = True
 ) -> List[dict]:
     """
     판매율 높은 상품 목록 조회 (정렬 기준에 따라 리뷰 개수 또는 별점 평균 순으로 정렬)
+    최적화: 단일 쿼리로 N+1 문제 해결 + Redis 캐싱
     
     Args:
         db: 데이터베이스 세션
         page: 페이지 번호
         size: 페이지 크기
         sort_by: 정렬 기준 ("review_count": 리뷰 개수 순, "rating": 별점 평균 순)
+        use_cache: 캐시 사용 여부
     """
-    logger.info(f"인기 상품 조회 시작: page={page}, size={size}, sort_by={sort_by}")
+    from services.kok.utils.cache_utils import cache_manager
     
-    # KokProductInfo만 조회하고 나중에 최신 가격 정보를 가져오기
+    logger.info(f"인기 상품 조회 시작: page={page}, size={size}, sort_by={sort_by}, use_cache={use_cache}")
+    
+    # 캐시에서 데이터 조회 시도
+    if use_cache:
+        cached_data = cache_manager.get(
+            'top_selling_products',
+            page=page,
+            size=size,
+            sort_by=sort_by
+        )
+        if cached_data:
+            logger.info(f"캐시에서 인기 상품 조회 완료: page={page}, size={size}, 결과 수={len(cached_data)}")
+            return cached_data
+    
     offset = (page - 1) * size
+    
+    # 서브쿼리로 각 상품의 최신 가격 ID를 구함
+    latest_price_subquery = (
+        select(
+            KokPriceInfo.kok_product_id,
+            func.max(KokPriceInfo.kok_price_id).label('latest_price_id')
+        )
+        .group_by(KokPriceInfo.kok_product_id)
+        .subquery()
+    )
     
     # 정렬 기준에 따라 쿼리 구성
     if sort_by == "rating":
         # 별점 평균 순으로 정렬 (리뷰가 있는 상품만)
-        stmt = (
-            select(KokProductInfo)
-            .where(KokProductInfo.kok_review_cnt > 0)
-            .where(KokProductInfo.kok_review_score > 0)
-            .order_by(KokProductInfo.kok_review_score.desc(), KokProductInfo.kok_review_cnt.desc())
-            .offset(offset)
-            .limit(size)
-        )
+        order_clause = [
+            KokProductInfo.kok_review_score.desc(),
+            KokProductInfo.kok_review_cnt.desc()
+        ]
+        where_conditions = [
+            KokProductInfo.kok_review_cnt > 0,
+            KokProductInfo.kok_review_score > 0
+        ]
     else:
         # 기본값: 리뷰 개수 순으로 정렬
-        stmt = (
-            select(KokProductInfo)
-            .where(KokProductInfo.kok_review_cnt > 0)
-            .order_by(KokProductInfo.kok_review_cnt.desc(), KokProductInfo.kok_review_score.desc())
-            .offset(offset)
-            .limit(size)
-        )
+        order_clause = [
+            KokProductInfo.kok_review_cnt.desc(),
+            KokProductInfo.kok_review_score.desc()
+        ]
+        where_conditions = [
+            KokProductInfo.kok_review_cnt > 0
+        ]
     
-    results = (await db.execute(stmt)).scalars().all()
+    # 메인 쿼리: 상품 정보와 최신 가격 정보를 한 번에 조회
+    stmt = (
+        select(
+            KokProductInfo,
+            KokPriceInfo.kok_discount_rate,
+            KokPriceInfo.kok_discounted_price
+        )
+        .join(
+            latest_price_subquery,
+            KokProductInfo.kok_product_id == latest_price_subquery.c.kok_product_id
+        )
+        .join(
+            KokPriceInfo,
+            KokPriceInfo.kok_price_id == latest_price_subquery.c.latest_price_id
+        )
+        .where(*where_conditions)
+        .order_by(*order_clause)
+        .offset(offset)
+        .limit(size)
+    )
+    
+    results = (await db.execute(stmt)).all()
     
     top_selling_products = []
-    for product in results:
-        # 최신 가격 정보 조회
-        latest_price_id = await get_latest_kok_price_id(db, product.kok_product_id)
-        if latest_price_id:
-            # 최신 가격 정보로 상세 정보 조회
-            price_stmt = select(KokPriceInfo).where(KokPriceInfo.kok_price_id == latest_price_id)
-            price_result = await db.execute(price_stmt)
-            price_info = price_result.scalar_one_or_none()
-            
-            top_selling_products.append({
-                "kok_product_id": product.kok_product_id,
-                "kok_thumbnail": product.kok_thumbnail,
-                "kok_discount_rate": price_info.kok_discount_rate if price_info else 0,
-                "kok_discounted_price": price_info.kok_discounted_price if price_info else product.kok_product_price,
-                "kok_product_name": product.kok_product_name,
-                "kok_store_name": product.kok_store_name,
-                "kok_review_cnt": product.kok_review_cnt,
-                "kok_review_score": product.kok_review_score,
-            })
+    for product, discount_rate, discounted_price in results:
+        top_selling_products.append({
+            "kok_product_id": product.kok_product_id,
+            "kok_thumbnail": product.kok_thumbnail,
+            "kok_discount_rate": discount_rate or 0,
+            "kok_discounted_price": discounted_price or product.kok_product_price,
+            "kok_product_name": product.kok_product_name,
+            "kok_store_name": product.kok_store_name,
+            "kok_review_cnt": product.kok_review_cnt,
+            "kok_review_score": product.kok_review_score,
+        })
     
-    logger.info(f"인기 상품 조회 완료: sort_by={sort_by}, 결과 수={len(top_selling_products)}")
+    # 캐시에 데이터 저장
+    if use_cache:
+        cache_manager.set(
+            'top_selling_products',
+            top_selling_products,
+            page=page,
+            size=size,
+            sort_by=sort_by
+        )
+    
+    logger.info(f"인기 상품 조회 완료: page={page}, size={size}, 결과 수={len(top_selling_products)}")
     return top_selling_products
 
 
@@ -414,17 +500,33 @@ async def get_kok_unpurchased(
 async def get_kok_store_best_items(
         db: AsyncSession,
         user_id: Optional[int] = None,
-        sort_by: str = "review_count"  # "review_count" 또는 "rating"
+        sort_by: str = "review_count",  # "review_count" 또는 "rating"
+        use_cache: bool = True
 ) -> List[dict]:
     """
     구매한 스토어의 베스트 상품 목록 조회 (정렬 기준에 따라 리뷰 개수 또는 별점 평균 순으로 정렬)
+    최적화: 단일 쿼리로 N+1 문제 해결 + Redis 캐싱
     
     Args:
         db: 데이터베이스 세션
         user_id: 사용자 ID (None이면 전체 베스트 상품 반환)
         sort_by: 정렬 기준 ("review_count": 리뷰 개수 순, "rating": 별점 평균 순)
+        use_cache: 캐시 사용 여부
     """
-    logger.info(f"스토어 베스트 상품 조회 시작: user_id={user_id}, sort_by={sort_by}")
+    from services.kok.utils.cache_utils import cache_manager
+    
+    logger.info(f"스토어 베스트 상품 조회 시작: user_id={user_id}, sort_by={sort_by}, use_cache={use_cache}")
+    
+    # 캐시에서 데이터 조회 시도
+    if use_cache and user_id:
+        cached_data = cache_manager.get(
+            'store_best_items',
+            user_id=user_id,
+            sort_by=sort_by
+        )
+        if cached_data:
+            logger.info(f"캐시에서 스토어 베스트 상품 조회 완료: user_id={user_id}, 결과 수={len(cached_data)}")
+            return cached_data
     
     if user_id:
         # 1. 사용자가 구매한 주문에서 price_id를 통해 상품 정보 조회
@@ -509,26 +611,75 @@ async def get_kok_store_best_items(
     if store_results:
         logger.debug(f"첫 번째 상품 정보: {store_results[0].kok_product_name}, 판매자: {store_results[0].kok_store_name}, 리뷰 수: {store_results[0].kok_review_cnt}")
     
+    # 최적화: 상품 ID 목록을 추출하여 한 번에 가격 정보 조회
+    product_ids = [product.kok_product_id for product in store_results]
+    
+    if not product_ids:
+        logger.warning("조회된 상품이 없음")
+        return []
+    
+    # 서브쿼리로 각 상품의 최신 가격 ID를 구함
+    latest_price_subquery = (
+        select(
+            KokPriceInfo.kok_product_id,
+            func.max(KokPriceInfo.kok_price_id).label('latest_price_id')
+        )
+        .where(KokPriceInfo.kok_product_id.in_(product_ids))
+        .group_by(KokPriceInfo.kok_product_id)
+        .subquery()
+    )
+    
+    # 최신 가격 정보와 함께 상품 정보를 한 번에 조회
+    optimized_stmt = (
+        select(
+            KokProductInfo,
+            KokPriceInfo.kok_discount_rate,
+            KokPriceInfo.kok_discounted_price
+        )
+        .join(
+            latest_price_subquery,
+            KokProductInfo.kok_product_id == latest_price_subquery.c.kok_product_id
+        )
+        .join(
+            KokPriceInfo,
+            KokPriceInfo.kok_price_id == latest_price_subquery.c.latest_price_id
+        )
+        .where(KokProductInfo.kok_product_id.in_(product_ids))
+    )
+    
+    optimized_results = (await db.execute(optimized_stmt)).all()
+    
+    # 결과를 딕셔너리로 변환하여 빠른 조회 가능하게 함
+    product_price_map = {}
+    for product, discount_rate, discounted_price in optimized_results:
+        product_price_map[product.kok_product_id] = {
+            'discount_rate': discount_rate,
+            'discounted_price': discounted_price
+        }
+    
     store_best_products = []
     for product in store_results:
-        # 최신 가격 정보 조회
-        latest_price_id = await get_latest_kok_price_id(db, product.kok_product_id)
-        if latest_price_id:
-            # 최신 가격 정보로 상세 정보 조회
-            price_stmt = select(KokPriceInfo).where(KokPriceInfo.kok_price_id == latest_price_id)
-            price_result = await db.execute(price_stmt)
-            price_info = price_result.scalar_one_or_none()
-            
+        price_info = product_price_map.get(product.kok_product_id)
+        if price_info:
             store_best_products.append({
                 "kok_product_id": product.kok_product_id,
                 "kok_thumbnail": product.kok_thumbnail,
-                "kok_discount_rate": price_info.kok_discount_rate if price_info else 0,
-                "kok_discounted_price": price_info.kok_discounted_price if price_info else product.kok_product_price,
+                "kok_discount_rate": price_info['discount_rate'] or 0,
+                "kok_discounted_price": price_info['discounted_price'] or product.kok_product_price,
                 "kok_product_name": product.kok_product_name,
                 "kok_store_name": product.kok_store_name,
                 "kok_review_cnt": product.kok_review_cnt,
                 "kok_review_score": product.kok_review_score,
             })
+    
+    # 캐시에 데이터 저장 (user_id가 있는 경우만)
+    if use_cache and user_id:
+        cache_manager.set(
+            'store_best_items',
+            store_best_products,
+            user_id=user_id,
+            sort_by=sort_by
+        )
     
     logger.info(f"스토어 베스트 상품 조회 완료: user_id={user_id}, sort_by={sort_by}, 결과 수={len(store_best_products)}")
     
