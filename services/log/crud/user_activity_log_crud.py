@@ -7,6 +7,7 @@ from sqlalchemy import select
 from typing import Optional
 
 from common.logger import get_logger
+from common.log_utils import serialize_datetime
 
 from services.log.models.log_model import UserLog
 from services.log.schemas.user_activity_schema import UserActivityLog
@@ -30,10 +31,10 @@ async def create_user_activity_log(
         생성된 UserLog 객체
     """
     try:
-        # 이벤트 데이터 구성
+        # 이벤트 데이터 구성 (datetime 직렬화 적용)
         event_data = {
             "action": activity.action,
-            "timestamp": activity.timestamp
+            "timestamp": serialize_datetime(activity.timestamp)
         }
         
         # 추가 데이터가 있으면 포함
@@ -42,7 +43,7 @@ async def create_user_activity_log(
         if activity.label:
             event_data["label"] = activity.label
         if activity.extra_data:
-            event_data.update(activity.extra_data)
+            event_data.update(serialize_datetime(activity.extra_data))
         
         # 이벤트 타입 생성
         event_type = f"user_activity_{activity.action}"

@@ -152,15 +152,15 @@ async def send_user_log(
             from common.database.postgres_log import SessionLocal
             from services.log.crud.user_event_log_crud import create_user_log
             
-            # 로그 데이터 구성
+            # 로그 데이터 구성 (datetime 직렬화 적용)
             log_data = {
                 "user_id": user_id,
                 "event_type": event_type,
-                "event_data": event_data,
+                "event_data": serialize_datetime(event_data) if event_data else None,
                 "http_method": http_method,
                 "api_url": api_url,
-                "request_time": request_time,
-                "response_time": response_time,
+                "request_time": serialize_datetime(request_time) if request_time else None,
+                "response_time": serialize_datetime(response_time) if response_time else None,
                 "response_code": response_code,
                 "client_ip": client_ip
             }
