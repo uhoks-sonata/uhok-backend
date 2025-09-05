@@ -107,7 +107,8 @@ class ProductRecommendation(BaseModel):
     """상품 추천 정보"""
     source: str = Field(..., description="상품 출처 (homeshopping 또는 kok)")
     name: str = Field(..., description="상품명")
-    id: Optional[int] = Field(None, description="상품 ID")
+    live_id: Optional[int] = Field(None, description="홈쇼핑 라이브 ID (source가 homeshopping일 경우)")
+    kok_product_id: Optional[int] = Field(None, description="KOK 상품 ID (source가 kok일 경우)")
     # 홈쇼핑은 thumb_img_url, KOK는 image_url 사용
     thumb_img_url: Optional[str] = Field(None, description="홈쇼핑 상품 썸네일 이미지 URL")
     image_url: Optional[str] = Field(None, description="KOK 상품 이미지 URL")
