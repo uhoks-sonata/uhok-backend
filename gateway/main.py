@@ -64,8 +64,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         # 로컬 개발 환경
+        "http://localhost:80",      # 도커 포트(Nginx)
         "http://localhost:3001",      # React 포트
-        "http://localhost:5000",      # 도커 포트(Nginx)
         "http://localhost:9001",      # FastAPI 포트
         "http://localhost:8502",      # Streamlit 포트
         
