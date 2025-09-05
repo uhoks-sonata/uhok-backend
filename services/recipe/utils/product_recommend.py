@@ -218,7 +218,7 @@ async def recommend_for_ingredient(session: AsyncSession, ingredient: str, max_t
             recs.append({
                 "source": "homeshopping",
                 "name":   name,
-                "id":     r.get('live_id'),
+                "live_id": r.get('live_id'),
                 "thumb_img_url": r.get('thumb_img_url'),
                 "brand_name": r.get('store_name'),
                 "price": safe_price(r.get('sale_price')),
@@ -243,11 +243,10 @@ async def recommend_for_ingredient(session: AsyncSession, ingredient: str, max_t
                 recs.append({
                     "source": "kok",
                     "name":   name,
-                    "id":     r.get('product_id'),
+                    "kok_product_id": r.get('product_id'),
                     "image_url": r.get('kok_thumbnail'),
                     "brand_name": r.get('kok_store_name'),
                     "price": safe_price(r.get('kok_product_price')),
-                    "homeshopping_id": None,
                     "kok_discount_rate": safe_price(r.get('kok_discount_rate')),
                     "kok_review_cnt": safe_price(r.get('kok_review_cnt')),
                     "kok_review_score": safe_price(r.get('kok_review_score')),
