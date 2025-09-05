@@ -632,18 +632,18 @@ async def search_recipe(
         # method=ingredient일 때는 recommend_by_recipe_pgvector에서 이미 페이지네이션 처리
         page_df = df
         
-        # 전체 개수 조회 (method=ingredient일 때만)
+        # 전체 개수 조회 최적화 (method=ingredient일 때만)
         ingredients = [i.strip() for i in (recipe or "").split(",") if i.strip()]
         if ingredients:
             from services.recipe.models.recipe_model import Material
+            # COUNT 쿼리로 최적화 (전체 데이터 조회 방지)
             total_stmt = (
-                select(Material.recipe_id)
+                select(func.count(func.distinct(Material.recipe_id)))
                 .where(Material.material_name.in_(ingredients))
-                .group_by(Material.recipe_id)
                 .having(func.count(func.distinct(Material.material_name)) == len(ingredients))
             )
-            total_rows = await mariadb.execute(total_stmt)
-            total_count = len(total_rows.all())
+            total_result = await mariadb.execute(total_stmt)
+            total_count = total_result.scalar() or 0
         else:
             total_count = 0
             

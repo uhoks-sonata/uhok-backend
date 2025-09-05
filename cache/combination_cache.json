@@ -120,7 +120,7 @@
             7036939,
             7025946
         ],
-        "combo_1_timestamp": "2025-09-04T17:26:32.311282"
+        "combo_1_timestamp": "2025-09-04T17:31:14.992635"
     },
     "user:4:ingredients:dfd33fc2a0a01af53ff7e1bcf5c5617f:combinations": {
         "combo_1": [
@@ -147,5 +147,19 @@
             7032914
         ],
         "combo_3_timestamp": "2025-09-04T17:20:32.545166"
+    },
+    "user:9:ingredients:17030b6cd55a2c3b2d0ab534d7063973:combinations": {
+        "combo_1": [
+            7029442,
+            7041234
+        ],
+        "combo_1_timestamp": "2025-09-05T10:01:55.406109"
+    },
+    "user:9:ingredients:643b5c451e09166d4b474182c6d6b4c8:combinations": {
+        "combo_1": [
+            7029442,
+            7041234
+        ],
+        "combo_1_timestamp": "2025-09-05T10:04:08.081987"
     }
 }

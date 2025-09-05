@@ -80,7 +80,8 @@ class RecipeCache:
     """레시피 추천 결과 캐싱"""
     
     def __init__(self):
-        self.cache = SimpleLRUCache(max_size=200, ttl_seconds=1800)  # 30분 TTL
+        self.cache = SimpleLRUCache(max_size=500, ttl_seconds=1800)  # 30분 TTL, 크기 증가
+        self.search_cache = SimpleLRUCache(max_size=300, ttl_seconds=900)  # 검색 결과 전용 캐시 (15분 TTL)
         self.logger = get_logger("recipe_cache")
     
     def _generate_key(self, 
@@ -144,12 +145,52 @@ class RecipeCache:
         except Exception as e:
             self.logger.error(f"캐시 저장 중 오류: {e}")
     
+    def _generate_search_key(self, query: str, method: str, page: int, size: int) -> str:
+        """검색 캐시 키 생성"""
+        # 쿼리 정규화
+        normalized_query = query.lower().strip()
+        data = f"search:{normalized_query}:{method}:{page}:{size}"
+        return hashlib.md5(data.encode()).hexdigest()
+    
+    def get_cached_search(self, query: str, method: str, page: int, size: int) -> Optional[Dict]:
+        """검색 결과 캐시 조회"""
+        try:
+            cache_key = self._generate_search_key(query, method, page, size)
+            cached_data = self.search_cache.get(cache_key)
+            
+            if cached_data:
+                self.logger.info(f"검색 캐시 히트: {query[:20]}...")
+                return cached_data
+            
+            return None
+        except Exception as e:
+            self.logger.error(f"검색 캐시 조회 실패: {e}")
+            return None
+    
+    def set_cached_search(self, query: str, method: str, page: int, size: int, result: Dict):
+        """검색 결과 캐시 저장"""
+        try:
+            cache_key = self._generate_search_key(query, method, page, size)
+            cache_data = {
+                **result,
+                'cached_at': datetime.now().isoformat()
+            }
+            
+            self.search_cache.set(cache_key, cache_data)
+            self.logger.info(f"검색 캐시 저장: {query[:20]}...")
+            
+        except Exception as e:
+            self.logger.error(f"검색 캐시 저장 실패: {e}")
+    
     def get_stats(self) -> Dict[str, Any]:
         """캐시 통계 조회"""
         return {
             "cache_size": self.cache.size(),
+            "search_cache_size": self.search_cache.size(),
             "max_size": self.cache.max_size,
-            "ttl_seconds": self.cache.ttl_seconds
+            "search_max_size": self.search_cache.max_size,
+            "ttl_seconds": self.cache.ttl_seconds,
+            "search_ttl_seconds": self.search_cache.ttl_seconds
         }
 
 

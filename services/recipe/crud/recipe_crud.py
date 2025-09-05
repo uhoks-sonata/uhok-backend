@@ -12,6 +12,7 @@ from sqlalchemy import select, desc, func
 from typing import List, Optional, Dict, Tuple
 import pandas as pd
 from datetime import datetime, timedelta
+import asyncio
 
 from common.logger import get_logger
 from services.recipe.utils.simple_cache import recipe_cache
@@ -444,28 +445,34 @@ async def recommend_by_recipe_pgvector(
     size = max(1, int(size))
     fetch_upto = page * size  # 현재 페이지까지 필요한 총량
 
+    # 캐시에서 검색 결과 조회 시도
+    cached_result = recipe_cache.get_cached_search(query, method, page, size)
+    if cached_result and 'recipes' in cached_result:
+        logger.info(f"검색 결과 캐시 히트: {query[:20]}...")
+        return pd.DataFrame(cached_result['recipes'])
+
     # ========================== method: ingredient ==========================
     if method == "ingredient":
         ingredients = [i.strip() for i in (query or "").split(",") if i.strip()]
         if not ingredients:
             return pd.DataFrame()
 
-        # AND 포함(모든 재료 포함) — 기존 로직 유지
+        # AND 포함(모든 재료 포함) — 최적화된 쿼리
         from sqlalchemy import func as sa_func
         ids_stmt = (
             select(Material.recipe_id)
             .where(Material.material_name.in_(ingredients))
             .group_by(Material.recipe_id)
             .having(sa_func.count(sa_func.distinct(Material.material_name)) == len(ingredients))
+            .order_by(desc(sa_func.count(sa_func.distinct(Material.material_name))))  # 매칭된 재료 수로 정렬
         )
-        ids_rows = await mariadb.execute(ids_stmt)
-        all_ids = [int(rid) for (rid,) in ids_rows.all()]
-        if not all_ids:
-            return pd.DataFrame()
-
-        # 페이지 슬라이스
+        
+        # 페이지네이션을 위한 OFFSET/LIMIT 사용 (전체 데이터 조회 방지)
         start = (page - 1) * size
-        page_ids = all_ids[start : start + size]
+        ids_stmt = ids_stmt.offset(start).limit(size)
+        
+        ids_rows = await mariadb.execute(ids_stmt)
+        page_ids = [int(rid) for (rid,) in ids_rows.all()]
         if not page_ids:
             return pd.DataFrame()
 
@@ -497,15 +504,16 @@ async def recommend_by_recipe_pgvector(
         # 번호 컬럼(페이지 기준)
         final_df.insert(0, "No.", range(1, len(final_df) + 1))
 
-        # (옵션) 재료 집계
+        # (옵션) 재료 집계 - N+1 문제 해결
         if include_materials and page_ids:
+            # 배치로 재료 정보 조회 (N+1 문제 해결)
             m_stmt = select(
                 Material.recipe_id, Material.material_name, Material.measure_amount, Material.measure_unit
             ).where(Material.recipe_id.in_(page_ids))
             m_rows = (await mariadb.execute(m_stmt)).all()
             if m_rows:
                 m_df = pd.DataFrame(m_rows, columns=["RECIPE_ID","MATERIAL_NAME","MEASURE_AMOUNT","MEASURE_UNIT"])
-                # 레시피당 리스트로 집계
+                # 레시피별 재료 집계 최적화
                 mats = (
                     m_df.groupby("RECIPE_ID")[["MATERIAL_NAME","MEASURE_AMOUNT","MEASURE_UNIT"]]
                     .apply(lambda g: g.to_dict("records"))
@@ -517,38 +525,57 @@ async def recommend_by_recipe_pgvector(
         return final_df
 
     # ============================ method: recipe ============================
-    # 1) 제목 부분/정확 일치(인기순) — 현재 페이지까지 필요한 개수만 수집
-    # cooking_name을 우선으로 하되, 없으면 recipe_title 사용
-    name_col = getattr(Recipe, "cooking_name", None) or getattr(Recipe, "recipe_title")
-    base_stmt = (
-        select(Recipe.recipe_id, name_col.label("RECIPE_TITLE"), Recipe.scrap_count)
-        .where(name_col.contains(query))
-        .order_by(desc(Recipe.scrap_count))
-        .limit(fetch_upto)
+    # 1) 제목 검색과 벡터 검색을 병렬로 실행하여 성능 향상
+    async def search_exact_matches():
+        """정확한 제목 매치 검색"""
+        name_col = getattr(Recipe, "cooking_name", None) or getattr(Recipe, "recipe_title")
+        base_stmt = (
+            select(Recipe.recipe_id, name_col.label("RECIPE_TITLE"), Recipe.scrap_count)
+            .where(name_col.contains(query))
+            .order_by(desc(Recipe.scrap_count))
+            .limit(fetch_upto)
+        )
+        base_rows = (await mariadb.execute(base_stmt)).all()
+        exact_df = pd.DataFrame(base_rows, columns=["RECIPE_ID","RECIPE_TITLE","SCRAP_COUNT"]).drop_duplicates("RECIPE_ID")
+        exact_df["RANK_TYPE"] = 0
+        return exact_df
+
+    async def search_vector_matches():
+        """벡터 유사도 검색"""
+        try:
+            pairs = await vector_searcher.find_similar_ids(
+                pg_db=postgres,
+                query=query,
+                top_k=fetch_upto + size * 2,  # 충분한 버퍼 제공
+                exclude_ids=None,
+            )
+            return [rid for rid, _ in pairs]
+        except Exception as e:
+            logger.warning(f"벡터 검색 실패: {e}")
+            return []
+
+    # 병렬 실행으로 성능 향상
+    exact_df, vec_ids = await asyncio.gather(
+        search_exact_matches(),
+        search_vector_matches()
     )
-    base_rows = (await mariadb.execute(base_stmt)).all()
-    exact_df = pd.DataFrame(base_rows, columns=["RECIPE_ID","RECIPE_TITLE","SCRAP_COUNT"]).drop_duplicates("RECIPE_ID")
-    exact_df["RANK_TYPE"] = 0
 
     exact_ids = [int(x) for x in exact_df["RECIPE_ID"].tolist()]
     need_after_exact = max(0, fetch_upto - len(exact_ids))
 
-    # 2) pgvector <-> 보완 — 포트 호출(여유분을 더 모아 중복 여지 대비)
-    vec_ids: List[int] = []
-    if need_after_exact > 0:
-        pairs = await vector_searcher.find_similar_ids(
-            pg_db=postgres,
-            query=query,
-            top_k=need_after_exact + size * 2,  # 버퍼
-            exclude_ids=exact_ids or None,
-        )
-        vec_ids = [rid for rid, _ in pairs]
-
-    # 3) ID 병합 → 중복 제거 → 페이지 슬라이스
+    # 3) ID 병합 → 중복 제거 → 페이지 슬라이스 (최적화)
     merged_ids: List[int] = []
     seen = set()
-    for rid in exact_ids + vec_ids:
+    
+    # 정확한 매치를 우선으로 추가
+    for rid in exact_ids:
         if rid not in seen:
+            merged_ids.append(rid)
+            seen.add(rid)
+    
+    # 벡터 검색 결과 추가 (필요한 만큼만)
+    for rid in vec_ids:
+        if rid not in seen and len(merged_ids) < fetch_upto:
             merged_ids.append(rid)
             seen.add(rid)
 
@@ -557,7 +584,7 @@ async def recommend_by_recipe_pgvector(
     if not page_ids:
         return pd.DataFrame()
 
-    # 4) 상세 조인(해당 페이지 ID만)
+    # 4) 상세 정보 조회 최적화 (필요한 컬럼만 선택)
     detail_stmt = (
         select(
             Recipe.recipe_id.label("RECIPE_ID"),
@@ -587,21 +614,33 @@ async def recommend_by_recipe_pgvector(
     final_df = detail_df.sort_values("__order__").drop(columns="__order__").reset_index(drop=True)
     final_df.insert(0, "No.", range(1, len(final_df) + 1))
 
-    # 6) (옵션) 재료 집계 — 레시피당 1행 유지
+    # 6) (옵션) 재료 집계 — 레시피당 1행 유지 (N+1 문제 해결)
     if include_materials and page_ids:
+        # 배치로 재료 정보 조회 (N+1 문제 해결)
         m_stmt = select(
             Material.recipe_id, Material.material_name, Material.measure_amount, Material.measure_unit
         ).where(Material.recipe_id.in_(page_ids))
         m_rows = (await mariadb.execute(m_stmt)).all()
         if m_rows:
             m_df = pd.DataFrame(m_rows, columns=["RECIPE_ID","MATERIAL_NAME","MEASURE_AMOUNT","MEASURE_UNIT"])
+            # 레시피별 재료 집계 최적화
             mats = (
                 m_df.groupby("RECIPE_ID")[["MATERIAL_NAME","MEASURE_AMOUNT","MEASURE_UNIT"]]
                 .apply(lambda g: g.to_dict("records"))
                 .rename("MATERIALS")
                 .reset_index()
             )
-            final_df = final_df.merge(mats, on="RECIPE_ID", how="left")
+            detail_df = detail_df.merge(mats, on="RECIPE_ID", how="left")
+
+    # 검색 결과를 캐시에 저장
+    if not final_df.empty:
+        cache_data = {
+            'recipes': final_df.to_dict(orient="records"),
+            'page': page,
+            'size': size,
+            'method': method
+        }
+        recipe_cache.set_cached_search(query, method, page, size, cache_data)
 
     return final_df
 
