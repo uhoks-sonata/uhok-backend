@@ -186,7 +186,7 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
         - 최신 주문순으로 정렬
         - 최적화: N+1 쿼리 문제 해결을 위해 JOIN과 배치 쿼리 사용
     """
-    # 1. 주문 기본 정보와 콕 주문 정보를 JOIN으로 한 번에 조회
+    # 1. 주문 기본 정보와 콕 주문 정보를 JOIN으로 한 번에 조회 (DISTINCT로 중복 제거)
     kok_orders_stmt = (
         select(
             Order.order_id, Order.user_id, Order.order_time, Order.cancel_time,
@@ -195,6 +195,7 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
             KokProductInfo.kok_product_name, KokProductInfo.kok_thumbnail,
             Recipe.recipe_title, Recipe.cooking_introduction, Recipe.scrap_count
         )
+        .distinct()
         .outerjoin(KokOrder, Order.order_id == KokOrder.order_id)
         .outerjoin(KokProductInfo, KokOrder.kok_product_id == KokProductInfo.kok_product_id)
         .outerjoin(Recipe, KokOrder.recipe_id == Recipe.recipe_id)
@@ -204,7 +205,7 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
         .limit(limit)
     )
     
-    # 2. 주문 기본 정보와 홈쇼핑 주문 정보를 JOIN으로 한 번에 조회
+    # 2. 주문 기본 정보와 홈쇼핑 주문 정보를 JOIN으로 한 번에 조회 (DISTINCT로 중복 제거)
     hs_orders_stmt = (
         select(
             Order.order_id, Order.user_id, Order.order_time, Order.cancel_time,
@@ -212,6 +213,7 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
             HomeShoppingOrder.quantity, HomeShoppingOrder.order_price, HomeShoppingOrder.dc_price,
             HomeshoppingList.product_name, HomeshoppingList.thumb_img_url
         )
+        .distinct()
         .outerjoin(HomeShoppingOrder, Order.order_id == HomeShoppingOrder.order_id)
         .outerjoin(HomeshoppingList, HomeShoppingOrder.product_id == HomeshoppingList.product_id)
         .where(Order.user_id == user_id)
