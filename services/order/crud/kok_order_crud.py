@@ -143,6 +143,11 @@ async def create_orders_from_selected_carts(
     
     if not rows:
         logger.warning(f"선택된 장바구니 항목을 찾을 수 없음: user_id={user_id}, kok_cart_ids={kok_cart_ids}")
+        
+        # 디버깅 정보 수집
+        debug_info = await debug_cart_status(db, user_id, kok_cart_ids)
+        logger.warning(f"장바구니 디버깅 정보: {debug_info}")
+        
         raise ValueError("선택된 장바구니 항목을 찾을 수 없습니다.")
 
     # 초기 상태: 주문접수
