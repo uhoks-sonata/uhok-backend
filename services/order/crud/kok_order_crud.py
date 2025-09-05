@@ -525,7 +525,7 @@ async def auto_update_order_status(kok_order_id: int, db: AsyncSession):
                 changed_by=1  # 시스템 자동 업데이트
             )
             
-    # logger.info(f"주문 {kok_order_id} 상태가 '{status_code}'로 업데이트되었습니다.")
+            logger.info(f"주문 {kok_order_id} 상태가 '{status_code}'로 업데이트되었습니다.")
             
         except Exception as e:
             logger.error(f"주문 {kok_order_id} 상태 업데이트 실패: {str(e)}")
