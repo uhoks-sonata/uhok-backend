@@ -590,17 +590,15 @@ async def search_recipe(
     # 기능 시간 체크 시작
     start_time = time.time()
     
-    # 1) 현재 페이지를 포함한 영역 + 다음 페이지 유무 감지를 위해 1개 더 요청
-    requested_top_k = page * size + 1    
-    
     logger.info(f"레시피 검색 호출: uid={current_user.user_id}, kw={recipe}, method={method}, p={page}, s={size}")
 
+    # 최적화된 검색 실행 (캐싱 포함)
     df: pd.DataFrame = await recommend_by_recipe_pgvector(
         mariadb=mariadb,
         postgres=postgres,
         query=recipe,
         method=method,
-        top_k=requested_top_k,
+        top_k=page * size + 1,  # 다음 페이지 감지를 위한 +1
         vector_searcher=vector_searcher,
         page=page,
         size=size,
@@ -611,18 +609,18 @@ async def search_recipe(
         # method=ingredient일 때는 recommend_by_recipe_pgvector에서 이미 페이지네이션 처리
         page_df = df
         
-        # 전체 개수 조회 (method=ingredient일 때만)
+        # 전체 개수 조회 최적화 (method=ingredient일 때만)
         ingredients = [i.strip() for i in (recipe or "").split(",") if i.strip()]
         if ingredients:
             from services.recipe.models.recipe_model import Material
+            # COUNT 쿼리로 최적화 (전체 데이터 조회 방지)
             total_stmt = (
-                select(Material.recipe_id)
+                select(func.count(func.distinct(Material.recipe_id)))
                 .where(Material.material_name.in_(ingredients))
-                .group_by(Material.recipe_id)
                 .having(func.count(func.distinct(Material.material_name)) == len(ingredients))
             )
-            total_rows = await mariadb.execute(total_stmt)
-            total_count = len(total_rows.all())
+            total_result = await mariadb.execute(total_stmt)
+            total_count = total_result.scalar() or 0
         else:
             total_count = 0
             
