@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = Field(..., env="ACCESS_TOKEN_EXPIRE_MINUTES", description="액세스 토큰 만료 시간(분)")
     
     # 웹훅 관련 설정
+    webhook_base_url: str = Field("http://api.uhok.com:5000", env="WEBHOOK_BASE_URL", description="웹훅 콜백 URL의 기본 도메인")
     # webhook_secret: Optional[str] = Field(None, env="WEBHOOK_SECRET", description="웹훅 서명 검증용 시크릿 키")
     
     # MariaDB 데이터베이스 연결 설정
@@ -53,6 +54,13 @@ class Settings(BaseSettings):
     postgres_recommend_url: str = Field(..., env="POSTGRES_RECOMMEND_URL", description="추천 시스템용 PostgreSQL 연결 URL")
     postgres_log_url: str = Field(..., env="POSTGRES_LOG_URL", description="로그 저장용 PostgreSQL 연결 URL")
     postgres_log_migrate_url: str = Field(..., env="POSTGRES_LOG_MIGRATE_URL", description="로그 DB 마이그레이션용 연결 URL")
+    
+    # Redis 캐시 설정
+    redis_url: str = Field("redis://redis:6379/0", env="REDIS_URL", description="Redis 연결 URL")
+
+    # ML 서비스 설정
+    ml_mode: str = Field("remote_embed", env="ML_MODE", description="ML 서비스 모드")
+    ml_service_url: str = Field("http://ml-inference:8001", env="ML_SERVICE_URL", description="ML 서비스 URL")
     
     # 외부 API 설정 (로그 전송 불필요하므로 제거)
     

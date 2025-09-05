@@ -15,7 +15,7 @@
 - MariaDB 기반 처리
 
 ### 3. 임베딩 벡터 유사도
-- SentenceTransformer 모델 사용
+- **ML 서비스 분리**: SentenceTransformer 모델은 `uhok-ml-inference` 서비스로 분리
 - 다국어 지원 (paraphrase-multilingual-MiniLM-L12-v2)
 - pgvector를 활용한 벡터 유사도 계산
 
@@ -38,16 +38,14 @@
 
 ## 핵심 컴포넌트
 
-### 1. SentenceTransformer 모델
+### 1. ML 서비스 연동
 ```python
-async def get_model():
-    """
-    SentenceTransformer 임베딩 모델을 전역 캐싱 후 반환 (최초 1회 로드)
-    """
-    global _model
-    if _model is None:
-        _model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2", device="cpu")
-    return _model
+# ML 서비스는 uhok-ml-inference로 분리됨
+# 백엔드에서는 원격 ML 서비스를 호출하여 임베딩 생성
+from .remote_ml_adapter import RemoteMLAdapter
+
+adapter = RemoteMLAdapter()
+embedding = await adapter._get_embedding_from_ml_service("갈비탕")
 ```
 
 ### 2. 레시피 추천 로직
@@ -75,9 +73,10 @@ async def _get_recipe_recommendations(df: pd.DataFrame, query: str, top_k: int =
 
 ## 성능 최적화
 
-### 1. 모델 캐싱
-- SentenceTransformer 모델을 전역 변수로 캐싱
-- 최초 1회 로드 후 재사용
+### 1. ML 서비스 분리
+- SentenceTransformer 모델은 별도 ML 서비스로 분리
+- 백엔드 메모리 사용량 대폭 감소
+- 독립적인 스케일링 가능
 
 ### 2. 벡터 유사도 계산
 - PostgreSQL pgvector 확장 활용
@@ -92,13 +91,15 @@ async def _get_recipe_recommendations(df: pd.DataFrame, query: str, top_k: int =
 ### 필요한 환경 변수
 - `MARIADB_SERVICE_URL`: MariaDB 연결 정보
 - `POSTGRES_URL`: PostgreSQL 연결 정보
+- `ML_MODE`: ML 서비스 모드 (기본값: remote_embed)
+- `ML_INFERENCE_URL`: ML 서비스 URL (기본값: http://ml-inference:8001)
 
 ### 의존성 패키지
 ```txt
-sentence-transformers
+# ML 관련 패키지는 uhok-ml-inference 서비스로 분리됨
 pandas
 numpy
-scikit-learn
+httpx  # ML 서비스 호출용
 ```
 
 ## 사용 예시
@@ -115,20 +116,24 @@ recommendations = await _get_recipe_recommendations(
 )
 ```
 
-### 모델 로딩
+### ML 서비스 연동
 ```python
-from services.recommend.recommend_service import get_model
+from services.recipe.utils.remote_ml_adapter import RemoteMLAdapter
 
-# 임베딩 모델 로드
-model = await get_model()
+# 원격 ML 서비스 어댑터 생성
+adapter = RemoteMLAdapter()
+
+# 임베딩 생성 (ML 서비스 호출)
+embedding = await adapter._get_embedding_from_ml_service("갈비탕")
 ```
 
 ## 주의사항
 
-1. **모델 크기**: SentenceTransformer 모델은 약 500MB 메모리 사용
-2. **벡터 차원**: 현재 384차원 벡터 사용
-3. **데이터베이스 연결**: MariaDB와 PostgreSQL 모두 필요
-4. **비동기 처리**: 모든 추천 함수는 비동기로 구현
+1. **ML 서비스 의존성**: ML 서비스가 실행 중이어야 함
+2. **네트워크 연결**: 백엔드와 ML 서비스 간 네트워크 연결 필요
+3. **벡터 차원**: 현재 384차원 벡터 사용
+4. **데이터베이스 연결**: MariaDB와 PostgreSQL 모두 필요
+5. **비동기 처리**: 모든 추천 함수는 비동기로 구현
 
 ## 향후 개선 계획
 

@@ -419,7 +419,7 @@ async def confirm_payment_and_update_status_v2(
     user_id: int,
     request: Request,
     background_tasks: Optional[BackgroundTasks] = None,
-    timeout_sec: int = 30,  # 웹훅 대기 타임아웃 (초)
+    timeout_sec: int = 60,  # 웹훅 대기 타임아웃 (초) - 30초에서 60초로 증가
 ) -> dict:
     """
     v2(웹훅) 결제 확인 시작:
@@ -445,7 +445,15 @@ async def confirm_payment_and_update_status_v2(
     # (3) tx & callback_url 준비
     tx_id = f"tx_{order_id}_{secrets.token_urlsafe(8)}"
     cb_token = secrets.token_urlsafe(16)
-    callback_url = str(request.url_for("payment_webhook_handler_v2", tx_id=tx_id)) + f"?t={cb_token}"
+    
+    # 절대 URL 생성 (payment-server에서 접근 가능하도록)
+    from common.config import get_settings
+    settings = get_settings()
+    base_url = settings.webhook_base_url.rstrip('/')
+    callback_url = f"{base_url}/api/orders/payment/webhook/v2/{tx_id}?t={cb_token}"
+    
+    # 디버깅을 위한 로그
+    logger.info(f"[v2] 웹훅 URL 생성: base_url={base_url}, tx_id={tx_id}, callback_url={callback_url}")
 
     payload = {
         "version": "v2",
@@ -516,10 +524,17 @@ async def confirm_payment_and_update_status_v2(
             
     except asyncio.TimeoutError:
         logger.error(f"[v2] 웹훅 대기 시간 초과: order_id={order_id}, tx_id={tx_id}, timeout={timeout_sec}초")
+        
+        # 웹훅 대기자 정리
+        try:
+            await webhook_waiters.cleanup(max_age_sec=timeout_sec)
+        except Exception as e:
+            logger.warning(f"[v2] 웹훅 대기자 정리 실패: {e}")
+        
         # 타임아웃 시 주문 취소
         try:
             await cancel_order(db, order_id, "결제 시간 초과")
-    # logger.info(f"[v2] 결제 시간 초과로 인한 주문 취소 완료: order_id={order_id}")
+            logger.info(f"[v2] 결제 시간 초과로 인한 주문 취소 완료: order_id={order_id}")
         except Exception as e:
             logger.error(f"[v2] 주문 취소 실패: order_id={order_id}, error={str(e)}")
         raise HTTPException(status_code=408, detail="결제 처리 시간 초과")

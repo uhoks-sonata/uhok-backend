@@ -733,7 +733,7 @@ async def start_hs_auto_update(
             try:
                 # 현재 세션을 사용하여 백그라운드에서 자동 업데이트 시작
                 asyncio.create_task(auto_update_hs_order_status(homeshopping_order_id, db))
-                # logger.info(f"백그라운드 자동 상태 업데이트 시작: homeshopping_order_id={homeshopping_order_id}")
+                logger.info(f"백그라운드 자동 상태 업데이트 시작: homeshopping_order_id={homeshopping_order_id}")
             except Exception as e:
                 logger.warning(f"백그라운드 자동 상태 업데이트 시작 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
             

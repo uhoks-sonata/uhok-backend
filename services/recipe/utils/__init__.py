@@ -19,7 +19,6 @@ from .ports import (
 )
 
 from .core import (
-    get_model,
     recommend_by_recipe_name_core
 )
 
@@ -44,7 +43,6 @@ __all__ = [
     "VectorSearcherPort",
     
     # core
-    "get_model",
     "recommend_by_recipe_name_core",
     
     # recommend_service

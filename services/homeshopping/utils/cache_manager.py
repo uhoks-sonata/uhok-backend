@@ -16,7 +16,7 @@ logger = get_logger("homeshopping_cache")
 class HomeshoppingCacheManager:
     """홈쇼핑 캐시 관리자"""
     
-    def __init__(self, redis_url: str = "redis://localhost:6379/0"):
+    def __init__(self, redis_url: str = "redis://redis:6379/0"):  # Redis URL 형식 (기본값)
         self.redis_url = redis_url
         self.redis_client: Optional[redis.Redis] = None
         self.cache_ttl = {

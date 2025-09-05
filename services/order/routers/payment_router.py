@@ -124,7 +124,7 @@ async def confirm_payment_v2(
                 event_type="payment_confirm_v2",
                 event_data={
                     "order_id": order_id,
-                    "result_status": result.get("status", "unknown")
+                    "result_status": result.status if hasattr(result, 'status') else "unknown"
                 },
                 **http_info  # HTTP 정보를 키워드 인자로 전달
             )
@@ -187,7 +187,7 @@ async def payment_webhook_v2(
         
         if not result.get("ok"):
             logger.error(f"[v2] 웹훅 처리 실패: {result}")
-            raise HTTPException(status_code=400, detail=result.get("reason","webhook handling failed"))
+            raise HTTPException(status_code=400, detail="webhook handling failed")
         
         # 웹훅 수신 로그 기록 (익명 사용자)
         if background_tasks:
