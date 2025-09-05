@@ -161,5 +161,23 @@
             7041234
         ],
         "combo_1_timestamp": "2025-09-05T10:04:08.081987"
+    },
+    "user:9:ingredients:40346ff8814aeca45af1035f78cf2d17:combinations": {
+        "combo_1": [
+            7020612,
+            7036003,
+            7024904,
+            7041234
+        ],
+        "combo_1_timestamp": "2025-09-05T11:10:27.258057"
+    },
+    "user:9:ingredients:93ff25f857f5d4bce4f90d393a1b916c:combinations": {
+        "combo_1": [
+            7036769,
+            7041234,
+            7018083,
+            7031028
+        ],
+        "combo_1_timestamp": "2025-09-05T11:21:34.121014"
     }
 }

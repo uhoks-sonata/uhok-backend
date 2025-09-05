@@ -150,7 +150,7 @@ class HomeshoppingProductDetail(BaseModel):
 
 class HomeshoppingProductImage(BaseModel):
     """상품 이미지 정보"""
-    img_url: str
+    img_url: Optional[str] = None
     sort_order: int
     
     class Config:
