@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = Field(..., env="ACCESS_TOKEN_EXPIRE_MINUTES", description="액세스 토큰 만료 시간(분)")
     
     # 웹훅 관련 설정
-    webhook_base_url: str = Field("http://api.uhok.com:5000", env="WEBHOOK_BASE_URL", description="웹훅 콜백 URL의 기본 도메인")
+    webhook_base_url: str = Field(..., env="WEBHOOK_BASE_URL", description="웹훅 콜백 URL의 기본 도메인")
     # webhook_secret: Optional[str] = Field(None, env="WEBHOOK_SECRET", description="웹훅 서명 검증용 시크릿 키")
     
     # MariaDB 데이터베이스 연결 설정
