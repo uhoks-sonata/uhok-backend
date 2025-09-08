@@ -60,7 +60,7 @@ async def get_homeshopping_schedule_optimized(
         # logger.info(f"캐시에서 스케줄 조회 완료: 결과 수={len(schedules)}, 전체={total_count}")
         return schedules, total_count
     
-    logger.info("캐시 미스 - 최적화된 테이블에서 스케줄 조회")
+    # logger.info("캐시 미스 - 최적화된 테이블에서 스케줄 조회")
     
     # 페이징 계산
     offset = (page - 1) * size
@@ -69,80 +69,114 @@ async def get_homeshopping_schedule_optimized(
     if live_date:
         # 특정 날짜 조회
         sql_query = """
-        SELECT 
-            live_id,
-            homeshopping_id,
-            homeshopping_name,
-            homeshopping_channel,
-            live_date,
-            live_start_time,
-            live_end_time,
-            promotion_type,
-            product_id,
-            product_name,
-            thumb_img_url,
-            sale_price,
-            dc_price,
-            dc_rate
-        FROM FCT_HOMESHOPPING_LIST
-        WHERE live_date = :live_date
+        WITH ranked_products AS (
+            SELECT 
+                hl.live_id,
+                hl.homeshopping_id,
+                hl.live_date,
+                hl.live_start_time,
+                hl.live_end_time,
+                hl.promotion_type,
+                hl.product_id,
+                hl.product_name,
+                hl.thumb_img_url,
+                hi.homeshopping_name,
+                hi.homeshopping_channel,
+                COALESCE(hpi.sale_price, 0) as sale_price,
+                COALESCE(hpi.dc_price, 0) as dc_price,
+                COALESCE(hpi.dc_rate, 0) as dc_rate,
+                ROW_NUMBER() OVER (
+                    PARTITION BY hl.product_id 
+                    ORDER BY hl.live_date DESC, hl.live_start_time DESC
+                ) as rn
+            FROM FCT_HOMESHOPPING_LIST hl
+            INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
+            INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
+            LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
+            WHERE hl.live_date = :live_date
+            AND hc.cls_food = 1
+        )
+        SELECT live_id, homeshopping_id, live_date, live_start_time, live_end_time,
+            promotion_type, product_id, product_name, thumb_img_url,
+            homeshopping_name, homeshopping_channel, sale_price, dc_price, dc_rate
+        FROM ranked_products
+        WHERE rn = 1
         ORDER BY live_date DESC, live_start_time ASC
         LIMIT :limit OFFSET :offset
         """
         
         count_sql = """
-        SELECT COUNT(*)
-        FROM HOMESHOPPING_SCHEDULE_OPTIMIZED
-        WHERE live_date = :live_date
+        SELECT COUNT(DISTINCT hl.product_id)
+        FROM FCT_HOMESHOPPING_LIST hl
+        INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
+        WHERE hl.live_date = :live_date
+        AND hc.cls_food = 1
         """
         
         params = {"live_date": live_date, "limit": size, "offset": offset}
         count_params = {"live_date": live_date}
     else:
-        # 전체 조회
+        # 전체 조회 - 윈도우 함수로 최적화
         sql_query = """
-        SELECT 
-            live_id,
-            homeshopping_id,
-            homeshopping_name,
-            homeshopping_channel,
-            live_date,
-            live_start_time,
-            live_end_time,
-            promotion_type,
-            product_id,
-            product_name,
-            thumb_img_url,
-            sale_price,
-            dc_price,
-            dc_rate
-        FROM FCT_HOMESHOPPING_LIST
+        WITH ranked_products AS (
+            SELECT 
+                hl.live_id,
+                hl.homeshopping_id,
+                hl.live_date,
+                hl.live_start_time,
+                hl.live_end_time,
+                hl.promotion_type,
+                hl.product_id,
+                hl.product_name,
+                hl.thumb_img_url,
+                hi.homeshopping_name,
+                hi.homeshopping_channel,
+                COALESCE(hpi.sale_price, 0) as sale_price,
+                COALESCE(hpi.dc_price, 0) as dc_price,
+                COALESCE(hpi.dc_rate, 0) as dc_rate,
+                ROW_NUMBER() OVER (
+                    PARTITION BY hl.product_id 
+                    ORDER BY hl.live_date DESC, hl.live_start_time DESC
+                ) as rn
+            FROM FCT_HOMESHOPPING_LIST hl
+            INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
+            INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
+            LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
+            WHERE hc.cls_food = 1
+        )
+        SELECT live_id, homeshopping_id, live_date, live_start_time, live_end_time,
+            promotion_type, product_id, product_name, thumb_img_url,
+            homeshopping_name, homeshopping_channel, sale_price, dc_price, dc_rate
+        FROM ranked_products
+        WHERE rn = 1
         ORDER BY live_date DESC, live_start_time ASC
         LIMIT :limit OFFSET :offset
         """
         
         count_sql = """
-        SELECT COUNT(*)
-        FROM HOMESHOPPING_SCHEDULE_OPTIMIZED
+        SELECT COUNT(DISTINCT hl.product_id)
+        FROM FCT_HOMESHOPPING_LIST hl
+        INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
+        WHERE hc.cls_food = 1
         """
         
         params = {"limit": size, "offset": offset}
         count_params = {}
     
     # Raw SQL 실행
-    logger.info("최적화된 테이블에서 스케줄 데이터 조회 시작")
+    # logger.info("최적화된 테이블에서 스케줄 데이터 조회 시작")
     try:
-        # 먼저 HOMESHOPPING_SCHEDULE_OPTIMIZED 테이블 존재 확인
-        table_check_sql = "SELECT COUNT(*) FROM HOMESHOPPING_SCHEDULE_OPTIMIZED"
+        # 먼저 FCT_HOMESHOPPING_LIST 테이블 존재 확인
+        table_check_sql = "SELECT COUNT(*) FROM FCT_HOMESHOPPING_LIST"
         table_result = await db.execute(text(table_check_sql))
         table_count = table_result.scalar()
-        logger.info(f"HOMESHOPPING_SCHEDULE_OPTIMIZED 테이블 데이터 확인: {table_count}개 레코드")
+        # logger.info(f"FCT_HOMESHOPPING_LIST 테이블 데이터 확인: {table_count}개 레코드")
         
         if live_date:
-            date_check_sql = "SELECT COUNT(*) FROM HOMESHOPPING_SCHEDULE_OPTIMIZED WHERE live_date = :live_date"
+            date_check_sql = "SELECT COUNT(*) FROM FCT_HOMESHOPPING_LIST WHERE live_date = :live_date"
             date_result = await db.execute(text(date_check_sql), {"live_date": live_date})
             date_count = date_result.scalar()
-            logger.info(f"해당 날짜 데이터 확인: {live_date} 날짜에 {date_count}개 레코드")
+            # logger.info(f"해당 날짜 데이터 확인: {live_date} 날짜에 {date_count}개 레코드")
         
         result = await db.execute(text(sql_query), params)
         schedules = result.fetchall()
@@ -150,7 +184,7 @@ async def get_homeshopping_schedule_optimized(
         count_result = await db.execute(text(count_sql), count_params)
         total_count = count_result.scalar()
         
-        logger.info(f"최적화된 테이블 조회 결과: schedules={len(schedules)}, total_count={total_count}")
+        # logger.info(f"최적화된 테이블 조회 결과: schedules={len(schedules)}, total_count={total_count}")
     except Exception as e:
         logger.error(f"스케줄 조회 SQL 실행 실패: live_date={live_date}, page={page}, size={size}, error={str(e)}")
         raise
@@ -203,185 +237,17 @@ async def get_homeshopping_schedule(
 ) -> Tuple[List[dict], int]:
     """
     홈쇼핑 편성표 조회 (식품만) - 최적화 버전
-    - 윈도우 함수 사용으로 복잡한 JOIN 최적화
-    - 인덱스 최적화를 위한 쿼리 구조 개선
+    - get_homeshopping_schedule_optimized 함수를 호출하여 단순화
     """
-    logger.info(f"=== get_homeshopping_schedule 함수 호출됨: live_date={live_date}, page={page}, size={size} ===")
+    # logger.info(f"=== get_homeshopping_schedule 함수 호출됨: live_date={live_date}, page={page}, size={size} ===")
     
-    # Redis 캐시 조회
-    cached_result = await cache_manager.get_schedule_cache(live_date, page, size)
-    if cached_result:
-        schedules, total_count = cached_result
-        # 캐시에 데이터가 있고 실제로 결과가 있는 경우만 캐시 사용
-        if len(schedules) > 0 or total_count > 0:
-            logger.info(f"캐시에서 스케줄 조회 완료: 결과 수={len(schedules)}, 전체={total_count}")
-            return schedules, total_count
-        else:
-            logger.info("캐시에 빈 결과가 저장되어 있음 - DB에서 다시 조회")
-    
-    # DB에서 직접 조회
-    # logger.info("DB에서 스케줄 조회 (캐시 비활성화)")
-
-    # 페이징 계산
-    offset = (page - 1) * size
-    
-    # 최적화된 쿼리: 윈도우 함수를 사용하여 복잡한 JOIN 제거
-    if live_date:
-        # 특정 날짜 조회 - 윈도우 함수로 최적화
-        sql_query = """
-        WITH ranked_products AS (
-            SELECT 
-                hl.live_id,
-                hl.homeshopping_id,
-                hl.live_date,
-                hl.live_start_time,
-                hl.live_end_time,
-                hl.promotion_type,
-                hl.product_id,
-                hl.product_name,
-                hl.thumb_img_url,
-                hi.homeshopping_name,
-                hi.homeshopping_channel,
-                COALESCE(hpi.sale_price, 0) as sale_price,
-                COALESCE(hpi.dc_price, 0) as dc_price,
-                COALESCE(hpi.dc_rate, 0) as dc_rate,
-                ROW_NUMBER() OVER (
-                    PARTITION BY hl.product_id 
-                    ORDER BY hl.live_date DESC, hl.live_start_time DESC
-                ) as rn
-            FROM FCT_HOMESHOPPING_LIST hl
-            INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
-            INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
-            LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
-            WHERE hl.live_date = :live_date
-            AND hc.cls_food = 1
-        )
-        SELECT 
-            live_id, homeshopping_id, live_date, live_start_time, live_end_time,
-            promotion_type, product_id, product_name, thumb_img_url,
-            homeshopping_name, homeshopping_channel, sale_price, dc_price, dc_rate
-        FROM ranked_products
-        WHERE rn = 1
-        ORDER BY live_date DESC, live_start_time ASC
-        LIMIT :limit OFFSET :offset
-        """
-        
-        count_sql = """
-        SELECT COUNT(DISTINCT hl.product_id)
-        FROM FCT_HOMESHOPPING_LIST hl
-        INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
-        WHERE hl.live_date = :live_date
-        AND hc.cls_food = 1
-        """
-        
-        params = {"live_date": live_date, "limit": size, "offset": offset}
-        count_params = {"live_date": live_date}
-    else:
-        # 전체 조회 - 윈도우 함수로 최적화
-        sql_query = """
-        WITH ranked_products AS (
-            SELECT 
-                hl.live_id,
-                hl.homeshopping_id,
-                hl.live_date,
-                hl.live_start_time,
-                hl.live_end_time,
-                hl.promotion_type,
-                hl.product_id,
-                hl.product_name,
-                hl.thumb_img_url,
-                hi.homeshopping_name,
-                hi.homeshopping_channel,
-                COALESCE(hpi.sale_price, 0) as sale_price,
-                COALESCE(hpi.dc_price, 0) as dc_price,
-                COALESCE(hpi.dc_rate, 0) as dc_rate,
-                ROW_NUMBER() OVER (
-                    PARTITION BY hl.product_id 
-                    ORDER BY hl.live_date DESC, hl.live_start_time DESC
-                ) as rn
-            FROM FCT_HOMESHOPPING_LIST hl
-            INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
-            INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
-            LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
-            WHERE hc.cls_food = 1
-        )
-        SELECT 
-            live_id, homeshopping_id, live_date, live_start_time, live_end_time,
-            promotion_type, product_id, product_name, thumb_img_url,
-            homeshopping_name, homeshopping_channel, sale_price, dc_price, dc_rate
-        FROM ranked_products
-        WHERE rn = 1
-        ORDER BY live_date DESC, live_start_time ASC
-        LIMIT :limit OFFSET :offset
-        """
-        
-        count_sql = """
-        SELECT COUNT(DISTINCT hl.product_id)
-        FROM FCT_HOMESHOPPING_LIST hl
-        INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
-        WHERE hc.cls_food = 1
-        """
-        
-        params = {"limit": size, "offset": offset}
-        count_params = {}
-    
-    # 최적화된 SQL 실행
-    try:
-        result = await db.execute(text(sql_query), params)
-        schedules = result.fetchall()
-        
-        count_result = await db.execute(text(count_sql), count_params)
-        total_count = count_result.scalar()
-    except Exception as e:
-        logger.error(f"스케줄 조회 SQL 실행 실패: live_date={live_date}, page={page}, size={size}, error={str(e)}")
-        raise
-    
-    # 결과 변환 - 시간 타입 처리
-    schedule_list = []
-    for row in schedules:
-        # timedelta를 time으로 변환
-        start_time = row.live_start_time
-        end_time = row.live_end_time
-        
-        if hasattr(start_time, 'total_seconds'):
-            # timedelta인 경우 time으로 변환
-            start_time = (datetime.min + start_time).time()
-        if hasattr(end_time, 'total_seconds'):
-            # timedelta인 경우 time으로 변환
-            end_time = (datetime.min + end_time).time()
-        
-        schedule_list.append({
-            "live_id": row.live_id,
-            "homeshopping_id": row.homeshopping_id,
-            "homeshopping_name": row.homeshopping_name,
-            "homeshopping_channel": row.homeshopping_channel,
-            "live_date": row.live_date,
-            "live_start_time": start_time,
-            "live_end_time": end_time,
-            "promotion_type": row.promotion_type,
-            "product_id": row.product_id,
-            "product_name": row.product_name,
-            "thumb_img_url": row.thumb_img_url,
-            "sale_price": row.sale_price,
-            "dc_price": row.dc_price,
-            "dc_rate": row.dc_rate
-        })
-    
-    # Redis 캐시 저장
-    asyncio.create_task(
-        cache_manager.set_schedule_cache(schedule_list, total_count, live_date, page, size)
-    )
-
-    # logger.info(f"홈쇼핑 편성표 조회 완료: live_date={live_date}, 결과 수={len(schedule_list)}, 전체={total_count}")
-    return schedule_list, total_count
+    # 최적화된 함수 호출
+    return await get_homeshopping_schedule_optimized(db, live_date, page, size)
 
 
 # -----------------------------
-# 스트리밍 관련 CRUD 함수 (기본 구조)
+# 라이브 스트림 관련 CRUD 함수
 # -----------------------------
-
-
-
 
 async def get_homeshopping_live_url(
     db: AsyncSession,
@@ -410,6 +276,11 @@ async def get_homeshopping_live_url(
     except Exception as e:
         logger.error(f"홈쇼핑 live_url 조회 중 오류 발생: homeshopping_id={homeshopping_id}, error={str(e)}")
         raise
+
+
+# -----------------------------
+# 스트리밍 관련 CRUD 함수 (기본 구조)
+# -----------------------------
 
 
 async def get_homeshopping_stream_info(
@@ -493,36 +364,45 @@ async def search_homeshopping_products(
     """
     # logger.info(f"홈쇼핑 상품 검색 시작: keyword='{keyword}'")
     
-    # 최적화된 검색 쿼리: 윈도우 함수를 사용하여 중복 제거
+    # 최적화된 검색 쿼리: 윈도우 함수를 사용하여 중복 제거 + 홈쇼핑 정보 포함
     sql_query = """
     WITH ranked_products AS (
         SELECT 
             hl.live_id,
+            hl.homeshopping_id,
             hl.product_id,
             hl.product_name,
-            hpi.store_name,
-            hpi.sale_price,
-            hpi.dc_price,
-            hpi.dc_rate,
             hl.thumb_img_url,
             hl.live_date,
             hl.live_start_time,
             hl.live_end_time,
+            hl.promotion_type,
+            hi.homeshopping_name,
+            hi.homeshopping_channel,
+            hpi.store_name,
+            hpi.sale_price,
+            hpi.dc_price,
+            hpi.dc_rate,
             ROW_NUMBER() OVER (
                 PARTITION BY hl.product_id 
                 ORDER BY hl.live_date DESC, hl.live_start_time DESC
             ) as rn
         FROM FCT_HOMESHOPPING_LIST hl
-        INNER JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
+        INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
+        INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
+        LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
         WHERE (
             hl.product_name LIKE :keyword OR 
-            hpi.store_name LIKE :keyword
+            hpi.store_name LIKE :keyword OR
+            hi.homeshopping_name LIKE :keyword
         )
+        AND hc.cls_food = 1
     )
     SELECT 
-        live_id, product_id, product_name, store_name,
-        sale_price, dc_price, dc_rate, thumb_img_url,
-        live_date, live_start_time, live_end_time
+        live_id, homeshopping_id, product_id, product_name, thumb_img_url,
+        live_date, live_start_time, live_end_time, promotion_type,
+        homeshopping_name, homeshopping_channel, store_name,
+        sale_price, dc_price, dc_rate
     FROM ranked_products
     WHERE rn = 1
     ORDER BY live_date DESC, live_start_time DESC
@@ -538,8 +418,20 @@ async def search_homeshopping_products(
     
     product_list = []
     for row in products:
+        # timedelta를 time으로 변환
+        start_time = row.live_start_time
+        end_time = row.live_end_time
+        
+        if hasattr(start_time, 'total_seconds'):
+            start_time = (datetime.min + start_time).time()
+        if hasattr(end_time, 'total_seconds'):
+            end_time = (datetime.min + end_time).time()
+        
         product_list.append({
             "live_id": row.live_id,
+            "homeshopping_id": row.homeshopping_id,
+            "homeshopping_name": row.homeshopping_name,
+            "homeshopping_channel": row.homeshopping_channel,
             "product_id": row.product_id,
             "product_name": row.product_name,
             "store_name": row.store_name,
@@ -548,8 +440,9 @@ async def search_homeshopping_products(
             "dc_rate": row.dc_rate,
             "thumb_img_url": row.thumb_img_url,
             "live_date": row.live_date,
-            "live_start_time": row.live_start_time,
-            "live_end_time": row.live_end_time
+            "live_start_time": start_time,
+            "live_end_time": end_time,
+            "promotion_type": row.promotion_type
         })
     
     # logger.info(f"홈쇼핑 상품 검색 완료: keyword='{keyword}', 결과 수={len(product_list)}")
@@ -994,19 +887,23 @@ async def get_homeshopping_liked_products(
         logger.warning(f"유효하지 않은 user_id: {user_id}")
         return []
     
-    # 최적화된 쿼리: 윈도우 함수를 사용하여 중복 제거
+    # 최적화된 쿼리: 윈도우 함수를 사용하여 중복 제거 + 홈쇼핑 정보 포함
     sql_query = """
     WITH ranked_liked_products AS (
         SELECT 
             hl.live_id,
+            hl.homeshopping_id,
             hl.product_id,
             hl.product_name,
             hl.thumb_img_url,
             hl.live_date,
             hl.live_start_time,
             hl.live_end_time,
-            hl.homeshopping_id,
+            hl.promotion_type,
+            hi.homeshopping_name,
+            hi.homeshopping_channel,
             hpi.store_name,
+            hpi.sale_price,
             hpi.dc_price,
             hpi.dc_rate,
             hl_likes.homeshopping_like_created_at,
@@ -1016,13 +913,17 @@ async def get_homeshopping_liked_products(
             ) as rn
         FROM HOMESHOPPING_LIKES hl_likes
         INNER JOIN FCT_HOMESHOPPING_LIST hl ON hl_likes.product_id = hl.product_id
-        INNER JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
+        INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
+        INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
+        LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
         WHERE hl_likes.user_id = :user_id
+        AND hc.cls_food = 1
     )
     SELECT 
-        live_id, product_id, product_name, thumb_img_url,
-        live_date, live_start_time, live_end_time, homeshopping_id,
-        store_name, dc_price, dc_rate, homeshopping_like_created_at
+        live_id, homeshopping_id, product_id, product_name, thumb_img_url,
+        live_date, live_start_time, live_end_time, promotion_type,
+        homeshopping_name, homeshopping_channel, store_name,
+        sale_price, dc_price, dc_rate, homeshopping_like_created_at
     FROM ranked_liked_products
     WHERE rn = 1
     ORDER BY homeshopping_like_created_at DESC, product_id
@@ -1067,9 +968,13 @@ async def get_homeshopping_liked_products(
         
         product_list.append({
             "live_id": row.live_id,
+            "homeshopping_id": row.homeshopping_id,
+            "homeshopping_name": row.homeshopping_name,
+            "homeshopping_channel": row.homeshopping_channel,
             "product_id": row.product_id,
             "product_name": row.product_name,
             "store_name": row.store_name if row.store_name else None,
+            "sale_price": row.sale_price if row.sale_price else None,
             "dc_price": row.dc_price if row.dc_price else None,
             "dc_rate": row.dc_rate if row.dc_rate else None,
             "thumb_img_url": row.thumb_img_url,
@@ -1077,7 +982,7 @@ async def get_homeshopping_liked_products(
             "live_date": row.live_date,
             "live_start_time": live_start_time,
             "live_end_time": live_end_time,
-            "homeshopping_id": row.homeshopping_id
+            "promotion_type": row.promotion_type
         })
     
     # logger.info(f"홈쇼핑 찜한 상품 조회 완료: user_id={user_id}, 결과 수={len(product_list)}")

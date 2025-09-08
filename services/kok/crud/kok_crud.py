@@ -267,13 +267,10 @@ async def get_kok_discounted_products(
     
     # 개선된 캐싱 전략: 전체 데이터를 캐시에서 조회
     if use_cache:
-        cached_data = cache_manager.get('all_discounted_products')
+        cached_data = cache_manager.get('discounted_products', page=page, size=size)
         if cached_data:
-            # 페이지네이션을 메모리에서 처리
-            start_idx = (page - 1) * size
-            end_idx = start_idx + size
-            # logger.info(f"캐시에서 할인 상품 조회 완료: page={page}, size={size}, 결과 수={len(cached_data[start_idx:end_idx])}")
-            return cached_data[start_idx:end_idx]
+            # logger.info(f"캐시에서 할인 상품 조회 완료: page={page}, size={size}, 결과 수={len(cached_data)}")
+            return cached_data
     
     offset = (page - 1) * size
     
@@ -300,7 +297,7 @@ async def get_kok_discounted_products(
     # 2. 서브쿼리로 최신 가격만 필터링 (rn = 1)
     stmt = (
         select(
-            windowed_query.c.KokProductInfo,
+            KokProductInfo,
             windowed_query.c.kok_discount_rate,
             windowed_query.c.kok_discounted_price
         )
@@ -336,7 +333,7 @@ async def get_kok_discounted_products(
         # 전체 데이터를 조회하여 캐시에 저장
         all_data_stmt = (
             select(
-                windowed_query.c.KokProductInfo,
+                KokProductInfo,
                 windowed_query.c.kok_discount_rate,
                 windowed_query.c.kok_discounted_price
             )
@@ -362,7 +359,7 @@ async def get_kok_discounted_products(
                 })
             
             # 전체 데이터를 캐시에 저장 (TTL 5분)
-            cache_manager.set('all_discounted_products', all_products, ttl=300)
+            cache_manager.set('discounted_products', all_products, page=page, size=size)
         except Exception as e:
             logger.warning(f"전체 데이터 캐싱 실패: {str(e)}")
     
@@ -394,13 +391,10 @@ async def get_kok_top_selling_products(
     
     # 개선된 캐싱 전략: 전체 데이터를 캐시에서 조회
     if use_cache:
-        cached_data = cache_manager.get(f'all_top_selling_products_{sort_by}')
+        cached_data = cache_manager.get('top_selling_products', page=page, size=size, sort_by=sort_by)
         if cached_data:
-            # 페이지네이션을 메모리에서 처리
-            start_idx = (page - 1) * size
-            end_idx = start_idx + size
-            # logger.info(f"캐시에서 인기 상품 조회 완료: page={page}, size={size}, 결과 수={len(cached_data[start_idx:end_idx])}")
-            return cached_data[start_idx:end_idx]
+            # logger.info(f"캐시에서 인기 상품 조회 완료: page={page}, size={size}, 결과 수={len(cached_data)}")
+            return cached_data
     
     offset = (page - 1) * size
     
@@ -444,7 +438,7 @@ async def get_kok_top_selling_products(
     # 2. 서브쿼리로 최신 가격만 필터링 (rn = 1)
     stmt = (
         select(
-            windowed_query.c.KokProductInfo,
+            KokProductInfo,
             windowed_query.c.kok_discount_rate,
             windowed_query.c.kok_discounted_price
         )
@@ -480,7 +474,7 @@ async def get_kok_top_selling_products(
         # 전체 데이터를 조회하여 캐시에 저장
         all_data_stmt = (
             select(
-                windowed_query.c.KokProductInfo,
+                KokProductInfo,
                 windowed_query.c.kok_discount_rate,
                 windowed_query.c.kok_discounted_price
             )
@@ -506,7 +500,7 @@ async def get_kok_top_selling_products(
                 })
             
             # 전체 데이터를 캐시에 저장 (TTL 5분)
-            cache_manager.set(f'all_top_selling_products_{sort_by}', all_products, ttl=300)
+            cache_manager.set('top_selling_products', all_products, page=page, size=size, sort_by=sort_by)
         except Exception as e:
             logger.warning(f"전체 데이터 캐싱 실패: {str(e)}")
     
@@ -739,7 +733,7 @@ async def get_kok_store_best_items(
     # 최신 가격만 필터링하여 조회
     optimized_stmt = (
         select(
-            windowed_query.c.KokProductInfo,
+            KokProductInfo,
             windowed_query.c.kok_discount_rate,
             windowed_query.c.kok_discounted_price
         )
@@ -1381,7 +1375,7 @@ async def search_kok_products(
         # 최신 가격만 필터링하여 검색 결과 조회
         search_stmt = (
             select(
-                windowed_query.c.KokProductInfo,
+                KokProductInfo,
                 windowed_query.c.kok_discount_rate,
                 windowed_query.c.kok_discounted_price
             )
