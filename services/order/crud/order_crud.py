@@ -135,7 +135,7 @@ async def get_order_by_id(db: AsyncSession, order_id: int) -> dict:
             ko.recipe_id,
             ko.kok_price_id,
             ROW_NUMBER() OVER (PARTITION BY ko.order_id ORDER BY ko.kok_order_id) as rn
-        FROM KOK_ORDER ko
+        FROM KOK_ORDERS ko
         WHERE ko.order_id = :order_id
     ),
     homeshopping_orders_data AS (
@@ -147,7 +147,7 @@ async def get_order_by_id(db: AsyncSession, order_id: int) -> dict:
             ho.order_price,
             ho.dc_price,
             ROW_NUMBER() OVER (PARTITION BY ho.order_id ORDER BY ho.homeshopping_order_id) as rn
-        FROM HOMESHOPPING_ORDER ho
+        FROM HOMESHOPPING_ORDERS ho
         WHERE ho.order_id = :order_id
     )
     SELECT 
@@ -261,7 +261,7 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
             r.scrap_count,
             ROW_NUMBER() OVER (PARTITION BY o.order_id ORDER BY ko.kok_order_id) as rn
         FROM ORDERS o
-        LEFT JOIN KOK_ORDER ko ON o.order_id = ko.order_id
+        LEFT JOIN KOK_ORDERS ko ON o.order_id = ko.order_id
         LEFT JOIN KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
         LEFT JOIN RECIPE r ON ko.recipe_id = r.recipe_id
         WHERE o.user_id = :user_id
@@ -287,7 +287,7 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
             hl.thumb_img_url,
             ROW_NUMBER() OVER (PARTITION BY o.order_id ORDER BY ho.homeshopping_order_id) as rn
         FROM ORDERS o
-        LEFT JOIN HOMESHOPPING_ORDER ho ON o.order_id = ho.order_id
+        LEFT JOIN HOMESHOPPING_ORDERS ho ON o.order_id = ho.order_id
         LEFT JOIN FCT_HOMESHOPPING_LIST hl ON ho.product_id = hl.product_id
         WHERE o.user_id = :user_id
         ORDER BY o.order_time DESC
@@ -745,8 +745,8 @@ async def calculate_order_total_price(db: AsyncSession, order_id: int) -> int:
         COALESCE(SUM(ko.order_price), 0) as kok_total,
         COALESCE(SUM(ho.order_price), 0) as homeshopping_total
     FROM ORDERS o
-    LEFT JOIN KOK_ORDER ko ON o.order_id = ko.order_id
-    LEFT JOIN HOMESHOPPING_ORDER ho ON o.order_id = ho.order_id
+    LEFT JOIN KOK_ORDERS ko ON o.order_id = ko.order_id
+    LEFT JOIN HOMESHOPPING_ORDERS ho ON o.order_id = ho.order_id
     WHERE o.order_id = :order_id
     """
     
@@ -1195,7 +1195,7 @@ async def get_recent_orders_with_ingredients(
             kpi.kok_product_name,
             'kok' as product_type
         FROM recent_orders ro
-        INNER JOIN KOK_ORDER ko ON ro.order_id = ko.order_id
+        INNER JOIN KOK_ORDERS ko ON ro.order_id = ko.order_id
         INNER JOIN KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
         WHERE kpi.kok_product_name IS NOT NULL
     ),
@@ -1210,7 +1210,7 @@ async def get_recent_orders_with_ingredients(
             hl.product_name,
             'homeshopping' as product_type
         FROM recent_orders ro
-        INNER JOIN HOMESHOPPING_ORDER ho ON ro.order_id = ho.order_id
+        INNER JOIN HOMESHOPPING_ORDERS ho ON ro.order_id = ho.order_id
         INNER JOIN FCT_HOMESHOPPING_LIST hl ON ho.product_id = hl.product_id
         WHERE hl.product_name IS NOT NULL
     )
