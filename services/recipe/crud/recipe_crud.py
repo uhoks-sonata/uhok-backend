@@ -895,8 +895,8 @@ async def fetch_recipe_ingredients_status(
             kpi.kok_product_name,
             'kok' as order_type
         FROM ORDERS o
-        INNER JOIN KOK_ORDER ko ON o.order_id = ko.order_id
-        INNER JOIN KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
+        INNER JOIN KOK_ORDERS ko ON o.order_id = ko.order_id
+        INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
         WHERE o.user_id = :user_id
         AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
         AND o.cancel_time IS NULL
@@ -923,7 +923,7 @@ async def fetch_recipe_ingredients_status(
             kc.kok_quantity,
             'kok' as cart_type
         FROM KOK_CART kc
-        INNER JOIN KOK_PRODUCT_INFO kpi ON kc.kok_product_id = kpi.kok_product_id
+        INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON kc.kok_product_id = kpi.kok_product_id
         WHERE kc.user_id = :user_id
         
         UNION ALL
@@ -1138,8 +1138,8 @@ async def get_recipe_ingredients_status(
                 ko.quantity,
                 'kok' as order_type
             FROM ORDERS o
-            INNER JOIN KOK_ORDER ko ON o.order_id = ko.order_id
-            INNER JOIN KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
+            INNER JOIN KOK_ORDERS ko ON o.order_id = ko.order_id
+            INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
             WHERE o.user_id = :user_id
             AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
             AND o.cancel_time IS NULL
@@ -1167,7 +1167,7 @@ async def get_recipe_ingredients_status(
                 kc.kok_quantity,
                 'kok' as cart_type
             FROM KOK_CART kc
-            INNER JOIN KOK_PRODUCT_INFO kpi ON kc.kok_product_id = kpi.kok_product_id
+            INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON kc.kok_product_id = kpi.kok_product_id
             WHERE kc.user_id = :user_id
         )
         SELECT 

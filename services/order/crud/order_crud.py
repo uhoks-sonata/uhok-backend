@@ -262,7 +262,7 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
             ROW_NUMBER() OVER (PARTITION BY o.order_id ORDER BY ko.kok_order_id) as rn
         FROM ORDERS o
         LEFT JOIN KOK_ORDERS ko ON o.order_id = ko.order_id
-        LEFT JOIN KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
+        LEFT JOIN FCT_KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
         LEFT JOIN RECIPE r ON ko.recipe_id = r.recipe_id
         WHERE o.user_id = :user_id
         ORDER BY o.order_time DESC
@@ -1196,7 +1196,7 @@ async def get_recent_orders_with_ingredients(
             'kok' as product_type
         FROM recent_orders ro
         INNER JOIN KOK_ORDERS ko ON ro.order_id = ko.order_id
-        INNER JOIN KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
+        INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
         WHERE kpi.kok_product_name IS NOT NULL
     ),
     homeshopping_products AS (

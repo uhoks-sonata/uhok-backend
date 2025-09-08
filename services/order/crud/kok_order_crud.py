@@ -65,7 +65,7 @@ async def calculate_kok_order_price(
         kpi.kok_product_price,
         COALESCE(kpi.kok_discounted_price, kpi.kok_product_price, 0) as unit_price,
         kpi.kok_product_name
-    FROM KOK_PRICE_INFO kpi
+    FROM FCT_KOK_PRICE_INFO kpi
     WHERE kpi.kok_price_id = :kok_price_id
     """
     
@@ -477,7 +477,7 @@ async def get_kok_order_with_current_status(db: AsyncSession, kok_order_id: int)
         COALESCE(ls.status_name, '주문 접수') as current_status_name,
         ls.changed_at as status_changed_at,
         ls.changed_by as status_changed_by
-    FROM KOK_ORDER ko
+    FROM KOK_ORDERS ko
     LEFT JOIN latest_status_info ls ON ko.kok_order_id = ls.kok_order_id AND ls.rn = 1
     WHERE ko.kok_order_id = :kok_order_id
     """
@@ -710,8 +710,8 @@ async def get_kok_order_notifications_history(
         kpi.kok_product_name
     FROM KOK_NOTIFICATION kn
     INNER JOIN STATUS_MASTER sm ON kn.status_id = sm.status_id
-    INNER JOIN KOK_ORDER ko ON kn.kok_order_id = ko.kok_order_id
-    INNER JOIN KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
+    INNER JOIN KOK_ORDERS ko ON kn.kok_order_id = ko.kok_order_id
+    INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
     WHERE kn.user_id = :user_id
     AND sm.status_code IN :order_status_codes
     ORDER BY kn.created_at DESC

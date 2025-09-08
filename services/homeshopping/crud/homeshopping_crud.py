@@ -84,7 +84,7 @@ async def get_homeshopping_schedule_optimized(
             sale_price,
             dc_price,
             dc_rate
-        FROM HOMESHOPPING_SCHEDULE_OPTIMIZED
+        FROM FCT_HOMESHOPPING_LIST
         WHERE live_date = :live_date
         ORDER BY live_date DESC, live_start_time ASC
         LIMIT :limit OFFSET :offset
@@ -116,7 +116,7 @@ async def get_homeshopping_schedule_optimized(
             sale_price,
             dc_price,
             dc_rate
-        FROM HOMESHOPPING_SCHEDULE_OPTIMIZED
+        FROM FCT_HOMESHOPPING_LIST
         ORDER BY live_date DESC, live_start_time ASC
         LIMIT :limit OFFSET :offset
         """
@@ -130,14 +130,27 @@ async def get_homeshopping_schedule_optimized(
         count_params = {}
     
     # Raw SQL 실행
-    # logger.info("최적화된 테이블에서 스케줄 데이터 조회 시작")
+    logger.info("최적화된 테이블에서 스케줄 데이터 조회 시작")
     try:
+        # 먼저 HOMESHOPPING_SCHEDULE_OPTIMIZED 테이블 존재 확인
+        table_check_sql = "SELECT COUNT(*) FROM HOMESHOPPING_SCHEDULE_OPTIMIZED"
+        table_result = await db.execute(text(table_check_sql))
+        table_count = table_result.scalar()
+        logger.info(f"HOMESHOPPING_SCHEDULE_OPTIMIZED 테이블 데이터 확인: {table_count}개 레코드")
+        
+        if live_date:
+            date_check_sql = "SELECT COUNT(*) FROM HOMESHOPPING_SCHEDULE_OPTIMIZED WHERE live_date = :live_date"
+            date_result = await db.execute(text(date_check_sql), {"live_date": live_date})
+            date_count = date_result.scalar()
+            logger.info(f"해당 날짜 데이터 확인: {live_date} 날짜에 {date_count}개 레코드")
+        
         result = await db.execute(text(sql_query), params)
         schedules = result.fetchall()
         
-        # logger.info("최적화된 테이블에서 스케줄 개수 조회 시작")
         count_result = await db.execute(text(count_sql), count_params)
         total_count = count_result.scalar()
+        
+        logger.info(f"최적화된 테이블 조회 결과: schedules={len(schedules)}, total_count={total_count}")
     except Exception as e:
         logger.error(f"스케줄 조회 SQL 실행 실패: live_date={live_date}, page={page}, size={size}, error={str(e)}")
         raise
@@ -193,14 +206,18 @@ async def get_homeshopping_schedule(
     - 윈도우 함수 사용으로 복잡한 JOIN 최적화
     - 인덱스 최적화를 위한 쿼리 구조 개선
     """
-    # logger.info(f"홈쇼핑 편성표 조회 시작: live_date={live_date}, page={page}, size={size}")
+    logger.info(f"=== get_homeshopping_schedule 함수 호출됨: live_date={live_date}, page={page}, size={size} ===")
     
     # Redis 캐시 조회
     cached_result = await cache_manager.get_schedule_cache(live_date, page, size)
     if cached_result:
         schedules, total_count = cached_result
-        logger.info(f"캐시에서 스케줄 조회 완료: 결과 수={len(schedules)}, 전체={total_count}")
-        return schedules, total_count
+        # 캐시에 데이터가 있고 실제로 결과가 있는 경우만 캐시 사용
+        if len(schedules) > 0 or total_count > 0:
+            logger.info(f"캐시에서 스케줄 조회 완료: 결과 수={len(schedules)}, 전체={total_count}")
+            return schedules, total_count
+        else:
+            logger.info("캐시에 빈 결과가 저장되어 있음 - DB에서 다시 조회")
     
     # DB에서 직접 조회
     # logger.info("DB에서 스케줄 조회 (캐시 비활성화)")
@@ -1022,6 +1039,32 @@ async def get_homeshopping_liked_products(
     # 결과 변환
     product_list = []
     for row in liked_products:
+        # timedelta를 time으로 변환
+        live_start_time = None
+        live_end_time = None
+        
+        if row.live_start_time is not None:
+            if isinstance(row.live_start_time, timedelta):
+                # timedelta를 time으로 변환 (초 단위를 시간:분:초로 변환)
+                total_seconds = int(row.live_start_time.total_seconds())
+                hours = total_seconds // 3600
+                minutes = (total_seconds % 3600) // 60
+                seconds = total_seconds % 60
+                live_start_time = time(hour=hours, minute=minutes, second=seconds)
+            else:
+                live_start_time = row.live_start_time
+        
+        if row.live_end_time is not None:
+            if isinstance(row.live_end_time, timedelta):
+                # timedelta를 time으로 변환 (초 단위를 시간:분:초로 변환)
+                total_seconds = int(row.live_end_time.total_seconds())
+                hours = total_seconds // 3600
+                minutes = (total_seconds % 3600) // 60
+                seconds = total_seconds % 60
+                live_end_time = time(hour=hours, minute=minutes, second=seconds)
+            else:
+                live_end_time = row.live_end_time
+        
         product_list.append({
             "live_id": row.live_id,
             "product_id": row.product_id,
@@ -1032,8 +1075,8 @@ async def get_homeshopping_liked_products(
             "thumb_img_url": row.thumb_img_url,
             "homeshopping_like_created_at": row.homeshopping_like_created_at,
             "live_date": row.live_date,
-            "live_start_time": row.live_start_time,
-            "live_end_time": row.live_end_time,
+            "live_start_time": live_start_time,
+            "live_end_time": live_end_time,
             "homeshopping_id": row.homeshopping_id
         })
     
@@ -2243,5 +2286,4 @@ async def get_homeshopping_cart_items(
    - 오케스트레이터 실패 시 간단한 인기 상품 기반 추천
    - DB 연동 실패 시 빈 결과 반환
 """
-
 

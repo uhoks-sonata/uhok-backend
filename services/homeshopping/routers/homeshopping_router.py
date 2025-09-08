@@ -128,12 +128,14 @@ async def get_schedule(
     logger.info(f"홈쇼핑 편성표 조회 요청: user_id={user_id}, live_date={live_date}, page={page}, size={size}")
     
     try:
+        logger.info(f"=== 라우터에서 get_homeshopping_schedule 호출 시작 ===")
         schedules, total_count = await get_homeshopping_schedule(
             db, 
             live_date=live_date, 
             page=page, 
             size=size
         )
+        logger.info(f"=== 라우터에서 get_homeshopping_schedule 호출 완료: 결과={len(schedules)}, 전체={total_count} ===")
         logger.debug(f"편성표 조회 성공: 결과 수={len(schedules)}, 전체={total_count}")
     except Exception as e:
         logger.error(f"편성표 조회 실패: user_id={user_id}, error={str(e)}")
