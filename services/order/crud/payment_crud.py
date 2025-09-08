@@ -32,75 +32,107 @@ async def _verify_order_status_for_payment(
     order_data: Dict[str, Any]
 ) -> None:
     """
-    결제 생성 전 주문 상태 확인
+    결제 생성 전 주문 상태 확인 (최적화: Raw SQL 사용)
     - kok_order와 hs_order의 상태가 ORDER_RECEIVED인지 확인
     - ORDER_RECEIVED가 아닌 경우 결제 생성 불가
     """
-    from services.order.models.order_model import StatusMaster, KokOrderStatusHistory, HomeShoppingOrderStatusHistory
-    from sqlalchemy import select, desc
+    from sqlalchemy import text
     
     # logger.info(f"결제 생성 전 주문 상태 확인 시작")
     
     # ORDER_RECEIVED 상태 ID 조회
     try:
         status_result = await db.execute(
-            select(StatusMaster).where(StatusMaster.status_code == "ORDER_RECEIVED")
+            text("SELECT status_id FROM STATUS_MASTER WHERE status_code = 'ORDER_RECEIVED'")
         )
-        order_received_status = status_result.scalar_one_or_none()
+        order_received_status_id = status_result.scalar()
     except Exception as e:
         logger.error(f"ORDER_RECEIVED 상태 조회 SQL 실행 실패: error={str(e)}")
         raise HTTPException(status_code=500, detail="주문 상태 정보를 찾을 수 없습니다.")
     
-    if not order_received_status:
+    if not order_received_status_id:
         logger.warning("ORDER_RECEIVED 상태를 찾을 수 없음")
         raise HTTPException(status_code=500, detail="주문 상태 정보를 찾을 수 없습니다.")
     
-    order_received_status_id = order_received_status.status_id
     # logger.info(f"ORDER_RECEIVED 상태 ID: {order_received_status_id}")
     
-    # kok_orders 상태 확인
+    # kok_orders와 hs_orders 상태를 한 번에 확인하는 최적화된 쿼리
     kok_orders = order_data.get("kok_orders", [])
-    for kok_order in kok_orders:
-        # 최신 상태 이력 조회
-        try:
-            status_history_result = await db.execute(
-                select(KokOrderStatusHistory)
-                .where(KokOrderStatusHistory.kok_order_id == kok_order.kok_order_id)
-                .order_by(desc(KokOrderStatusHistory.changed_at))
-                .limit(1)
-            )
-            latest_status = status_history_result.scalar_one_or_none()
-        except Exception as e:
-            logger.error(f"콕 주문 상태 이력 조회 SQL 실행 실패: kok_order_id={kok_order.kok_order_id}, error={str(e)}")
-            raise HTTPException(status_code=500, detail="주문 상태 조회에 실패했습니다.")
-        
-        if not latest_status or latest_status.status_id != order_received_status_id:
-            logger.warning(f"콕 주문 상태가 ORDER_RECEIVED가 아님: kok_order_id={kok_order.kok_order_id}, current_status_id={latest_status.status_id if latest_status else 'None'}")
-            raise HTTPException(status_code=400, detail=f"주문 ID {kok_order.kok_order_id}의 상태가 결제 가능한 상태가 아닙니다.")
-        
-    # logger.info(f"콕 주문 상태 확인 완료: kok_order_id={kok_order.kok_order_id}, status=ORDER_RECEIVED")
-    
-    # hs_orders 상태 확인
     hs_orders = order_data.get("homeshopping_orders", [])
+    
+    if not kok_orders and not hs_orders:
+        logger.warning("확인할 주문이 없음")
+        return
+    
+    # kok_order_ids와 hs_order_ids 수집
+    kok_order_ids = [ko.kok_order_id for ko in kok_orders]
+    hs_order_ids = [ho.homeshopping_order_id for ho in hs_orders]
+    
+    # 최적화된 쿼리: 모든 주문의 최신 상태를 한 번에 조회
+    sql_query = """
+    WITH kok_latest_status AS (
+        SELECT 
+            kosh.kok_order_id,
+            kosh.status_id,
+            ROW_NUMBER() OVER (PARTITION BY kosh.kok_order_id ORDER BY kosh.changed_at DESC) as rn
+        FROM KOK_ORDER_STATUS_HISTORY kosh
+        WHERE kosh.kok_order_id = ANY(:kok_order_ids)
+    ),
+    hs_latest_status AS (
+        SELECT 
+            hosh.homeshopping_order_id,
+            hosh.status_id,
+            ROW_NUMBER() OVER (PARTITION BY hosh.homeshopping_order_id ORDER BY hosh.changed_at DESC) as rn
+        FROM HOMESHOPPING_ORDER_STATUS_HISTORY hosh
+        WHERE hosh.homeshopping_order_id = ANY(:hs_order_ids)
+    )
+    SELECT 
+        'kok' as order_type,
+        kok_order_id as order_id,
+        status_id
+    FROM kok_latest_status
+    WHERE rn = 1
+    UNION ALL
+    SELECT 
+        'homeshopping' as order_type,
+        homeshopping_order_id as order_id,
+        status_id
+    FROM hs_latest_status
+    WHERE rn = 1
+    """
+    
+    try:
+        result = await db.execute(text(sql_query), {
+            "kok_order_ids": kok_order_ids,
+            "hs_order_ids": hs_order_ids
+        })
+        status_data = result.fetchall()
+    except Exception as e:
+        logger.error(f"주문 상태 조회 SQL 실행 실패: error={str(e)}")
+        raise HTTPException(status_code=500, detail="주문 상태 조회에 실패했습니다.")
+    
+    # 상태 검증
+    status_map = {}
+    for row in status_data:
+        status_map[(row.order_type, row.order_id)] = row.status_id
+    
+    # 콕 주문 상태 확인
+    for kok_order in kok_orders:
+        order_id = kok_order.kok_order_id
+        current_status_id = status_map.get(('kok', order_id))
+        
+        if not current_status_id or current_status_id != order_received_status_id:
+            logger.warning(f"콕 주문 상태가 ORDER_RECEIVED가 아님: kok_order_id={order_id}, current_status_id={current_status_id}")
+            raise HTTPException(status_code=400, detail=f"주문 ID {order_id}의 상태가 결제 가능한 상태가 아닙니다.")
+    
+    # 홈쇼핑 주문 상태 확인
     for hs_order in hs_orders:
-        # 최신 상태 이력 조회
-        try:
-            status_history_result = await db.execute(
-                select(HomeShoppingOrderStatusHistory)
-                .where(HomeShoppingOrderStatusHistory.homeshopping_order_id == hs_order.homeshopping_order_id)
-                .order_by(desc(HomeShoppingOrderStatusHistory.changed_at))
-                .limit(1)
-            )
-            latest_status = status_history_result.scalar_one_or_none()
-        except Exception as e:
-            logger.error(f"홈쇼핑 주문 상태 이력 조회 SQL 실행 실패: hs_order_id={hs_order.homeshopping_order_id}, error={str(e)}")
-            raise HTTPException(status_code=500, detail="주문 상태 조회에 실패했습니다.")
+        order_id = hs_order.homeshopping_order_id
+        current_status_id = status_map.get(('homeshopping', order_id))
         
-        if not latest_status or latest_status.status_id != order_received_status_id:
-            logger.warning(f"홈쇼핑 주문 상태가 ORDER_RECEIVED가 아님: hs_order_id={hs_order.homeshopping_order_id}, current_status_id={latest_status.status_id if latest_status else 'None'}")
-            raise HTTPException(status_code=400, detail=f"주문 ID {hs_order.homeshopping_order_id}의 상태가 결제 가능한 상태가 아닙니다.")
-        
-    # logger.info(f"홈쇼핑 주문 상태 확인 완료: hs_order_id={hs_order.homeshopping_order_id}, status=ORDER_RECEIVED")
+        if not current_status_id or current_status_id != order_received_status_id:
+            logger.warning(f"홈쇼핑 주문 상태가 ORDER_RECEIVED가 아님: hs_order_id={order_id}, current_status_id={current_status_id}")
+            raise HTTPException(status_code=400, detail=f"주문 ID {order_id}의 상태가 결제 가능한 상태가 아닙니다.")
     
     # logger.info(f"모든 주문 상태 확인 완료: ORDER_RECEIVED 상태로 결제 가능")
 

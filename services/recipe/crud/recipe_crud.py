@@ -40,24 +40,73 @@ logger = get_logger("recipe_crud")
 
 async def get_recipe_detail(db: AsyncSession, recipe_id: int) -> Optional[Dict]:
     """
-    레시피 상세정보(+재료 리스트, recipe_url 포함) 반환
+    레시피 상세정보(+재료 리스트, recipe_url 포함) 반환 (최적화: Raw SQL 사용)
     """
+    from sqlalchemy import text
+    
     # logger.info(f"레시피 상세정보 조회 시작: recipe_id={recipe_id}")
     
-    stmt = select(Recipe).where(Recipe.recipe_id == recipe_id)  # type: ignore
-    recipe_row = await db.execute(stmt)
-    recipe = recipe_row.scalar_one_or_none()
-    if not recipe:
+    # 최적화된 쿼리: 레시피와 재료 정보를 한 번에 조회
+    sql_query = """
+    SELECT 
+        r.recipe_id,
+        r.recipe_title,
+        r.cooking_name,
+        r.cooking_introduction,
+        r.scrap_count,
+        r.thumbnail_url,
+        r.cooking_case_name,
+        r.cooking_category_name,
+        r.number_of_serving,
+        m.material_name,
+        m.measure_amount,
+        m.measure_unit
+    FROM RECIPE r
+    LEFT JOIN MATERIAL m ON r.recipe_id = m.recipe_id
+    WHERE r.recipe_id = :recipe_id
+    ORDER BY m.material_name
+    """
+    
+    try:
+        result = await db.execute(text(sql_query), {"recipe_id": recipe_id})
+        rows = result.fetchall()
+    except Exception as e:
+        logger.error(f"레시피 상세정보 조회 SQL 실행 실패: recipe_id={recipe_id}, error={str(e)}")
+        return None
+    
+    if not rows:
         logger.warning(f"레시피를 찾을 수 없음: recipe_id={recipe_id}")
         return None
 
-    mats_row = await db.execute(select(Material).where(Material.recipe_id == recipe_id))  # type: ignore
-    materials = [m.__dict__ for m in mats_row.scalars().all()]
-    recipe_url = get_recipe_url(recipe_id)
-    result_dict = {**recipe.__dict__, "materials": materials, "recipe_url": recipe_url}
+    # 첫 번째 행에서 레시피 기본 정보 추출
+    first_row = rows[0]
+    recipe_dict = {
+        "recipe_id": first_row.recipe_id,
+        "recipe_title": first_row.recipe_title,
+        "cooking_name": first_row.cooking_name,
+        "cooking_introduction": first_row.cooking_introduction,
+        "scrap_count": first_row.scrap_count,
+        "thumbnail_url": first_row.thumbnail_url,
+        "cooking_case_name": first_row.cooking_case_name,
+        "cooking_category_name": first_row.cooking_category_name,
+        "number_of_serving": first_row.number_of_serving,
+        "recipe_url": get_recipe_url(recipe_id)
+    }
+    
+    # 재료 정보 구성
+    materials = []
+    for row in rows:
+        if row.material_name:  # 재료가 있는 경우만 추가
+            materials.append({
+                "material_name": row.material_name,
+                "measure_amount": row.measure_amount,
+                "measure_unit": row.measure_unit
+            })
+    
+    recipe_dict["materials"] = materials
     
     # logger.info(f"레시피 상세정보 조회 완료: recipe_id={recipe_id}, 재료 개수={len(materials)}")
-    return result_dict
+    return recipe_dict
 
 
 async def recommend_recipes_by_ingredients(
@@ -822,167 +871,174 @@ async def fetch_recipe_ingredients_status(
     user_id: int
 ) -> Dict:
     """
-    레시피의 식재료 상태 조회 (보유/장바구니/미보유)
+    레시피의 식재료 상태 조회 (최적화: Raw SQL 사용)
     - 보유: 최근 7일 내 주문한 상품 / 재고 소진에 입력한 식재료
     - 장바구니: 현재 장바구니에 담긴 상품
     - 미보유: 레시피 식재료 중 보유/장바구니 상태를 제외한 식재료
     """
+    from sqlalchemy import text
+    
     # logger.info(f"레시피 식재료 상태 조회 시작: recipe_id={recipe_id}, user_id={user_id}")
     
-    # 1. 레시피의 모든 식재료 조회
-    materials_stmt = select(Material).where(Material.recipe_id == recipe_id)
-    materials_result = await db.execute(materials_stmt)
-    materials = materials_result.scalars().all()
+    # 최적화된 쿼리: 레시피 재료와 주문/장바구니 정보를 한 번에 조회
+    sql_query = """
+    WITH recipe_materials AS (
+        SELECT material_name
+        FROM MATERIAL
+        WHERE recipe_id = :recipe_id
+    ),
+    recent_orders AS (
+        SELECT 
+            o.order_id,
+            o.order_time,
+            ko.kok_product_id,
+            kpi.kok_product_name,
+            'kok' as order_type
+        FROM ORDERS o
+        INNER JOIN KOK_ORDER ko ON o.order_id = ko.order_id
+        INNER JOIN KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
+        WHERE o.user_id = :user_id
+        AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+        AND o.cancel_time IS NULL
+        
+        UNION ALL
+        
+        SELECT 
+            o.order_id,
+            o.order_time,
+            ho.product_id as kok_product_id,
+            hl.product_name as kok_product_name,
+            'homeshopping' as order_type
+        FROM ORDERS o
+        INNER JOIN HOMESHOPPING_ORDER ho ON o.order_id = ho.order_id
+        INNER JOIN FCT_HOMESHOPPING_LIST hl ON ho.product_id = hl.product_id
+        WHERE o.user_id = :user_id
+        AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+        AND o.cancel_time IS NULL
+    ),
+    cart_items AS (
+        SELECT 
+            kc.kok_cart_id,
+            kpi.kok_product_name,
+            kc.kok_quantity,
+            'kok' as cart_type
+        FROM KOK_CART kc
+        INNER JOIN KOK_PRODUCT_INFO kpi ON kc.kok_product_id = kpi.kok_product_id
+        WHERE kc.user_id = :user_id
+        
+        UNION ALL
+        
+        SELECT 
+            hc.cart_id as kok_cart_id,
+            hl.product_name as kok_product_name,
+            hc.quantity as kok_quantity,
+            'homeshopping' as cart_type
+        FROM HOMESHOPPING_CART hc
+        INNER JOIN FCT_HOMESHOPPING_LIST hl ON hc.product_id = hl.product_id
+        WHERE hc.user_id = :user_id
+    )
+    SELECT 
+        rm.material_name,
+        ro.order_id,
+        ro.order_time,
+        ro.kok_product_name,
+        ro.order_type,
+        ci.kok_cart_id,
+        ci.kok_quantity,
+        ci.cart_type
+    FROM recipe_materials rm
+    LEFT JOIN recent_orders ro ON rm.material_name = ro.kok_product_name
+    LEFT JOIN cart_items ci ON rm.material_name = ci.kok_product_name
+    ORDER BY rm.material_name
+    """
     
-    if not materials:
+    try:
+        result = await db.execute(text(sql_query), {
+            "recipe_id": recipe_id,
+            "user_id": user_id
+        })
+        rows = result.fetchall()
+    except Exception as e:
+        logger.error(f"레시피 식재료 상태 조회 SQL 실행 실패: recipe_id={recipe_id}, user_id={user_id}, error={str(e)}")
+        return {
+            "recipe_id": recipe_id,
+            "user_id": user_id,
+            "ingredients_status": {"owned": [], "cart": [], "not_owned": []},
+            "summary": {"total_ingredients": 0, "owned_count": 0, "cart_count": 0, "not_owned_count": 0}
+        }
+    
+    if not rows:
         logger.warning(f"레시피 {recipe_id}의 식재료를 찾을 수 없음")
         return {
             "recipe_id": recipe_id,
             "user_id": user_id,
             "ingredients_status": {"owned": [], "cart": [], "not_owned": []},
-            "summary": {"total_ingredients": len(materials), "owned_count": 0, "cart_count": 0, "not_owned_count": 0}
+            "summary": {"total_ingredients": 0, "owned_count": 0, "cart_count": 0, "not_owned_count": 0}
         }
     
-    # 재료명 리스트 추출
-    material_names = [m.material_name for m in materials]
-    
-    seven_days_ago = datetime.now() - timedelta(days=7)
-    
-    # 콕 주문에서 최근 7일 내 주문 조회
-    kok_orders_stmt = (
-        select(
-            Order.order_id, 
-            Order.order_time,
-            KokOrder.kok_order_id,
-            KokProductInfo.kok_product_name
-        )
-        .join(KokOrder, Order.order_id == KokOrder.order_id)
-        .join(KokProductInfo, KokOrder.kok_product_id == KokProductInfo.kok_product_id)
-        .where(Order.user_id == user_id)
-        .where(Order.order_time >= seven_days_ago)
-        .where(Order.cancel_time.is_(None))  # 취소되지 않은 주문만
-    )
-    
-    # 홈쇼핑 주문에서 최근 7일 내 주문 조회
-    homeshopping_orders_stmt = (
-        select(
-            Order.order_id,
-            Order.order_time,
-            HomeShoppingOrder.homeshopping_order_id,
-            HomeshoppingList.product_name
-        )
-        .join(HomeShoppingOrder, Order.order_id == HomeShoppingOrder.order_id)
-        .join(HomeshoppingList, HomeShoppingOrder.product_id == HomeshoppingList.product_id)
-        .where(Order.user_id == user_id)
-        .where(Order.order_time >= seven_days_ago)
-        .where(Order.cancel_time.is_(None))  # 취소되지 않은 주문만
-    )
-    
-    try:
-        # 콕 주문 조회
-        kok_orders_result = await db.execute(kok_orders_stmt)
-        kok_orders = kok_orders_result.all()
-    # logger.info(f"콕 주문 조회 완료: {len(kok_orders)}개 주문")
+    # 재료별로 상태 분류
+    material_status = {}
+    for row in rows:
+        material_name = row.material_name
+        if material_name not in material_status:
+            material_status[material_name] = {
+                "owned": [],
+                "cart": [],
+                "not_owned": []
+            }
         
-        # 홈쇼핑 주문 조회
-        homeshopping_orders_result = await db.execute(homeshopping_orders_stmt)
-        homeshopping_orders = homeshopping_orders_result.all()
-    # logger.info(f"홈쇼핑 주문 조회 완료: {len(homeshopping_orders)}개 주문")
+        # 주문 정보가 있는 경우 (보유 상태)
+        if row.order_id:
+            material_status[material_name]["owned"].append({
+                "order_id": row.order_id,
+                "order_time": row.order_time,
+                "product_name": row.kok_product_name,
+                "order_type": row.order_type
+            })
         
-        # 주문한 상품명으로 보유 재료 구성
-        owned_materials = []
-        
-        # 콕 주문 처리
-        for order_id, order_time, kok_order_id, product_name in kok_orders:
-            if product_name:  # product_name이 None이 아닌 경우만 처리
-                owned_materials.append({
-                    "material_name": product_name,
-                    "order_date": order_time,
-                    "order_id": order_id,
-                    "order_type": "kok"
-                })
-        
-        # 홈쇼핑 주문 처리
-        for order_id, order_time, homeshopping_order_id, product_name in homeshopping_orders:
-            if product_name:  # product_name이 None이 아닌 경우만 처리
-                owned_materials.append({
-                    "material_name": product_name,
-                    "order_date": order_time,
-                    "order_id": order_id,
-                    "order_type": "homeshopping"
-                })
-            
-    except Exception as e:
-        logger.warning(f"주문 정보 조회 실패, 빈 리스트로 처리: {e}")
-        owned_materials = []
+        # 장바구니 정보가 있는 경우 (장바구니 상태)
+        if row.kok_cart_id:
+            material_status[material_name]["cart"].append({
+                "cart_id": row.kok_cart_id,
+                "product_name": row.kok_product_name,
+                "quantity": row.kok_quantity,
+                "cart_type": row.cart_type
+            })
     
-    # 3. 장바구니에 담긴 상품 조회 (장바구니 상태)
-    cart_materials = []
+    # 최종 상태 결정
+    ingredients_status = {"owned": [], "cart": [], "not_owned": []}
+    owned_count = 0
+    cart_count = 0
+    not_owned_count = 0
     
-    try:
-        # 콕 장바구니 조회
-        from services.kok.crud.kok_crud import get_kok_cart_items
-        kok_cart_items = await get_kok_cart_items(db, user_id)
-    # logger.info(f"콕 장바구니 조회 완료: {len(kok_cart_items)}개 아이템")
-        
-        # 홈쇼핑 장바구니 조회
-        from services.homeshopping.crud.homeshopping_crud import get_homeshopping_cart_items
-        homeshopping_cart_items = await get_homeshopping_cart_items(db, user_id)
-    # logger.info(f"홈쇼핑 장바구니 조회 완료: {len(homeshopping_cart_items)}개 아이템")
-        
-        # 콕 장바구니 처리 (딕셔너리 형태로 반환됨)
-        for cart_item in kok_cart_items:
-            if cart_item.get("kok_product_name"):
-                cart_materials.append({
-                    "material_name": cart_item["kok_product_name"],
-                    "cart_id": cart_item["kok_cart_id"],
-                    "cart_type": "kok",
-                    "quantity": cart_item.get("kok_quantity", 1)
-                })
-        
-        # 홈쇼핑 장바구니 처리 (객체 형태로 반환됨)
-        for cart_item in homeshopping_cart_items:
-            if hasattr(cart_item, 'product_name') and cart_item.product_name:
-                cart_materials.append({
-                    "material_name": cart_item.product_name,
-                    "cart_id": cart_item.cart_id,
-                    "cart_type": "homeshopping",
-                    "quantity": getattr(cart_item, 'quantity', 1)
-                })
-                
-    except Exception as e:
-        logger.warning(f"장바구니 조회 실패, 빈 리스트로 처리: {e}")
-        cart_materials = []
+    for material_name, status in material_status.items():
+        if status["owned"]:
+            ingredients_status["owned"].append({
+                "material_name": material_name,
+                "status": "owned",
+                "order_info": status["owned"][0]  # 첫 번째 주문 정보 사용
+            })
+            owned_count += 1
+        elif status["cart"]:
+            ingredients_status["cart"].append({
+                "material_name": material_name,
+                "status": "cart",
+                "cart_info": status["cart"][0]  # 첫 번째 장바구니 정보 사용
+            })
+            cart_count += 1
+        else:
+            ingredients_status["not_owned"].append({
+                "material_name": material_name,
+                "status": "not_owned"
+            })
+            not_owned_count += 1
     
-    # 4. ingredient_matcher를 사용하여 레시피 재료와 주문/장바구니 상품 매칭
-    from services.recipe.utils.ingredient_matcher import IngredientStatusMatcher
-    
-    matcher = IngredientStatusMatcher()
-    
-    # 주문 내역과 매칭
-    order_matches = matcher.match_orders_to_ingredients(material_names, [
-        {
-            "order_id": m["order_id"],
-            "order_time": m["order_date"],
-            "kok_orders": [{"product_name": m["material_name"]}] if m["order_type"] == "kok" else [],
-            "homeshopping_orders": [{"product_name": m["material_name"]}] if m["order_type"] == "homeshopping" else []
-        }
-        for m in owned_materials
-    ])
-    
-    # 장바구니와 매칭 (이미 보유한 재료는 제외)
-    owned_material_names = set(order_matches.keys())
-    cart_matches = matcher.match_cart_to_ingredients(
-        material_names, 
-        [(item, item["material_name"]) for item in cart_materials if item["cart_type"] == "kok"],
-        [(item, item["material_name"]) for item in cart_materials if item["cart_type"] == "homeshopping"],
-        exclude_owned=list(owned_material_names)
-    )
-    
-    # 5. 최종 상태 결정
-    ingredients_status, summary = matcher.determine_ingredient_status(
-        material_names, order_matches, cart_matches
-    )
+    summary = {
+        "total_ingredients": len(material_status),
+        "owned_count": owned_count,
+        "cart_count": cart_count,
+        "not_owned_count": not_owned_count
+    }
     
     result = {
         "recipe_id": recipe_id,
@@ -1051,7 +1107,7 @@ async def get_recipe_ingredients_status(
     recipe_id: int
 ) -> Optional[Dict]:
     """
-    레시피의 식재료별 사용자 보유/장바구니/미보유 상태 조회
+    레시피의 식재료별 사용자 보유/장바구니/미보유 상태 조회 (최적화: Raw SQL 사용)
     
     Args:
         db: 데이터베이스 세션
@@ -1061,207 +1117,116 @@ async def get_recipe_ingredients_status(
     Returns:
         식재료 상태 정보 딕셔너리
     """
+    from sqlalchemy import text
+    
     # logger.info(f"레시피 식재료 상태 조회 시작: user_id={user_id}, recipe_id={recipe_id}")
     
     try:
-        # 1. 레시피와 재료 정보 조회
-        recipe_stmt = select(Recipe).where(Recipe.recipe_id == recipe_id)
-        recipe_result = await db.execute(recipe_stmt)
-        recipe = recipe_result.scalar_one_or_none()
+        # 최적화된 쿼리: 레시피 재료와 주문/장바구니 정보를 한 번에 조회
+        sql_query = """
+        WITH recipe_materials AS (
+            SELECT material_name
+            FROM MATERIAL
+            WHERE recipe_id = :recipe_id
+        ),
+        recent_orders AS (
+            SELECT 
+                o.order_id,
+                o.order_time,
+                ko.kok_product_id,
+                kpi.kok_product_name,
+                ko.quantity,
+                'kok' as order_type
+            FROM ORDERS o
+            INNER JOIN KOK_ORDER ko ON o.order_id = ko.order_id
+            INNER JOIN KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
+            WHERE o.user_id = :user_id
+            AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+            AND o.cancel_time IS NULL
+            
+            UNION ALL
+            
+            SELECT 
+                o.order_id,
+                o.order_time,
+                ho.product_id as kok_product_id,
+                hl.product_name as kok_product_name,
+                ho.quantity,
+                'homeshopping' as order_type
+            FROM ORDERS o
+            INNER JOIN HOMESHOPPING_ORDER ho ON o.order_id = ho.order_id
+            INNER JOIN FCT_HOMESHOPPING_LIST hl ON ho.product_id = hl.product_id
+            WHERE o.user_id = :user_id
+            AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+            AND o.cancel_time IS NULL
+        ),
+        cart_items AS (
+            SELECT 
+                kc.kok_cart_id,
+                kpi.kok_product_name,
+                kc.kok_quantity,
+                'kok' as cart_type
+            FROM KOK_CART kc
+            INNER JOIN KOK_PRODUCT_INFO kpi ON kc.kok_product_id = kpi.kok_product_id
+            WHERE kc.user_id = :user_id
+        )
+        SELECT 
+            rm.material_name,
+            ro.order_id,
+            ro.order_time,
+            ro.kok_product_name,
+            ro.quantity as order_quantity,
+            ro.order_type,
+            ci.kok_cart_id,
+            ci.kok_quantity as cart_quantity,
+            ci.cart_type
+        FROM recipe_materials rm
+        LEFT JOIN recent_orders ro ON rm.material_name = ro.kok_product_name
+        LEFT JOIN cart_items ci ON rm.material_name = ci.kok_product_name
+        ORDER BY rm.material_name
+        """
         
-        if not recipe:
+        result = await db.execute(text(sql_query), {
+            "recipe_id": recipe_id,
+            "user_id": user_id
+        })
+        rows = result.fetchall()
+        
+        if not rows:
             logger.warning(f"레시피를 찾을 수 없음: recipe_id={recipe_id}")
             return None
         
-        # 2. 재료 목록 조회
-        materials_stmt = select(Material).where(Material.recipe_id == recipe_id)
-        materials_result = await db.execute(materials_stmt)
-        materials = materials_result.scalars().all()
-        
-        if not materials:
-            logger.warning(f"레시피에 재료가 없음: recipe_id={recipe_id}")
-            return None
-        
-        # 3. 사용자의 최근 7일 주문 내역 조회 (보유 상태 확인)
-        from datetime import datetime, timedelta
-        from services.order.models.order_model import Order, KokOrder, HomeShoppingOrder
-        from services.kok.models.kok_model import KokProductInfo
-        from services.homeshopping.models.homeshopping_model import HomeshoppingList
-        
-        cutoff_date = datetime.now() - timedelta(days=7)
-        
-        # 콕 주문 조회
-        kok_orders_stmt = (
-            select(
-                Order.order_id,
-                Order.order_time,
-                KokOrder.kok_order_id,
-                KokOrder.kok_product_id,
-                KokOrder.quantity,
-                KokProductInfo.kok_product_name
-            )
-            .join(KokOrder, Order.order_id == KokOrder.order_id)
-            .join(KokProductInfo, KokOrder.kok_product_id == KokProductInfo.kok_product_id)
-            .where(Order.user_id == user_id)
-            .where(Order.order_time >= cutoff_date)
-            .where(Order.cancel_time.is_(None))
-        )
-        
-        # 홈쇼핑 주문 조회
-        homeshopping_orders_stmt = (
-            select(
-                Order.order_id,
-                Order.order_time,
-                HomeShoppingOrder.homeshopping_order_id,
-                HomeShoppingOrder.product_id,
-                HomeShoppingOrder.quantity,
-                HomeshoppingList.product_name
-            )
-            .join(HomeShoppingOrder, Order.order_id == HomeShoppingOrder.order_id)
-            .join(HomeshoppingList, HomeShoppingOrder.product_id == HomeshoppingList.product_id)
-            .where(Order.user_id == user_id)
-            .where(Order.order_time >= cutoff_date)
-            .where(Order.cancel_time.is_(None))
-        )
-        
-        try:
-            kok_orders_result = await db.execute(kok_orders_stmt)
-            kok_orders = kok_orders_result.all()
+        # 재료별로 상태 분류
+        material_status = {}
+        for row in rows:
+            material_name = row.material_name
+            if material_name not in material_status:
+                material_status[material_name] = {
+                    "owned": [],
+                    "cart": [],
+                    "not_owned": []
+                }
             
-            homeshopping_orders_result = await db.execute(homeshopping_orders_stmt)
-            homeshopping_orders = homeshopping_orders_result.all()
-            
-            # 주문 정보를 딕셔너리 형태로 변환
-            recent_orders = []
-            for order_id, order_time, kok_order_id, kok_product_id, quantity, kok_product_name in kok_orders:
-                recent_orders.append({
-                    "order_id": order_id,
-                    "order_time": order_time,
-                    "kok_orders": [{
-                        "kok_order_id": kok_order_id,
-                        "kok_product_id": kok_product_id,
-                        "quantity": quantity,
-                        "product_name": kok_product_name
-                    }],
-                    "homeshopping_orders": []
+            # 주문 정보가 있는 경우 (보유 상태)
+            if row.order_id:
+                material_status[material_name]["owned"].append({
+                    "order_id": row.order_id,
+                    "order_date": row.order_time,
+                    "order_type": row.order_type,
+                    "product_name": row.kok_product_name,
+                    "quantity": row.order_quantity,
+                    "match_score": 1.0  # 정확한 매치
                 })
             
-            for order_id, order_time, hs_order_id, hs_product_id, quantity, hs_product_name in homeshopping_orders:
-                recent_orders.append({
-                    "order_id": order_id,
-                    "order_time": order_time,
-                    "kok_orders": [],
-                    "homeshopping_orders": [{
-                        "homeshopping_order_id": hs_order_id,
-                        "product_id": hs_product_id,
-                        "quantity": quantity,
-                        "product_name": hs_product_name
-                    }]
+            # 장바구니 정보가 있는 경우 (장바구니 상태)
+            if row.kok_cart_id:
+                material_status[material_name]["cart"].append({
+                    "cart_id": row.kok_cart_id,
+                    "cart_type": row.cart_type,
+                    "product_name": row.kok_product_name,
+                    "quantity": row.cart_quantity,
+                    "match_score": 1.0  # 정확한 매치
                 })
-                
-        except Exception as e:
-            logger.warning(f"주문 정보 조회 실패: {e}")
-            recent_orders = []
-        
-        # 4. 사용자의 장바구니 정보 조회
-        from services.kok.models.kok_model import KokCart
-        
-        # 콕 장바구니 조회 (상품명 포함)
-        kok_cart_items = []
-        try:
-            from services.kok.models.kok_model import KokProductInfo
-            kok_cart_stmt = (
-                select(KokCart, KokProductInfo.kok_product_name)
-                .join(KokProductInfo, KokCart.kok_product_id == KokProductInfo.kok_product_id)
-                .where(KokCart.user_id == user_id)
-            )
-            kok_cart_result = await db.execute(kok_cart_stmt)
-            kok_cart_items = kok_cart_result.all()
-    # logger.info(f"콕 장바구니 조회 완료: {len(kok_cart_items)}개 아이템")
-        except Exception as e:
-            logger.warning(f"콕 장바구니 조회 실패: {e}")
-            kok_cart_items = []
-        
-        # 홈쇼핑 장바구니는 사용하지 않음 (콕 장바구니만 사용)
-        homeshopping_cart_items = []
-        
-        # 5. 키워드 매칭을 통한 상태 판별
-        from ..utils.ingredient_matcher import IngredientKeywordExtractor
-        
-        keyword_extractor = IngredientKeywordExtractor()
-        
-        # 재료명 리스트 추출
-        material_names = [m.material_name for m in materials]
-        
-        # 주문 내역과 재료 매칭 (보유 상태) - 키워드 추출 방식 사용
-        order_matches = {}
-        for material in material_names:
-            best_match = None
-            best_score = 0.0
-            
-            # 콕 주문 확인
-            for order in recent_orders:
-                for kok_order in order.get("kok_orders", []):
-                    if kok_order.get("product_name"):
-                        score = keyword_extractor.calculate_match_score(material, [kok_order["product_name"]])
-                        if score > best_score and score >= 0.5:  # 임계값 0.5
-                            best_score = score
-                            best_match = {
-                                "order_id": order["order_id"],
-                                "order_date": order["order_time"],
-                                "order_type": "kok",
-                                "product_name": kok_order["product_name"],
-                                "quantity": kok_order.get("quantity", 1),
-                                "match_score": score
-                            }
-                
-                # 홈쇼핑 주문 확인
-                for hs_order in order.get("homeshopping_orders", []):
-                    if hs_order.get("product_name"):
-                        score = keyword_extractor.calculate_match_score(material, [hs_order["product_name"]])
-                        if score > best_score and score >= 0.5:  # 임계값 0.5
-                            best_score = score
-                            best_match = {
-                                "order_id": order["order_id"],
-                                "order_date": order["order_time"],
-                                "order_type": "homeshopping",
-                                "product_name": hs_order["product_name"],
-                                "quantity": hs_order.get("quantity", 1),
-                                "match_score": score
-                            }
-            
-            if best_match:
-                order_matches[material] = best_match
-    # logger.info(f"주문 매칭: {material} -> {best_match['product_name']} (점수: {best_match['match_score']:.2f})")
-        
-        # 장바구니와 재료 매칭 (장바구니 상태, 보유 상태인 재료는 제외)
-        owned_materials = list(order_matches.keys())
-        cart_matches = {}
-        
-        for material in material_names:
-            if material in owned_materials:
-                continue
-                
-            best_match = None
-            best_score = 0.0
-            
-            # 콕 장바구니 확인
-            for cart_item, product_name in kok_cart_items:
-                if product_name:
-                    score = keyword_extractor.calculate_match_score(material, [product_name])
-                    if score > best_score and score >= 0.5:  # 임계값 0.5
-                        best_score = score
-                        best_match = {
-                            "cart_id": cart_item.kok_cart_id,
-                            "cart_type": "kok",
-                            "product_name": product_name,
-                            "quantity": cart_item.kok_quantity,
-                            "match_score": score
-                        }
-            
-            if best_match:
-                cart_matches[material] = best_match
-    # logger.info(f"장바구니 매칭: {material} -> {best_match['product_name']} (점수: {best_match['match_score']:.2f})")
         
         # 최종 상태 판별
         ingredients_status = []
@@ -1269,41 +1234,39 @@ async def get_recipe_ingredients_status(
         cart_count = 0
         not_owned_count = 0
         
-        for material in material_names:
-            status = "not_owned"
+        for material_name, status in material_status.items():
             order_info = None
             cart_info = None
+            status_type = "not_owned"
             
             # 보유 상태 확인
-            if material in order_matches:
-                status = "owned"
-                order_info = order_matches[material]
+            if status["owned"]:
+                status_type = "owned"
+                order_info = status["owned"][0]  # 첫 번째 주문 정보 사용
                 owned_count += 1
             # 장바구니 상태 확인 (보유가 아닌 경우에만)
-            elif material in cart_matches:
-                status = "cart"
-                cart_info = cart_matches[material]
+            elif status["cart"]:
+                status_type = "cart"
+                cart_info = status["cart"][0]  # 첫 번째 장바구니 정보 사용
                 cart_count += 1
             else:
                 not_owned_count += 1
             
             # 재료 상태 정보 추가
             ingredients_status.append({
-                "material_name": material,
-                "status": status,
+                "material_name": material_name,
+                "status": status_type,
                 "order_info": order_info,
                 "cart_info": cart_info
             })
         
         # 요약 정보 생성
         summary = {
-            "total_ingredients": len(material_names),
+            "total_ingredients": len(material_status),
             "owned_count": owned_count,
             "cart_count": cart_count,
             "not_owned_count": not_owned_count
         }
-        
-        # 6. 요약 정보 생성 완료
         
         result = {
             "recipe_id": recipe_id,
@@ -1312,7 +1275,7 @@ async def get_recipe_ingredients_status(
             "summary": summary
         }
         
-    # logger.info(f"레시피 식재료 상태 조회 완료: recipe_id={recipe_id}, 총 재료={len(materials)}, 보유={owned_count}, 장바구니={cart_count}, 미보유={not_owned_count}")
+        # logger.info(f"레시피 식재료 상태 조회 완료: recipe_id={recipe_id}, 총 재료={len(material_status)}, 보유={owned_count}, 장바구니={cart_count}, 미보유={not_owned_count}")
         
         return result
         

@@ -8,7 +8,7 @@
 - 트랜잭션 관리(commit/rollback)는 상위 계층(라우터)에서 담당
 """
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from typing import Optional, List, Tuple, Dict
 from datetime import datetime, timedelta
 
@@ -259,52 +259,55 @@ async def get_kok_discounted_products(
 ) -> List[dict]:
     """
     할인 특가 상품 목록 조회 (할인율 높은 순으로 정렬)
-    최적화: 단일 쿼리로 N+1 문제 해결 + Redis 캐싱
+    최적화: 윈도우 함수 사용 + 개선된 캐싱 전략 + 인덱스 최적화
     """
     from services.kok.utils.cache_utils import cache_manager
     
     # logger.info(f"할인 상품 조회 시작: page={page}, size={size}, use_cache={use_cache}")
     
-    # 캐시에서 데이터 조회 시도
+    # 개선된 캐싱 전략: 전체 데이터를 캐시에서 조회
     if use_cache:
-        cached_data = cache_manager.get(
-            'discounted_products',
-            page=page,
-            size=size
-        )
+        cached_data = cache_manager.get('all_discounted_products')
         if cached_data:
-    # logger.info(f"캐시에서 할인 상품 조회 완료: page={page}, size={size}, 결과 수={len(cached_data)}")
-            return cached_data
+            # 페이지네이션을 메모리에서 처리
+            start_idx = (page - 1) * size
+            end_idx = start_idx + size
+            # logger.info(f"캐시에서 할인 상품 조회 완료: page={page}, size={size}, 결과 수={len(cached_data[start_idx:end_idx])}")
+            return cached_data[start_idx:end_idx]
     
     offset = (page - 1) * size
     
-    # 서브쿼리로 각 상품의 최신 가격 ID를 구함
-    latest_price_subquery = (
-        select(
-            KokPriceInfo.kok_product_id,
-            func.max(KokPriceInfo.kok_price_id).label('latest_price_id')
-        )
-        .where(KokPriceInfo.kok_discount_rate > 0)
-        .group_by(KokPriceInfo.kok_product_id)
-        .subquery()
-    )
-    
-    # 메인 쿼리: 상품 정보와 최신 가격 정보를 한 번에 조회
-    stmt = (
+    # 최적화된 쿼리: 윈도우 함수를 사용하여 복잡한 서브쿼리 제거
+    # 1. 윈도우 함수로 최신 가격 정보를 직접 조회
+    windowed_query = (
         select(
             KokProductInfo,
             KokPriceInfo.kok_discount_rate,
-            KokPriceInfo.kok_discounted_price
-        )
-        .join(
-            latest_price_subquery,
-            KokProductInfo.kok_product_id == latest_price_subquery.c.kok_product_id
+            KokPriceInfo.kok_discounted_price,
+            func.row_number().over(
+                partition_by=KokPriceInfo.kok_product_id,
+                order_by=KokPriceInfo.kok_price_id.desc()
+            ).label('rn')
         )
         .join(
             KokPriceInfo,
-            KokPriceInfo.kok_price_id == latest_price_subquery.c.latest_price_id
+            KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id
         )
+        .where(KokPriceInfo.kok_discount_rate > 0)
         .order_by(KokPriceInfo.kok_discount_rate.desc())
+    )
+    
+    # 2. 서브쿼리로 최신 가격만 필터링 (rn = 1)
+    stmt = (
+        select(
+            windowed_query.c.KokProductInfo,
+            windowed_query.c.kok_discount_rate,
+            windowed_query.c.kok_discounted_price
+        )
+        .select_from(
+            windowed_query.subquery()
+        )
+        .where(text("rn = 1"))
         .offset(offset)
         .limit(size)
     )
@@ -328,14 +331,40 @@ async def get_kok_discounted_products(
             "kok_review_score": product.kok_review_score,
         })
     
-    # 캐시에 데이터 저장
+    # 개선된 캐싱: 전체 데이터를 캐시에 저장 (페이지별 캐싱 대신)
     if use_cache:
-        cache_manager.set(
-            'discounted_products',
-            discounted_products,
-            page=page,
-            size=size
+        # 전체 데이터를 조회하여 캐시에 저장
+        all_data_stmt = (
+            select(
+                windowed_query.c.KokProductInfo,
+                windowed_query.c.kok_discount_rate,
+                windowed_query.c.kok_discounted_price
+            )
+            .select_from(
+                windowed_query.subquery()
+            )
+            .where(text("rn = 1"))
         )
+        
+        try:
+            all_results = (await db.execute(all_data_stmt)).all()
+            all_products = []
+            for product, discount_rate, discounted_price in all_results:
+                all_products.append({
+                    "kok_product_id": product.kok_product_id,
+                    "kok_thumbnail": product.kok_thumbnail,
+                    "kok_discount_rate": discount_rate,
+                    "kok_discounted_price": discounted_price,
+                    "kok_product_name": product.kok_product_name,
+                    "kok_store_name": product.kok_store_name,
+                    "kok_review_cnt": product.kok_review_cnt,
+                    "kok_review_score": product.kok_review_score,
+                })
+            
+            # 전체 데이터를 캐시에 저장 (TTL 5분)
+            cache_manager.set('all_discounted_products', all_products, ttl=300)
+        except Exception as e:
+            logger.warning(f"전체 데이터 캐싱 실패: {str(e)}")
     
     # logger.info(f"할인 상품 조회 완료: page={page}, size={size}, 결과 수={len(discounted_products)}")
     return discounted_products
@@ -350,7 +379,7 @@ async def get_kok_top_selling_products(
 ) -> List[dict]:
     """
     판매율 높은 상품 목록 조회 (정렬 기준에 따라 리뷰 개수 또는 별점 평균 순으로 정렬)
-    최적화: 단일 쿼리로 N+1 문제 해결 + Redis 캐싱
+    최적화: 윈도우 함수 사용 + 개선된 캐싱 전략 + 인덱스 최적화
     
     Args:
         db: 데이터베이스 세션
@@ -363,68 +392,66 @@ async def get_kok_top_selling_products(
     
     # logger.info(f"인기 상품 조회 시작: page={page}, size={size}, sort_by={sort_by}, use_cache={use_cache}")
     
-    # 캐시에서 데이터 조회 시도
+    # 개선된 캐싱 전략: 전체 데이터를 캐시에서 조회
     if use_cache:
-        cached_data = cache_manager.get(
-            'top_selling_products',
-            page=page,
-            size=size,
-            sort_by=sort_by
-        )
+        cached_data = cache_manager.get(f'all_top_selling_products_{sort_by}')
         if cached_data:
-    # logger.info(f"캐시에서 인기 상품 조회 완료: page={page}, size={size}, 결과 수={len(cached_data)}")
-            return cached_data
+            # 페이지네이션을 메모리에서 처리
+            start_idx = (page - 1) * size
+            end_idx = start_idx + size
+            # logger.info(f"캐시에서 인기 상품 조회 완료: page={page}, size={size}, 결과 수={len(cached_data[start_idx:end_idx])}")
+            return cached_data[start_idx:end_idx]
     
     offset = (page - 1) * size
     
-    # 서브쿼리로 각 상품의 최신 가격 ID를 구함
-    latest_price_subquery = (
+    # 최적화된 쿼리: 윈도우 함수를 사용하여 복잡한 서브쿼리 제거
+    # 1. 윈도우 함수로 최신 가격 정보를 직접 조회
+    windowed_query = (
         select(
-            KokPriceInfo.kok_product_id,
-            func.max(KokPriceInfo.kok_price_id).label('latest_price_id')
+            KokProductInfo,
+            KokPriceInfo.kok_discount_rate,
+            KokPriceInfo.kok_discounted_price,
+            func.row_number().over(
+                partition_by=KokPriceInfo.kok_product_id,
+                order_by=KokPriceInfo.kok_price_id.desc()
+            ).label('rn')
         )
-        .group_by(KokPriceInfo.kok_product_id)
-        .subquery()
+        .join(
+            KokPriceInfo,
+            KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id
+        )
     )
     
     # 정렬 기준에 따라 쿼리 구성
     if sort_by == "rating":
         # 별점 평균 순으로 정렬 (리뷰가 있는 상품만)
-        order_clause = [
-            KokProductInfo.kok_review_score.desc(),
-            KokProductInfo.kok_review_cnt.desc()
-        ]
-        where_conditions = [
+        windowed_query = windowed_query.where(
             KokProductInfo.kok_review_cnt > 0,
             KokProductInfo.kok_review_score > 0
-        ]
+        ).order_by(
+            KokProductInfo.kok_review_score.desc(),
+            KokProductInfo.kok_review_cnt.desc()
+        )
     else:
         # 기본값: 리뷰 개수 순으로 정렬
-        order_clause = [
+        windowed_query = windowed_query.where(
+            KokProductInfo.kok_review_cnt > 0
+        ).order_by(
             KokProductInfo.kok_review_cnt.desc(),
             KokProductInfo.kok_review_score.desc()
-        ]
-        where_conditions = [
-            KokProductInfo.kok_review_cnt > 0
-        ]
+        )
     
-    # 메인 쿼리: 상품 정보와 최신 가격 정보를 한 번에 조회
+    # 2. 서브쿼리로 최신 가격만 필터링 (rn = 1)
     stmt = (
         select(
-            KokProductInfo,
-            KokPriceInfo.kok_discount_rate,
-            KokPriceInfo.kok_discounted_price
+            windowed_query.c.KokProductInfo,
+            windowed_query.c.kok_discount_rate,
+            windowed_query.c.kok_discounted_price
         )
-        .join(
-            latest_price_subquery,
-            KokProductInfo.kok_product_id == latest_price_subquery.c.kok_product_id
+        .select_from(
+            windowed_query.subquery()
         )
-        .join(
-            KokPriceInfo,
-            KokPriceInfo.kok_price_id == latest_price_subquery.c.latest_price_id
-        )
-        .where(*where_conditions)
-        .order_by(*order_clause)
+        .where(text("rn = 1"))
         .offset(offset)
         .limit(size)
     )
@@ -448,15 +475,40 @@ async def get_kok_top_selling_products(
             "kok_review_score": product.kok_review_score,
         })
     
-    # 캐시에 데이터 저장
+    # 개선된 캐싱: 전체 데이터를 캐시에 저장 (페이지별 캐싱 대신)
     if use_cache:
-        cache_manager.set(
-            'top_selling_products',
-            top_selling_products,
-            page=page,
-            size=size,
-            sort_by=sort_by
+        # 전체 데이터를 조회하여 캐시에 저장
+        all_data_stmt = (
+            select(
+                windowed_query.c.KokProductInfo,
+                windowed_query.c.kok_discount_rate,
+                windowed_query.c.kok_discounted_price
+            )
+            .select_from(
+                windowed_query.subquery()
+            )
+            .where(text("rn = 1"))
         )
+        
+        try:
+            all_results = (await db.execute(all_data_stmt)).all()
+            all_products = []
+            for product, discount_rate, discounted_price in all_results:
+                all_products.append({
+                    "kok_product_id": product.kok_product_id,
+                    "kok_thumbnail": product.kok_thumbnail,
+                    "kok_discount_rate": discount_rate or 0,
+                    "kok_discounted_price": discounted_price or product.kok_product_price,
+                    "kok_product_name": product.kok_product_name,
+                    "kok_store_name": product.kok_store_name,
+                    "kok_review_cnt": product.kok_review_cnt,
+                    "kok_review_score": product.kok_review_score,
+                })
+            
+            # 전체 데이터를 캐시에 저장 (TTL 5분)
+            cache_manager.set(f'all_top_selling_products_{sort_by}', all_products, ttl=300)
+        except Exception as e:
+            logger.warning(f"전체 데이터 캐싱 실패: {str(e)}")
     
     # logger.info(f"인기 상품 조회 완료: page={page}, size={size}, 결과 수={len(top_selling_products)}")
     return top_selling_products
@@ -659,40 +711,42 @@ async def get_kok_store_best_items(
     if store_results:
         logger.debug(f"첫 번째 상품 정보: {store_results[0].kok_product_name}, 판매자: {store_results[0].kok_store_name}, 리뷰 수: {store_results[0].kok_review_cnt}")
     
-    # 최적화: 상품 ID 목록을 추출하여 한 번에 가격 정보 조회
+    # 최적화: 윈도우 함수를 사용하여 상품 정보와 최신 가격 정보를 한 번에 조회
     product_ids = [product.kok_product_id for product in store_results]
     
     if not product_ids:
         logger.warning("조회된 상품이 없음")
         return []
     
-    # 서브쿼리로 각 상품의 최신 가격 ID를 구함
-    latest_price_subquery = (
-        select(
-            KokPriceInfo.kok_product_id,
-            func.max(KokPriceInfo.kok_price_id).label('latest_price_id')
-        )
-        .where(KokPriceInfo.kok_product_id.in_(product_ids))
-        .group_by(KokPriceInfo.kok_product_id)
-        .subquery()
-    )
-    
-    # 최신 가격 정보와 함께 상품 정보를 한 번에 조회
-    optimized_stmt = (
+    # 윈도우 함수를 사용한 최적화된 쿼리
+    windowed_query = (
         select(
             KokProductInfo,
             KokPriceInfo.kok_discount_rate,
-            KokPriceInfo.kok_discounted_price
-        )
-        .join(
-            latest_price_subquery,
-            KokProductInfo.kok_product_id == latest_price_subquery.c.kok_product_id
+            KokPriceInfo.kok_discounted_price,
+            func.row_number().over(
+                partition_by=KokPriceInfo.kok_product_id,
+                order_by=KokPriceInfo.kok_price_id.desc()
+            ).label('rn')
         )
         .join(
             KokPriceInfo,
-            KokPriceInfo.kok_price_id == latest_price_subquery.c.latest_price_id
+            KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id
         )
         .where(KokProductInfo.kok_product_id.in_(product_ids))
+    )
+    
+    # 최신 가격만 필터링하여 조회
+    optimized_stmt = (
+        select(
+            windowed_query.c.KokProductInfo,
+            windowed_query.c.kok_discount_rate,
+            windowed_query.c.kok_discounted_price
+        )
+        .select_from(
+            windowed_query.subquery()
+        )
+        .where(text("rn = 1"))
     )
     
     try:
@@ -1296,72 +1350,104 @@ async def search_kok_products(
     size: int = 20
 ) -> Tuple[List[dict], int]:
     """
-    키워드로 콕 상품 검색
+    키워드로 콕 상품 검색 (최적화: 윈도우 함수 사용으로 N+1 문제 해결)
     """
     try:
-    # logger.info(f"상품 검색 시작: keyword='{keyword}', page={page}, size={size}")
+        # logger.info(f"상품 검색 시작: keyword='{keyword}', page={page}, size={size}")
         offset = (page - 1) * size
         
-        # 검색 쿼리
-        stmt = (
-            select(KokProductInfo)
+        # 최적화된 검색 쿼리: 윈도우 함수를 사용하여 상품 정보와 최신 가격 정보를 한 번에 조회
+        windowed_query = (
+            select(
+                KokProductInfo,
+                KokPriceInfo.kok_discount_rate,
+                KokPriceInfo.kok_discounted_price,
+                func.row_number().over(
+                    partition_by=KokPriceInfo.kok_product_id,
+                    order_by=KokPriceInfo.kok_price_id.desc()
+                ).label('rn')
+            )
+            .join(
+                KokPriceInfo,
+                KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id
+            )
             .where(
                 KokProductInfo.kok_product_name.ilike(f"%{keyword}%") |
                 KokProductInfo.kok_store_name.ilike(f"%{keyword}%")
             )
             .order_by(KokProductInfo.kok_product_id.desc())
+        )
+        
+        # 최신 가격만 필터링하여 검색 결과 조회
+        search_stmt = (
+            select(
+                windowed_query.c.KokProductInfo,
+                windowed_query.c.kok_discount_rate,
+                windowed_query.c.kok_discounted_price
+            )
+            .select_from(
+                windowed_query.subquery()
+            )
+            .where(text("rn = 1"))
             .offset(offset)
             .limit(size)
         )
         
         try:
-            results = (await db.execute(stmt)).scalars().all()
+            results = (await db.execute(search_stmt)).all()
         except Exception as e:
             logger.error(f"상품 검색 SQL 실행 실패: keyword={keyword}, page={page}, size={size}, error={str(e)}")
             raise
         
-        # 총 개수 조회
-        count_stmt = (
-            select(func.count(KokProductInfo.kok_product_id))
+        # 총 개수 조회 (최적화: 윈도우 함수 사용)
+        count_windowed_query = (
+            select(
+                KokProductInfo.kok_product_id,
+                func.row_number().over(
+                    partition_by=KokPriceInfo.kok_product_id,
+                    order_by=KokPriceInfo.kok_price_id.desc()
+                ).label('rn')
+            )
+            .join(
+                KokPriceInfo,
+                KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id
+            )
             .where(
                 KokProductInfo.kok_product_name.ilike(f"%{keyword}%") |
                 KokProductInfo.kok_store_name.ilike(f"%{keyword}%")
             )
         )
+        
+        count_stmt = (
+            select(func.count())
+            .select_from(
+                count_windowed_query.subquery()
+            )
+            .where(text("rn = 1"))
+        )
+        
         try:
             total = (await db.execute(count_stmt)).scalar()
         except Exception as e:
             logger.error(f"상품 검색 개수 조회 SQL 실행 실패: keyword={keyword}, error={str(e)}")
             total = 0
         
-        # 결과 변환
+        # 결과 변환 (N+1 문제 해결: 이미 가격 정보가 포함됨)
         products = []
-        for product in results:
-            # 최신 가격 정보 조회
-            latest_price_id = await get_latest_kok_price_id(db, product.kok_product_id)
-            if latest_price_id:
-                # 최신 가격 정보로 상세 정보 조회
-                price_stmt = select(KokPriceInfo).where(KokPriceInfo.kok_price_id == latest_price_id)
-                try:
-                    price_result = await db.execute(price_stmt)
-                    price = price_result.scalar_one_or_none()
-                except Exception as e:
-                    logger.warning(f"검색 상품 가격 정보 조회 실패: kok_product_id={product.kok_product_id}, latest_price_id={latest_price_id}, error={str(e)}")
-                    price = None
-                
-                products.append({
-                    "kok_product_id": product.kok_product_id,
-                    "kok_product_name": product.kok_product_name,
-                    "kok_store_name": product.kok_store_name,
-                    "kok_thumbnail": product.kok_thumbnail,
-                    "kok_product_price": product.kok_product_price,
-                    "kok_discount_rate": price.kok_discount_rate if price else 0,
-                    "kok_discounted_price": price.kok_discounted_price if price else product.kok_product_price,
-                    "kok_review_cnt": product.kok_review_cnt,
-                    "kok_review_score": product.kok_review_score,
-                })
+        for product, discount_rate, discounted_price in results:
+            products.append({
+                "kok_product_id": product.kok_product_id,
+                "kok_product_name": product.kok_product_name,
+                "kok_store_name": product.kok_store_name,
+                "kok_thumbnail": product.kok_thumbnail,
+                "kok_product_price": product.kok_product_price,
+                "kok_discount_rate": discount_rate or 0,
+                "kok_discounted_price": discounted_price or product.kok_product_price,
+                "kok_review_cnt": product.kok_review_cnt,
+                "kok_review_score": product.kok_review_score,
+            })
         
-    # logger.info(f"상품 검색 완료: keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
+        # logger.info(f"상품 검색 완료: keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
         return products, total
         
     except Exception as e:
