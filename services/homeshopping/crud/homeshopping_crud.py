@@ -175,10 +175,10 @@ async def get_homeshopping_schedule_optimized(
     
     # logger.info(f"최적화된 테이블에서 스케줄 조회 완료: 결과 수={len(schedule_list)}, 전체={total_count}")
     
-    # Redis 캐시 저장 비활성화 (연결 에러 방지)
-    # asyncio.create_task(
-    #     cache_manager.set_schedule_cache(schedule_list, total_count, live_date, page, size)
-    # )
+    # Redis 캐시 저장
+    asyncio.create_task(
+        cache_manager.set_schedule_cache(schedule_list, total_count, live_date, page, size)
+    )
     
     return schedule_list, total_count
 
@@ -196,12 +196,12 @@ async def get_homeshopping_schedule(
     """
     # logger.info(f"홈쇼핑 편성표 조회 시작: live_date={live_date}, page={page}, size={size}")
     
-    # Redis 캐시 비활성화 (연결 에러 방지)
-    # cached_result = await cache_manager.get_schedule_cache(live_date, page, size)
-    # if cached_result:
-    #     schedules, total_count = cached_result
-    #     logger.info(f"캐시에서 스케줄 조회 완료: 결과 수={len(schedules)}, 전체={total_count}")
-    #     return schedules, total_count
+    # Redis 캐시 조회
+    cached_result = await cache_manager.get_schedule_cache(live_date, page, size)
+    if cached_result:
+        schedules, total_count = cached_result
+        logger.info(f"캐시에서 스케줄 조회 완료: 결과 수={len(schedules)}, 전체={total_count}")
+        return schedules, total_count
     
     # DB에서 직접 조회
     # logger.info("DB에서 스케줄 조회 (캐시 비활성화)")
@@ -329,10 +329,10 @@ async def get_homeshopping_schedule(
             "dc_rate": row.dc_rate
         })
     
-    # Redis 캐시 저장 비활성화 (연결 에러 방지)
-    # asyncio.create_task(
-    #     cache_manager.set_schedule_cache(schedule_list, total_count, live_date, page, size)
-    # )
+    # Redis 캐시 저장
+    asyncio.create_task(
+        cache_manager.set_schedule_cache(schedule_list, total_count, live_date, page, size)
+    )
     
     # logger.info(f"홈쇼핑 편성표 조회 완료: live_date={live_date}, 결과 수={len(schedule_list)}, 전체={total_count}")
     return schedule_list, total_count
