@@ -52,7 +52,6 @@ from services.homeshopping.schemas.homeshopping_schema import (
 from services.homeshopping.crud.homeshopping_crud import (
     # 편성표 관련 CRUD
     get_homeshopping_schedule,
-    get_homeshopping_schedule_optimized,
     
     # 상품 검색 관련 CRUD
     search_homeshopping_products,
