@@ -8,7 +8,7 @@
 - 트랜잭션 관리(commit/rollback)는 상위 계층(라우터)에서 담당
 """
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, text
+from sqlalchemy import select, func
 from typing import Optional, List, Tuple, Dict
 from datetime import datetime, timedelta
 
@@ -278,7 +278,13 @@ async def get_kok_discounted_products(
     # 1. 윈도우 함수로 최신 가격 정보를 직접 조회
     windowed_query = (
         select(
-            KokProductInfo,
+            KokProductInfo.kok_product_id,
+            KokProductInfo.kok_thumbnail,
+            KokProductInfo.kok_product_name,
+            KokProductInfo.kok_store_name,
+            KokProductInfo.kok_product_price,
+            KokProductInfo.kok_review_cnt,
+            KokProductInfo.kok_review_score,
             KokPriceInfo.kok_discount_rate,
             KokPriceInfo.kok_discounted_price,
             func.row_number().over(
@@ -295,16 +301,21 @@ async def get_kok_discounted_products(
     )
     
     # 2. 서브쿼리로 최신 가격만 필터링 (rn = 1)
+    subquery = windowed_query.subquery()
     stmt = (
         select(
-            KokProductInfo,
-            windowed_query.c.kok_discount_rate,
-            windowed_query.c.kok_discounted_price
+            subquery.c.kok_product_id,
+            subquery.c.kok_thumbnail,
+            subquery.c.kok_product_name,
+            subquery.c.kok_store_name,
+            subquery.c.kok_product_price,
+            subquery.c.kok_review_cnt,
+            subquery.c.kok_review_score,
+            subquery.c.kok_discount_rate,
+            subquery.c.kok_discounted_price
         )
-        .select_from(
-            windowed_query.subquery()
-        )
-        .where(text("rn = 1"))
+        .select_from(subquery)
+        .where(subquery.c.rn == 1)
         .offset(offset)
         .limit(size)
     )
@@ -316,46 +327,51 @@ async def get_kok_discounted_products(
         raise
     
     discounted_products = []
-    for product, discount_rate, discounted_price in results:
+    for row in results:
         discounted_products.append({
-            "kok_product_id": product.kok_product_id,
-            "kok_thumbnail": product.kok_thumbnail,
-            "kok_discount_rate": discount_rate,
-            "kok_discounted_price": discounted_price,
-            "kok_product_name": product.kok_product_name,
-            "kok_store_name": product.kok_store_name,
-            "kok_review_cnt": product.kok_review_cnt,
-            "kok_review_score": product.kok_review_score,
+            "kok_product_id": row.kok_product_id,
+            "kok_thumbnail": row.kok_thumbnail,
+            "kok_discount_rate": row.kok_discount_rate,
+            "kok_discounted_price": row.kok_discounted_price,
+            "kok_product_name": row.kok_product_name,
+            "kok_store_name": row.kok_store_name,
+            "kok_review_cnt": row.kok_review_cnt,
+            "kok_review_score": row.kok_review_score,
         })
     
     # 개선된 캐싱: 전체 데이터를 캐시에 저장 (페이지별 캐싱 대신)
     if use_cache:
         # 전체 데이터를 조회하여 캐시에 저장
+        all_subquery = windowed_query.subquery().alias('cache_subquery')
         all_data_stmt = (
             select(
-                KokProductInfo,
-                windowed_query.c.kok_discount_rate,
-                windowed_query.c.kok_discounted_price
+                all_subquery.c.kok_product_id,
+                all_subquery.c.kok_thumbnail,
+                all_subquery.c.kok_product_name,
+                all_subquery.c.kok_store_name,
+                all_subquery.c.kok_product_price,
+                all_subquery.c.kok_review_cnt,
+                all_subquery.c.kok_review_score,
+                all_subquery.c.kok_discount_rate,
+                all_subquery.c.kok_discounted_price
             )
-            .select_from(
-                windowed_query.subquery()
-            )
-            .where(text("rn = 1"))
+            .select_from(all_subquery)
+            .where(all_subquery.c.rn == 1)
         )
         
         try:
             all_results = (await db.execute(all_data_stmt)).all()
             all_products = []
-            for product, discount_rate, discounted_price in all_results:
+            for row in all_results:
                 all_products.append({
-                    "kok_product_id": product.kok_product_id,
-                    "kok_thumbnail": product.kok_thumbnail,
-                    "kok_discount_rate": discount_rate,
-                    "kok_discounted_price": discounted_price,
-                    "kok_product_name": product.kok_product_name,
-                    "kok_store_name": product.kok_store_name,
-                    "kok_review_cnt": product.kok_review_cnt,
-                    "kok_review_score": product.kok_review_score,
+                    "kok_product_id": row.kok_product_id,
+                    "kok_thumbnail": row.kok_thumbnail,
+                    "kok_discount_rate": row.kok_discount_rate,
+                    "kok_discounted_price": row.kok_discounted_price,
+                    "kok_product_name": row.kok_product_name,
+                    "kok_store_name": row.kok_store_name,
+                    "kok_review_cnt": row.kok_review_cnt,
+                    "kok_review_score": row.kok_review_score,
                 })
             
             # 전체 데이터를 캐시에 저장 (TTL 5분)
@@ -402,7 +418,13 @@ async def get_kok_top_selling_products(
     # 1. 윈도우 함수로 최신 가격 정보를 직접 조회
     windowed_query = (
         select(
-            KokProductInfo,
+            KokProductInfo.kok_product_id,
+            KokProductInfo.kok_thumbnail,
+            KokProductInfo.kok_product_name,
+            KokProductInfo.kok_store_name,
+            KokProductInfo.kok_product_price,
+            KokProductInfo.kok_review_cnt,
+            KokProductInfo.kok_review_score,
             KokPriceInfo.kok_discount_rate,
             KokPriceInfo.kok_discounted_price,
             func.row_number().over(
@@ -436,16 +458,21 @@ async def get_kok_top_selling_products(
         )
     
     # 2. 서브쿼리로 최신 가격만 필터링 (rn = 1)
+    subquery = windowed_query.subquery()
     stmt = (
         select(
-            KokProductInfo,
-            windowed_query.c.kok_discount_rate,
-            windowed_query.c.kok_discounted_price
+            subquery.c.kok_product_id,
+            subquery.c.kok_thumbnail,
+            subquery.c.kok_product_name,
+            subquery.c.kok_store_name,
+            subquery.c.kok_product_price,
+            subquery.c.kok_review_cnt,
+            subquery.c.kok_review_score,
+            subquery.c.kok_discount_rate,
+            subquery.c.kok_discounted_price
         )
-        .select_from(
-            windowed_query.subquery()
-        )
-        .where(text("rn = 1"))
+        .select_from(subquery)
+        .where(subquery.c.rn == 1)
         .offset(offset)
         .limit(size)
     )
@@ -457,46 +484,51 @@ async def get_kok_top_selling_products(
         raise
     
     top_selling_products = []
-    for product, discount_rate, discounted_price in results:
+    for row in results:
         top_selling_products.append({
-            "kok_product_id": product.kok_product_id,
-            "kok_thumbnail": product.kok_thumbnail,
-            "kok_discount_rate": discount_rate or 0,
-            "kok_discounted_price": discounted_price or product.kok_product_price,
-            "kok_product_name": product.kok_product_name,
-            "kok_store_name": product.kok_store_name,
-            "kok_review_cnt": product.kok_review_cnt,
-            "kok_review_score": product.kok_review_score,
+            "kok_product_id": row.kok_product_id,
+            "kok_thumbnail": row.kok_thumbnail,
+            "kok_discount_rate": row.kok_discount_rate or 0,
+            "kok_discounted_price": row.kok_discounted_price or row.kok_product_price,
+            "kok_product_name": row.kok_product_name,
+            "kok_store_name": row.kok_store_name,
+            "kok_review_cnt": row.kok_review_cnt,
+            "kok_review_score": row.kok_review_score,
         })
     
     # 개선된 캐싱: 전체 데이터를 캐시에 저장 (페이지별 캐싱 대신)
     if use_cache:
         # 전체 데이터를 조회하여 캐시에 저장
+        all_subquery = windowed_query.subquery().alias('cache_subquery')
         all_data_stmt = (
             select(
-                KokProductInfo,
-                windowed_query.c.kok_discount_rate,
-                windowed_query.c.kok_discounted_price
+                all_subquery.c.kok_product_id,
+                all_subquery.c.kok_thumbnail,
+                all_subquery.c.kok_product_name,
+                all_subquery.c.kok_store_name,
+                all_subquery.c.kok_product_price,
+                all_subquery.c.kok_review_cnt,
+                all_subquery.c.kok_review_score,
+                all_subquery.c.kok_discount_rate,
+                all_subquery.c.kok_discounted_price
             )
-            .select_from(
-                windowed_query.subquery()
-            )
-            .where(text("rn = 1"))
+            .select_from(all_subquery)
+            .where(all_subquery.c.rn == 1)
         )
         
         try:
             all_results = (await db.execute(all_data_stmt)).all()
             all_products = []
-            for product, discount_rate, discounted_price in all_results:
+            for row in all_results:
                 all_products.append({
-                    "kok_product_id": product.kok_product_id,
-                    "kok_thumbnail": product.kok_thumbnail,
-                    "kok_discount_rate": discount_rate or 0,
-                    "kok_discounted_price": discounted_price or product.kok_product_price,
-                    "kok_product_name": product.kok_product_name,
-                    "kok_store_name": product.kok_store_name,
-                    "kok_review_cnt": product.kok_review_cnt,
-                    "kok_review_score": product.kok_review_score,
+                    "kok_product_id": row.kok_product_id,
+                    "kok_thumbnail": row.kok_thumbnail,
+                    "kok_discount_rate": row.kok_discount_rate or 0,
+                    "kok_discounted_price": row.kok_discounted_price or row.kok_product_price,
+                    "kok_product_name": row.kok_product_name,
+                    "kok_store_name": row.kok_store_name,
+                    "kok_review_cnt": row.kok_review_cnt,
+                    "kok_review_score": row.kok_review_score,
                 })
             
             # 전체 데이터를 캐시에 저장 (TTL 5분)
@@ -715,7 +747,13 @@ async def get_kok_store_best_items(
     # 윈도우 함수를 사용한 최적화된 쿼리
     windowed_query = (
         select(
-            KokProductInfo,
+            KokProductInfo.kok_product_id,
+            KokProductInfo.kok_thumbnail,
+            KokProductInfo.kok_product_name,
+            KokProductInfo.kok_store_name,
+            KokProductInfo.kok_product_price,
+            KokProductInfo.kok_review_cnt,
+            KokProductInfo.kok_review_score,
             KokPriceInfo.kok_discount_rate,
             KokPriceInfo.kok_discounted_price,
             func.row_number().over(
@@ -731,16 +769,15 @@ async def get_kok_store_best_items(
     )
     
     # 최신 가격만 필터링하여 조회
+    subquery = windowed_query.subquery()
     optimized_stmt = (
         select(
-            KokProductInfo,
-            windowed_query.c.kok_discount_rate,
-            windowed_query.c.kok_discounted_price
+            subquery.c.kok_product_id,
+            subquery.c.kok_discount_rate,
+            subquery.c.kok_discounted_price
         )
-        .select_from(
-            windowed_query.subquery()
-        )
-        .where(text("rn = 1"))
+        .select_from(subquery)
+        .where(subquery.c.rn == 1)
     )
     
     try:
@@ -751,10 +788,10 @@ async def get_kok_store_best_items(
     
     # 결과를 딕셔너리로 변환하여 빠른 조회 가능하게 함
     product_price_map = {}
-    for product, discount_rate, discounted_price in optimized_results:
-        product_price_map[product.kok_product_id] = {
-            'discount_rate': discount_rate,
-            'discounted_price': discounted_price
+    for row in optimized_results:
+        product_price_map[row.kok_product_id] = {
+            'discount_rate': row.kok_discount_rate,
+            'discounted_price': row.kok_discounted_price
         }
     
     store_best_products = []
@@ -1353,7 +1390,13 @@ async def search_kok_products(
         # 최적화된 검색 쿼리: 윈도우 함수를 사용하여 상품 정보와 최신 가격 정보를 한 번에 조회
         windowed_query = (
             select(
-                KokProductInfo,
+                KokProductInfo.kok_product_id,
+                KokProductInfo.kok_thumbnail,
+                KokProductInfo.kok_product_name,
+                KokProductInfo.kok_store_name,
+                KokProductInfo.kok_product_price,
+                KokProductInfo.kok_review_cnt,
+                KokProductInfo.kok_review_score,
                 KokPriceInfo.kok_discount_rate,
                 KokPriceInfo.kok_discounted_price,
                 func.row_number().over(
@@ -1373,16 +1416,21 @@ async def search_kok_products(
         )
         
         # 최신 가격만 필터링하여 검색 결과 조회
+        subquery = windowed_query.subquery()
         search_stmt = (
             select(
-                KokProductInfo,
-                windowed_query.c.kok_discount_rate,
-                windowed_query.c.kok_discounted_price
+                subquery.c.kok_product_id,
+                subquery.c.kok_thumbnail,
+                subquery.c.kok_product_name,
+                subquery.c.kok_store_name,
+                subquery.c.kok_product_price,
+                subquery.c.kok_review_cnt,
+                subquery.c.kok_review_score,
+                subquery.c.kok_discount_rate,
+                subquery.c.kok_discounted_price
             )
-            .select_from(
-                windowed_query.subquery()
-            )
-            .where(text("rn = 1"))
+            .select_from(subquery)
+            .where(subquery.c.rn == 1)
             .offset(offset)
             .limit(size)
         )
@@ -1412,12 +1460,11 @@ async def search_kok_products(
             )
         )
         
+        count_subquery = count_windowed_query.subquery().alias('count_subquery')
         count_stmt = (
             select(func.count())
-            .select_from(
-                count_windowed_query.subquery()
-            )
-            .where(text("rn = 1"))
+            .select_from(count_subquery)
+            .where(count_subquery.c.rn == 1)
         )
         
         try:
@@ -1428,17 +1475,17 @@ async def search_kok_products(
         
         # 결과 변환 (N+1 문제 해결: 이미 가격 정보가 포함됨)
         products = []
-        for product, discount_rate, discounted_price in results:
+        for row in results:
             products.append({
-                "kok_product_id": product.kok_product_id,
-                "kok_product_name": product.kok_product_name,
-                "kok_store_name": product.kok_store_name,
-                "kok_thumbnail": product.kok_thumbnail,
-                "kok_product_price": product.kok_product_price,
-                "kok_discount_rate": discount_rate or 0,
-                "kok_discounted_price": discounted_price or product.kok_product_price,
-                "kok_review_cnt": product.kok_review_cnt,
-                "kok_review_score": product.kok_review_score,
+                "kok_product_id": row.kok_product_id,
+                "kok_product_name": row.kok_product_name,
+                "kok_store_name": row.kok_store_name,
+                "kok_thumbnail": row.kok_thumbnail,
+                "kok_product_price": row.kok_product_price,
+                "kok_discount_rate": row.kok_discount_rate or 0,
+                "kok_discounted_price": row.kok_discounted_price or row.kok_product_price,
+                "kok_review_cnt": row.kok_review_cnt,
+                "kok_review_score": row.kok_review_score,
             })
         
         # logger.info(f"상품 검색 완료: keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
