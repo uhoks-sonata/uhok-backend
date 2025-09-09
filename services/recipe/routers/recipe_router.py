@@ -491,8 +491,11 @@ async def by_ingredients(
         current_user.user_id, ingredients_hash, combination_number
     )
     
-    # 조합별 레시피 추천
+    # 조합별 레시피 추천 (성능 측정 포함)
     try:
+        import time
+        start_time = time.time()
+        
         if combination_number == 1:
             recipes, total = await recommend_recipes_combination_1(
                 db, ingredient, amount, unit, 1, size, current_user.user_id
@@ -518,6 +521,11 @@ async def by_ingredients(
                 "combination_number": combination_number,
                 "has_more_combinations": False
             }
+        
+        # 성능 측정 완료
+        execution_time = time.time() - start_time
+        logger.info(f"조합 {combination_number} 추천 완료: user_id={current_user.user_id}, 실행시간={execution_time:.3f}초, 결과수={len(recipes)}")
+        
     except Exception as e:
         logger.error(f"레시피 추천 실패: user_id={current_user.user_id}, combination_number={combination_number}, error={str(e)}")
         raise HTTPException(status_code=500, detail="레시피 추천 중 오류가 발생했습니다.")

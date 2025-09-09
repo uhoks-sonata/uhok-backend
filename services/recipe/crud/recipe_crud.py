@@ -21,7 +21,6 @@ from services.order.models.order_model import Order, KokOrder, HomeShoppingOrder
 from services.homeshopping.models.homeshopping_model import (
     HomeshoppingList, HomeshoppingProductInfo
 )
-from services.kok.models.kok_model import KokProductInfo
 from services.recipe.models.recipe_model import (
     Recipe, Material, RecipeRating
 )
@@ -178,9 +177,9 @@ async def recommend_recipes_combination_1(
         import time
         seed = int(time.time() // 60) % 3  # 시간 기반 시드 (fallback)
     
-    # 시드 기반으로 정렬 기준 변경
+    # 시드 기반으로 정렬 기준 변경 (쿼리 최적화)
     if seed == 0:
-        # 인기순 정렬
+        # 인기순 정렬 (가장 일반적)
         base_stmt = (
             select(Recipe)
             .join(Material, Recipe.recipe_id == Material.recipe_id)
@@ -188,7 +187,6 @@ async def recommend_recipes_combination_1(
             .group_by(Recipe.recipe_id)
             .order_by(desc(Recipe.scrap_count))
         )
-    # logger.info(f"1조합: 인기순 정렬 사용 (시드: {seed})")
     elif seed == 1:
         # 최신순 정렬 (recipe_id 기준)
         base_stmt = (
@@ -198,17 +196,15 @@ async def recommend_recipes_combination_1(
             .group_by(Recipe.recipe_id)
             .order_by(desc(Recipe.recipe_id))
         )
-    # logger.info(f"1조합: 최신순 정렬 사용 (시드: {seed})")
     else:
-        # 조합별 정렬 (재료 개수 + 인기도)
+        # 재료 매칭 개수 + 인기도 정렬
         base_stmt = (
-            select(Recipe, func.count(Material.material_name).label('material_count'))
+            select(Recipe)
             .join(Material, Recipe.recipe_id == Material.recipe_id)
             .where(Material.material_name.in_(ingredients))
             .group_by(Recipe.recipe_id)
             .order_by(desc(func.count(Material.material_name)), desc(Recipe.scrap_count))
         )
-    # logger.info(f"1조합: 재료 개수 + 인기도 정렬 사용 (시드: {seed})")
     
     # 기존 알고리즘 그대로 실행
     recipes, total = await execute_standard_inventory_algorithm(
@@ -249,8 +245,7 @@ async def recommend_recipes_combination_2(
     # logger.info(f"2조합 캐시 히트: {len(recipes)}개 레시피")
             return recipes, total
     
-    # 기존 로직 그대로 유지
-    # 1조합에서 사용된 레시피를 제외한 레시피 풀
+    # 1조합에서 사용된 레시피를 제외한 레시피 풀 (쿼리 최적화)
     base_stmt = (
         select(Recipe)
         .join(Material, Recipe.recipe_id == Material.recipe_id)
@@ -259,10 +254,9 @@ async def recommend_recipes_combination_2(
         .order_by(desc(Recipe.scrap_count))  # 인기순 정렬
     )
     
-    # 제외할 레시피가 있으면 쿼리에 추가
+    # 제외할 레시피가 있으면 쿼리에 추가 (성능 최적화)
     if exclude_recipe_ids:
         base_stmt = base_stmt.where(Recipe.recipe_id.notin_(exclude_recipe_ids))
-    # logger.info(f"제외할 레시피 ID: {exclude_recipe_ids}")
     
     # 기존 알고리즘 그대로 실행
     recipes, total = await execute_standard_inventory_algorithm(
@@ -303,8 +297,7 @@ async def recommend_recipes_combination_3(
     # logger.info(f"3조합 캐시 히트: {len(recipes)}개 레시피")
             return recipes, total
     
-    # 기존 로직 그대로 유지
-    # 1조합, 2조합에서 사용된 레시피를 제외한 레시피 풀
+    # 1조합, 2조합에서 사용된 레시피를 제외한 레시피 풀 (쿼리 최적화)
     base_stmt = (
         select(Recipe)
         .join(Material, Recipe.recipe_id == Material.recipe_id)
@@ -313,10 +306,9 @@ async def recommend_recipes_combination_3(
         .order_by(desc(Recipe.scrap_count))  # 인기순 정렬
     )
     
-    # 제외할 레시피가 있으면 쿼리에 추가
+    # 제외할 레시피가 있으면 쿼리에 추가 (성능 최적화)
     if exclude_recipe_ids:
         base_stmt = base_stmt.where(Recipe.recipe_id.notin_(exclude_recipe_ids))
-    # logger.info(f"제외할 레시피 ID: {exclude_recipe_ids}")
     
     # 기존 알고리즘 그대로 실행
     recipes, total = await execute_standard_inventory_algorithm(
@@ -368,59 +360,82 @@ async def execute_standard_inventory_algorithm(
             'unit': unit
         })
     
-    # 2-2. 전체 후보 레시피를 한 번에 조회 (페이지네이션을 위해)
-    # logger.info("전체 후보 레시피 조회 시작")
-    candidate_recipes = (await db.execute(base_stmt)).scalars().unique().all()
-    # logger.info(f"전체 후보 레시피 개수: {len(candidate_recipes)}")
+    # 2-2. 페이지네이션을 고려한 제한적 후보 조회 (성능 최적화)
+    max_candidates = min(page * size * 5, 2000)  # 최대 2000개로 제한
+    limited_stmt = base_stmt.limit(max_candidates)
+    candidate_recipes = (await db.execute(limited_stmt)).scalars().unique().all()
     
-    # 2-3. 레시피별 재료 정보를 효율적으로 조회
+    if not candidate_recipes:
+        return [], 0
+    
+    # 2-3. 단일 쿼리로 레시피와 재료 정보를 함께 조회 (N+1 문제 해결)
     recipe_ids = [r.recipe_id for r in candidate_recipes]
-    materials_stmt = (
-        select(Material)
-        .where(Material.recipe_id.in_(recipe_ids))
-    )
-    all_materials = (await db.execute(materials_stmt)).scalars().all()
     
-    # 레시피별 재료 맵 구성
+    # JOIN을 사용한 최적화된 쿼리 (필요한 재료만 필터링)
+    optimized_stmt = (
+        select(
+            Recipe.recipe_id,
+            Recipe.recipe_title,
+            Recipe.cooking_name,
+            Recipe.scrap_count,
+            Recipe.thumbnail_url,
+            Recipe.cooking_case_name,
+            Recipe.cooking_category_name,
+            Recipe.cooking_introduction,
+            Recipe.number_of_serving,
+            Material.material_name,
+            Material.measure_amount,
+            Material.measure_unit
+        )
+        .join(Material, Recipe.recipe_id == Material.recipe_id)
+        .where(Recipe.recipe_id.in_(recipe_ids))
+        .where(Material.material_name.in_(ingredients))  # 필요한 재료만 필터링
+    )
+    
+    result = await db.execute(optimized_stmt)
+    rows = result.all()
+    
+    # 효율적인 데이터 구조로 변환
     recipe_material_map = {}
-    for mat in all_materials:
-        if mat.recipe_id not in recipe_material_map:
-            recipe_material_map[mat.recipe_id] = []
+    recipe_info_map = {}
+    
+    for row in rows:
+        recipe_id = row.recipe_id
+        
+        # 레시피 기본 정보 저장 (중복 방지)
+        if recipe_id not in recipe_info_map:
+            recipe_info_map[recipe_id] = {
+                'RECIPE_ID': row.recipe_id,
+                'RECIPE_TITLE': row.recipe_title,
+                'COOKING_NAME': row.cooking_name,
+                'SCRAP_COUNT': row.scrap_count,
+                'RECIPE_URL': get_recipe_url(row.recipe_id),
+                'THUMBNAIL_URL': row.thumbnail_url,
+                'COOKING_CASE_NAME': row.cooking_case_name,
+                'COOKING_CATEGORY_NAME': row.cooking_category_name,
+                'COOKING_INTRODUCTION': row.cooking_introduction,
+                'NUMBER_OF_SERVING': row.number_of_serving
+            }
+        
+        # 재료 정보 저장
+        if recipe_id not in recipe_material_map:
+            recipe_material_map[recipe_id] = []
         
         try:
-            amt = float(mat.measure_amount) if mat.measure_amount is not None else 0
+            amt = float(row.measure_amount) if row.measure_amount is not None else 0
         except (ValueError, TypeError):
             amt = 0
         
-        recipe_material_map[mat.recipe_id].append({
-            'mat': mat.material_name,
+        recipe_material_map[recipe_id].append({
+            'mat': row.material_name,
             'amt': amt,
-            'unit': mat.measure_unit if mat.measure_unit else ''
+            'unit': row.measure_unit if row.measure_unit else ''
         })
     
-    # 2-4. 레시피 정보를 DataFrame 형태로 변환
-    recipe_df = []
-    for recipe in candidate_recipes:
-        recipe_dict = {
-            'RECIPE_ID': recipe.recipe_id,
-            'RECIPE_TITLE': recipe.recipe_title,
-            'COOKING_NAME': recipe.cooking_name,
-            'SCRAP_COUNT': recipe.scrap_count,
-            'RECIPE_URL': get_recipe_url(recipe.recipe_id),
-            'THUMBNAIL_URL': recipe.thumbnail_url,
-            'COOKING_CASE_NAME': recipe.cooking_case_name,
-            'COOKING_CATEGORY_NAME': recipe.cooking_category_name,
-            'COOKING_INTRODUCTION': recipe.cooking_introduction,
-            'NUMBER_OF_SERVING': recipe.number_of_serving
-        }
-        recipe_df.append(recipe_dict)
+    # 2-4. DataFrame 생성 최적화 (기존 recipe_info_map 사용)
+    recipe_df = pd.DataFrame(list(recipe_info_map.values()))
     
-    # DataFrame으로 변환 (measure_amount가 None인 경우 처리)
-    try:
-        recipe_df = pd.DataFrame(recipe_df)
-    # logger.info(f"DataFrame 생성 완료: {len(recipe_df)}행")
-    except Exception as e:
-        logger.error(f"DataFrame 생성 실패: {e}")
+    if recipe_df.empty:
         return [], 0
     
     # 2-5. mat2recipes 역인덱스 생성 (Streamlit 코드와 동일)
