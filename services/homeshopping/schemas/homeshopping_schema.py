@@ -33,8 +33,16 @@ class HomeshoppingScheduleItem(BaseModel):
         from_attributes = True
 
 
+class HomeshoppingSchedulePagination(BaseModel):
+    """편성표 페이징 정보"""
+    page: int = Field(..., description="현재 페이지")
+    size: int = Field(..., description="페이지 크기")
+    total_count: int = Field(..., description="전체 개수")
+    has_more: bool = Field(..., description="더 많은 데이터가 있는지 여부")
+
+
 class HomeshoppingScheduleResponse(BaseModel):
-    """편성표 조회 응답"""
+    """편성표 조회 응답 - 최적화된 버전"""
     schedules: List[HomeshoppingScheduleItem] = Field(default_factory=list)
 
 
@@ -51,6 +59,7 @@ class HomeshoppingSearchRequest(BaseModel):
 
 class HomeshoppingSearchProduct(BaseModel):
     """검색 결과 상품 정보"""
+    live_id: int
     product_id: int
     product_name: str
     store_name: Optional[str] = None
@@ -140,7 +149,7 @@ class HomeshoppingProductDetail(BaseModel):
 
 class HomeshoppingProductImage(BaseModel):
     """상품 이미지 정보"""
-    img_url: str
+    img_url: Optional[str] = None
     sort_order: int
     
     class Config:
@@ -218,6 +227,7 @@ class HomeshoppingLikesToggleResponse(BaseModel):
 
 class HomeshoppingLikedProduct(BaseModel):
     """찜한 상품 정보"""
+    live_id: Optional[int] = None
     product_id: int
     product_name: str
     store_name: Optional[str] = None
@@ -226,9 +236,9 @@ class HomeshoppingLikedProduct(BaseModel):
     thumb_img_url: str
     homeshopping_like_created_at: datetime
     homeshopping_id: Optional[int] = None
-    live_id: Optional[int] = None
-    live_start_time: Optional[time] = None
     live_date: Optional[date] = None
+    live_start_time: Optional[time] = None
+    live_end_time: Optional[time] = None
     
     class Config:
         from_attributes = True

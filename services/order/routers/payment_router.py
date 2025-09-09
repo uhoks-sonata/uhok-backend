@@ -50,14 +50,22 @@ async def confirm_payment_v1(
         - 완료 시: 해당 order_id 하위 주문들을 PAYMENT_COMPLETED로 갱신(트랜잭션)
         - 실패/타임아웃 시: 적절한 HTTPException 반환
     """
+    logger.debug(f"결제 확인 v1 시작: user_id={current_user.user_id}, order_id={order_id}")
+    logger.info(f"결제 확인 v1 요청: user_id={current_user.user_id}, order_id={order_id}, payment_method={payment_data.payment_method}, amount={payment_data.amount}")
+    
     # CRUD 계층에 결제 확인 및 상태 업데이트 위임
-    result = await confirm_payment_and_update_status_v1(
-        db=db,
-        order_id=order_id,
-        user_id=current_user.user_id,
-        payment_data=payment_data,
-        background_tasks=background_tasks,
-    )
+    try:
+        result = await confirm_payment_and_update_status_v1(
+            db=db,
+            order_id=order_id,
+            user_id=current_user.user_id,
+            payment_data=payment_data,
+            background_tasks=background_tasks,
+        )
+        logger.debug(f"결제 확인 v1 성공: user_id={current_user.user_id}, order_id={order_id}, result={result}")
+    except Exception as e:
+        logger.error(f"결제 확인 v1 실패: user_id={current_user.user_id}, order_id={order_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="결제 확인 중 오류가 발생했습니다.")
     
     # 결제 확인 v1 로그 기록
     if background_tasks:
@@ -94,6 +102,9 @@ async def confirm_payment_v2(
     - 백엔드에서 결제서버로 롱폴링 방식으로 결제확인
     - 웹훅으로 결제완료 응답을 받으면 진행사항 반영
     """
+    logger.debug(f"결제 확인 v2 시작: user_id={current_user.user_id}, order_id={order_id}")
+    logger.info(f"결제 확인 v2 요청: user_id={current_user.user_id}, order_id={order_id}")
+    
     try:
         result = await confirm_payment_and_update_status_v2(
             db=db,
@@ -102,6 +113,7 @@ async def confirm_payment_v2(
             request=request,
             background_tasks=background_tasks,
         )
+        logger.debug(f"결제 확인 v2 성공: user_id={current_user.user_id}, order_id={order_id}, result={result}")
         
         # 결제 확인 v2 로그 기록
         if background_tasks:
@@ -112,13 +124,14 @@ async def confirm_payment_v2(
                 event_type="payment_confirm_v2",
                 event_data={
                     "order_id": order_id,
-                    "result_status": result.get("status", "unknown")
+                    "result_status": result.status if hasattr(result, 'status') else "unknown"
                 },
                 **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         return result
     except Exception as e:
+        logger.error(f"결제 확인 v2 실패: user_id={current_user.user_id}, order_id={order_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail=f"payment v2 long polling failed: {e}")
 
 @router.post("/webhook/v2/{tx_id}", name="payment_webhook_handler_v2")
@@ -134,6 +147,8 @@ async def payment_webhook_v2(
     - 헤더 X-Payment-Signature (base64 HMAC-SHA256)
     - 헤더 X-Payment-Event (payment.completed | payment.failed | payment.cancelled)
     """
+    logger.debug(f"웹훅 수신 시작: tx_id={tx_id}")
+    
     # 모든 헤더 로깅
     all_headers = dict(request.headers)
     logger.info(f"[v2] 웹훅 수신: tx_id={tx_id}")
@@ -155,6 +170,7 @@ async def payment_webhook_v2(
         x_payment_signature = "dev_signature_skip"
 
     body = await request.body()
+    logger.debug(f"웹훅 바디 수신: size={len(body)} bytes")
     logger.info(f"[v2] 웹훅 바디 수신: size={len(body)} bytes, body={body[:200]}...")
     
     try:
@@ -166,11 +182,12 @@ async def payment_webhook_v2(
             event=x_payment_event,
             authorization=authorization,
         )
+        logger.debug(f"웹훅 처리 성공: tx_id={tx_id}, result={result}")
         logger.info(f"[v2] 웹훅 처리 결과: {result}")
         
         if not result.get("ok"):
             logger.error(f"[v2] 웹훅 처리 실패: {result}")
-            raise HTTPException(status_code=400, detail=result.get("reason","webhook handling failed"))
+            raise HTTPException(status_code=400, detail="webhook handling failed")
         
         # 웹훅 수신 로그 기록 (익명 사용자)
         if background_tasks:
@@ -190,7 +207,7 @@ async def payment_webhook_v2(
         
         return {"received": True, **result}
     except Exception as e:
-        logger.error(f"[v2] 웹훅 처리 중 예외 발생: {e}")
+        logger.error(f"[v2] 웹훅 처리 중 예외 발생: tx_id={tx_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail=f"webhook processing error: {str(e)}")
 
 # === [Cleanup Task] =========================================================
@@ -199,8 +216,10 @@ async def cleanup_webhook_waiters():
     오래된 웹훅 대기자들을 정리하는 함수
     주기적으로 호출하여 메모리 누수를 방지
     """
+    logger.debug("웹훅 대기자 클린업 시작")
     try:
         await webhook_waiters.cleanup(max_age_sec=300)  # 5분 이상 된 대기자 정리
+        logger.debug("웹훅 대기자 클린업 성공")
         logger.info("[v2] 웹훅 대기자 클린업 완료")
     except Exception as e:
         logger.error(f"[v2] 웹훅 대기자 클린업 실패: {e}")

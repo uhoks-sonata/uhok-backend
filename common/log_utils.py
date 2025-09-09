@@ -3,21 +3,20 @@ from __future__ import annotations
 
 import json
 import random
+import asyncio
 from typing import Any, Dict, Iterable, Optional
 from datetime import datetime, timezone
 
 import anyio
 import httpx
 
-from common.config import get_settings
 from common.logger import get_logger
 
-settings = get_settings()
 logger = get_logger("log_utils")
 
 # 로그 전송 불필요하므로 API_URL 제거
 API_URL = None  # 사용하지 않음
-AUTH_TOKEN = getattr(settings, "service_auth_token", None)
+AUTH_TOKEN = None  # 사용하지 않음
 
 SENSITIVE_KEYS: set[str] = {
     "password", "pwd", "pass",
@@ -146,30 +145,38 @@ async def send_user_log(
     - HTTP 정보를 포함하여 저장
     """
     
-    # 직접 DB에 저장하도록 변경
-    try:
-        from common.database.postgres_log import SessionLocal
-        from services.log.crud.user_event_log_crud import create_user_log
-        
-        # 로그 데이터 구성
-        log_data = {
-            "user_id": user_id,
-            "event_type": event_type,
-            "event_data": event_data,
-            "http_method": http_method,
-            "api_url": api_url,
-            "request_time": request_time,
-            "response_time": response_time,
-            "response_code": response_code,
-            "client_ip": client_ip
-        }
-        
-        # 로그 DB 세션 생성 및 저장
-        async with SessionLocal() as db:
-            log_obj = await create_user_log(db, log_data)
-            logger.debug(f"[log_utils] 로그 DB 저장 완료: user_id={user_id}, event_type={event_type}, log_id={log_obj.log_id}")
-            return {"log_id": log_obj.log_id, "status": "saved_to_db"}
+    # 직접 DB에 저장하도록 변경 (재시도 로직 포함)
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            from common.database.postgres_log import SessionLocal
+            from services.log.crud.user_event_log_crud import create_user_log
             
-    except Exception as e:
-        logger.error(f"[log_utils] 로그 DB 저장 실패: user_id={user_id}, event_type={event_type}, error={str(e)}")
-        return None
+            # 로그 데이터 구성 (datetime 직렬화 적용)
+            log_data = {
+                "user_id": user_id,
+                "event_type": event_type,
+                "event_data": serialize_datetime(event_data) if event_data else None,
+                "http_method": http_method,
+                "api_url": api_url,
+                "request_time": serialize_datetime(request_time) if request_time else None,
+                "response_time": serialize_datetime(response_time) if response_time else None,
+                "response_code": response_code,
+                "client_ip": client_ip
+            }
+            
+            # 로그 DB 세션 생성 및 저장
+            async with SessionLocal() as db:
+                log_obj = await create_user_log(db, log_data)
+                logger.debug(f"[log_utils] 로그 DB 저장 완료: user_id={user_id}, event_type={event_type}, log_id={log_obj.log_id}")
+                return {"log_id": log_obj.log_id, "status": "saved_to_db"}
+                
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"[log_utils] 로그 DB 저장 재시도 {attempt + 1}/{max_retries}: user_id={user_id}, error={str(e)}")
+                await asyncio.sleep(0.5)  # 0.5초 대기 후 재시도
+                continue
+            else:
+                logger.error(f"[log_utils] 로그 DB 저장 최종 실패: user_id={user_id}, event_type={event_type}, error={str(e)}")
+                # 로그 저장 실패는 전체 프로세스를 중단하지 않도록 None 반환
+                return None

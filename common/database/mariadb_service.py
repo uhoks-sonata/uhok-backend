@@ -10,7 +10,19 @@ from common.logger import get_logger
 logger = get_logger("mariadb_service")
 
 settings = get_settings()
-engine = create_async_engine(settings.mariadb_service_url, echo=False)
+engine = create_async_engine(
+    settings.mariadb_service_url, 
+    echo=False,
+    pool_size=20,  # 연결 풀 크기 증가
+    max_overflow=30,  # 최대 오버플로우 연결
+    pool_pre_ping=True,  # 연결 상태 확인
+    pool_recycle=3600,  # 1시간마다 연결 재생성
+    connect_args={
+        "connect_timeout": 10,  # 연결 타임아웃
+        "read_timeout": 30,  # 읽기 타임아웃
+        "autocommit": True,  # 자동 커밋
+    }
+)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 logger.info(f"MariaDB Service 엔진 생성됨, URL: {settings.mariadb_service_url}")

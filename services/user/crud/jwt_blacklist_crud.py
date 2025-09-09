@@ -36,11 +36,11 @@ async def add_token_to_blacklist(
         await db.commit()
         await db.refresh(blacklisted_token)
         
-        logger.info(f"Token added to blacklist: user_id={user_id}, metadata={metadata}")
+        # logger.info(f"Token added to blacklist: user_id={user_id}, metadata={metadata}")
         return blacklisted_token
         
     except Exception as e:
-        logger.error(f"Failed to add token to blacklist: {str(e)}")
+        logger.error(f"토큰을 블랙리스트에 추가하는데 실패했습니다: {str(e)}")
         await db.rollback()
         raise
 
@@ -48,20 +48,37 @@ async def add_token_to_blacklist(
 async def is_token_blacklisted(db: AsyncSession, token: str) -> bool:
     """토큰이 블랙리스트에 있는지 확인"""
     try:
+        # 토큰 유효성 기본 검증
+        if not token or not isinstance(token, str):
+            logger.warning("블랙리스트 확인: 토큰이 비어있거나 유효하지 않은 형식입니다")
+            return False
+            
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         
+        # 만료된 토큰도 함께 확인하여 정확한 상태 파악
+        from datetime import datetime
+        now = datetime.utcnow()
+        
         result = await db.execute(
-            select(JWTBlacklist).where(JWTBlacklist.token_hash == token_hash)
+            select(JWTBlacklist).where(
+                JWTBlacklist.token_hash == token_hash,
+                JWTBlacklist.expires_at > now  # 아직 만료되지 않은 블랙리스트 토큰만 확인
+            )
         )
         
-        is_blacklisted = result.scalar_one_or_none() is not None
+        blacklisted_token = result.scalar_one_or_none()
+        is_blacklisted = blacklisted_token is not None
+        
         if is_blacklisted:
-            logger.debug(f"Token found in blacklist: {token_hash[:10]}...")
+            logger.warning(f"토큰이 블랙리스트에 등록되어 있습니다: {token_hash[:10]}..., 만료시간: {blacklisted_token.expires_at}")
+        else:
+            logger.debug(f"토큰이 블랙리스트에 없습니다: {token_hash[:10]}...")
         
         return is_blacklisted
         
     except Exception as e:
-        logger.error(f"Failed to check token blacklist status: {str(e)}")
+        logger.error(f"토큰 블랙리스트 확인 중 오류 발생: {str(e)}")
+        # 오류 발생 시 보안을 위해 토큰을 차단하지 않음 (인증은 다른 방식으로 처리)
         return False
 
 

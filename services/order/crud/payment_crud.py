@@ -7,11 +7,13 @@ from fastapi import HTTPException, BackgroundTasks
 from typing import Dict, Any, Optional, Tuple
 from datetime import datetime
 from dotenv import load_dotenv
+from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.log_utils import send_user_log
 from common.logger import get_logger
 
+from services.order.models.order_model import KokOrderStatusHistory, HomeShoppingOrderStatusHistory
 from services.order.schemas.payment_schema import PaymentConfirmV1Request, PaymentConfirmV1Response
 from services.order.crud.order_crud import (
     _ensure_order_access, 
@@ -91,6 +93,8 @@ async def _verify_order_status_for_payment(
         logger.info(f"홈쇼핑 주문 상태 확인 완료: hs_order_id={hs_order.homeshopping_order_id}, status=ORDER_RECEIVED")
     
     logger.info(f"모든 주문 상태 확인 완료: ORDER_RECEIVED 상태로 결제 가능")
+    
+    # logger.info(f"모든 주문 상태 확인 완료: ORDER_RECEIVED 상태로 결제 가능")
 
 # === [v1: Polling-based payment flow] =======================================
 PAYMENT_SERVER_URL = os.getenv("PAYMENT_SERVER_URL")
@@ -109,17 +113,17 @@ async def _poll_payment_status(
     - 반환: (최종상태 문자열, 상태 응답 JSON)
       * 최종상태: "PAYMENT_COMPLETED" | "PAYMENT_FAILED" | "TIMEOUT"
     """
-    logger.info(f"결제 상태 폴링 시작: payment_id={payment_id}, max_attempts={max_attempts}, interval=5초")
+    # logger.info(f"결제 상태 폴링 시작: payment_id={payment_id}, max_attempts={max_attempts}, interval=5초")
     sleep = initial_sleep
     last_payload: Dict[str, Any] = {}
 
     for attempt in range(max_attempts):
-        logger.info(f"결제 상태 확인 시도 {attempt + 1}/{max_attempts}: payment_id={payment_id}, sleep={sleep}초")
+    # logger.info(f"결제 상태 확인 시도 {attempt + 1}/{max_attempts}: payment_id={payment_id}, sleep={sleep}초")
         
         try:
-            logger.info(f"결제 상태 확인 요청 시작: payment_id={payment_id}, url={PAYMENT_SERVER_URL}/payment-status/{payment_id}")
+    # logger.info(f"결제 상태 확인 요청 시작: payment_id={payment_id}, url={PAYMENT_SERVER_URL}/payment-status/{payment_id}")
             resp = await _get_json(f"{PAYMENT_SERVER_URL}/payment-status/{payment_id}", timeout=15.0)
-            logger.info(f"결제 상태 응답: payment_id={payment_id}, status_code={resp.status_code}")
+    # logger.info(f"결제 상태 응답: payment_id={payment_id}, status_code={resp.status_code}")
             
         except httpx.RequestError as e:
             logger.error(f"결제 상태 확인 실패 (RequestError): payment_id={payment_id}, attempt={attempt + 1}, error={str(e)}, error_type={type(e).__name__}")
@@ -142,10 +146,10 @@ async def _poll_payment_status(
         data = resp.json()
         status_val = data.get("status", "PENDING")
         last_payload = data
-        logger.info(f"결제 상태 확인 결과: payment_id={payment_id}, status={status_val}, attempt={attempt + 1}")
+    # logger.info(f"결제 상태 확인 결과: payment_id={payment_id}, status={status_val}, attempt={attempt + 1}")
 
         if status_val in ("PAYMENT_COMPLETED", "PAYMENT_FAILED"):
-            logger.info(f"결제 상태 최종 확인: payment_id={payment_id}, status={status_val}")
+    # logger.info(f"결제 상태 최종 확인: payment_id={payment_id}, status={status_val}")
             return status_val, data
 
         await asyncio.sleep(sleep)  # 고정 5초 대기
@@ -172,31 +176,31 @@ async def confirm_payment_and_update_status_v1(
     6) 백그라운드 로그 적재
     7) 응답 스키마 구성 후 반환
     """
-    logger.info(f"결제 확인 v1 시작: order_id={order_id}, user_id={user_id}")
+    # logger.info(f"결제 확인 v1 시작: order_id={order_id}, user_id={user_id}")
     
     # (1) 접근 검증
-    logger.info(f"주문 접근 검증 시작: order_id={order_id}")
+    # logger.info(f"주문 접근 검증 시작: order_id={order_id}")
     order_data = await _ensure_order_access(db, order_id, user_id)
-    logger.info(f"주문 접근 검증 완료: order_id={order_id}, user_id={order_data['user_id']}")
+    # logger.info(f"주문 접근 검증 완료: order_id={order_id}, user_id={order_data['user_id']}")
 
     # (2) 총액 계산
-    logger.info(f"주문 총액 계산 시작: order_id={order_id}")
+    # logger.info(f"주문 총액 계산 시작: order_id={order_id}")
     total_order_price = await calculate_order_total_price(db, order_id)
-    logger.info(f"주문 총액 계산 완료: order_id={order_id}, total_price={total_order_price}")
+    # logger.info(f"주문 총액 계산 완료: order_id={order_id}, total_price={total_order_price}")
 
     # (3) 결제 생성
-    logger.info(f"외부 결제 API 호출 시작: order_id={order_id}, url={PAYMENT_SERVER_URL}")
+    # logger.info(f"외부 결제 API 호출 시작: order_id={order_id}, url={PAYMENT_SERVER_URL}")
     pay_req = {
         "order_id": order_id,  # 숫자 그대로 사용
-        "payment_amount": total_order_price,
+        "payment_amount": float(total_order_price),  # Decimal을 float로 변환하여 JSON 직렬화 가능하게 함
         "idempotency_key": f"order-{order_id}",  # 외부서버가 지원한다는 가정
         "method": getattr(payment_data, "method", "EXTERNAL_API"),
     }
-    logger.info(f"결제 요청 데이터: {pay_req}")
+    # logger.info(f"결제 요청 데이터: {pay_req}")
     
     try:
         create_resp = await _post_json(f"{PAYMENT_SERVER_URL}/pay", json=pay_req, timeout=20.0)
-        logger.info(f"외부 결제 API 응답: status_code={create_resp.status_code}, response={create_resp.text[:200]}")
+    # logger.info(f"외부 결제 API 응답: status_code={create_resp.status_code}, response={create_resp.text[:200]}")
     except httpx.RequestError as e:
         logger.error(f"외부 결제 API 연결 실패: order_id={order_id}, error={str(e)}")
         raise HTTPException(status_code=503, detail="외부 결제 서비스에 연결할 수 없습니다.")
@@ -207,14 +211,14 @@ async def confirm_payment_and_update_status_v1(
 
     create_payload = create_resp.json()
     payment_id: Optional[str] = create_payload.get("payment_id")
-    logger.info(f"결제 ID 수신: order_id={order_id}, payment_id={payment_id}")
+    # logger.info(f"결제 ID 수신: order_id={order_id}, payment_id={payment_id}")
     
     if not payment_id:
         logger.error(f"외부 결제 응답에 payment_id 없음: order_id={order_id}, response={create_payload}")
         raise HTTPException(status_code=502, detail="외부 결제 응답에 payment_id가 없습니다.")
 
     # (4) 결제 요청 상태로 변경
-    logger.info(f"주문 상태를 PAYMENT_REQUESTED로 변경 시작: order_id={order_id}")
+    # logger.info(f"주문 상태를 PAYMENT_REQUESTED로 변경 시작: order_id={order_id}")
     try:
         await _mark_all_children_payment_requested(
             db,
@@ -222,22 +226,22 @@ async def confirm_payment_and_update_status_v1(
             hs_orders=order_data.get("homeshopping_orders", []),
             user_id=user_id,
         )
-        logger.info(f"주문 상태를 PAYMENT_REQUESTED로 변경 완료: order_id={order_id}")
+    # logger.info(f"주문 상태를 PAYMENT_REQUESTED로 변경 완료: order_id={order_id}")
     except Exception as e:
         logger.error(f"주문 상태 변경 실패: order_id={order_id}, error={str(e)}")
         # 상태 변경 실패 시에도 결제 진행은 계속 (로깅만 기록)
     
     # (5) 상태 폴링
-    logger.info(f"결제 상태 폴링 시작: order_id={order_id}, payment_id={payment_id}")
+    # logger.info(f"결제 상태 폴링 시작: order_id={order_id}, payment_id={payment_id}")
     final_status, status_payload = await _poll_payment_status(payment_id)
-    logger.info(f"결제 상태 폴링 완료: order_id={order_id}, final_status={final_status}")
+    # logger.info(f"결제 상태 폴링 완료: order_id={order_id}, final_status={final_status}")
 
     if final_status == "PAYMENT_FAILED":
         logger.error(f"결제 실패: order_id={order_id}, payment_id={payment_id}")
         # 결제 실패 시 주문 취소
         try:
             await cancel_order(db, order_id, "결제 실패")
-            logger.info(f"결제 실패로 인한 주문 취소 완료: order_id={order_id}")
+    # logger.info(f"결제 실패로 인한 주문 취소 완료: order_id={order_id}")
         except Exception as e:
             logger.error(f"주문 취소 실패: order_id={order_id}, error={str(e)}")
         raise HTTPException(status_code=400, detail="결제가 실패했습니다.")
@@ -247,16 +251,16 @@ async def confirm_payment_and_update_status_v1(
         # 결제 시간 초과 시 주문 취소
         try:
             await cancel_order(db, order_id, "결제 시간 초과")
-            logger.info(f"결제 시간 초과로 인한 주문 취소 완료: order_id={order_id}")
+    # logger.info(f"결제 시간 초과로 인한 주문 취소 완료: order_id={order_id}")
         except Exception as e:
             logger.error(f"주문 취소 실패: order_id={order_id}, error={str(e)}")
         raise HTTPException(status_code=408, detail="결제 상태 확인 시간 초과")
 
     # (6) 완료 → 하위 주문 상태 갱신
-    logger.info(f"하위 주문 상태 갱신 시작: order_id={order_id}")
+    # logger.info(f"하위 주문 상태 갱신 시작: order_id={order_id}")
     kok_orders = order_data.get("kok_orders", [])
     hs_orders = order_data.get("homeshopping_orders", [])
-    logger.info(f"하위 주문 정보: order_id={order_id}, kok_count={len(kok_orders)}, hs_count={len(hs_orders)}")
+    # logger.info(f"하위 주문 정보: order_id={order_id}, kok_count={len(kok_orders)}, hs_count={len(hs_orders)}")
     
     await _mark_all_children_payment_completed(
         db,
@@ -264,7 +268,7 @@ async def confirm_payment_and_update_status_v1(
         hs_orders=hs_orders,
         user_id=user_id,
     )
-    logger.info(f"하위 주문 상태 갱신 완료: order_id={order_id}")
+    # logger.info(f"하위 주문 상태 갱신 완료: order_id={order_id}")
 
     # (7) 로그 적재
     if background_tasks:
@@ -279,7 +283,7 @@ async def confirm_payment_and_update_status_v1(
                 "final_status_payload": status_payload,
             },
         )
-        logger.info(f"백그라운드 로그 적재 예약: order_id={order_id}")
+    # logger.info(f"백그라운드 로그 적재 예약: order_id={order_id}")
 
     # (8) 응답 구성
     # kok_order_ids와 hs_order_id 추출
@@ -300,7 +304,7 @@ async def confirm_payment_and_update_status_v1(
         order_id_internal=order_id,
     )
     
-    logger.info(f"결제 확인 v1 완료: order_id={order_id}, payment_id={payment_id}")
+    # logger.info(f"결제 확인 v1 완료: order_id={order_id}, payment_id={payment_id}")
     return response
 # ===========================================================================
 
@@ -407,7 +411,7 @@ async def confirm_payment_and_update_status_v2(
     user_id: int,
     request: Request,
     background_tasks: Optional[BackgroundTasks] = None,
-    timeout_sec: int = 30,  # 웹훅 대기 타임아웃 (초)
+    timeout_sec: int = 60,  # 웹훅 대기 타임아웃 (초) - 30초에서 60초로 증가
 ) -> dict:
     """
     v2(웹훅) 결제 확인 시작:
@@ -417,15 +421,15 @@ async def confirm_payment_and_update_status_v2(
     - 완료/실패 업데이트는 웹훅 수신 핸들러에서 처리
     """
 
-    logger.info(f"[v2] 결제 확인 시작: order_id={order_id}, user_id={user_id}")
+    # logger.info(f"[v2] 결제 확인 시작: order_id={order_id}, user_id={user_id}")
 
     # (1) 접근 검증
     order_data = await _ensure_order_access(db, order_id, user_id)
 
     # (1-1) 주문 상태 확인 (ORDER_RECEIVED 상태만 결제 가능)
-    logger.info(f"[v2] 주문 상태 확인 시작: order_id={order_id}")
+    # logger.info(f"[v2] 주문 상태 확인 시작: order_id={order_id}")
     await _verify_order_status_for_payment(db, order_data)
-    logger.info(f"[v2] 주문 상태 확인 완료: order_id={order_id}")
+    # logger.info(f"[v2] 주문 상태 확인 완료: order_id={order_id}")
 
     # (2) 총액 계산
     total_order_price = await calculate_order_total_price(db, order_id)
@@ -433,14 +437,22 @@ async def confirm_payment_and_update_status_v2(
     # (3) tx & callback_url 준비
     tx_id = f"tx_{order_id}_{secrets.token_urlsafe(8)}"
     cb_token = secrets.token_urlsafe(16)
-    callback_url = str(request.url_for("payment_webhook_handler_v2", tx_id=tx_id)) + f"?t={cb_token}"
+    
+    # 절대 URL 생성 (payment-server에서 접근 가능하도록)
+    from common.config import get_settings
+    settings = get_settings()
+    base_url = settings.webhook_base_url.rstrip('/')
+    callback_url = f"{base_url}/api/orders/payment/webhook/v2/{tx_id}?t={cb_token}"
+    
+    # 디버깅을 위한 로그
+    logger.info(f"[v2] 웹훅 URL 생성: base_url={base_url}, tx_id={tx_id}, callback_url={callback_url}")
 
     payload = {
         "version": "v2",
         "tx_id": tx_id,
         "order_id": order_id,
         "user_id": user_id,
-        "amount": total_order_price,
+        "amount": float(total_order_price),  # Decimal을 float로 변환하여 JSON 직렬화 가능하게 함
         "callback_url": callback_url,
     }
     headers = {}
@@ -448,7 +460,7 @@ async def confirm_payment_and_update_status_v2(
         headers["Authorization"] = f"Bearer {SERVICE_AUTH_TOKEN}"
 
     # (4) 결제 요청 상태로 변경
-    logger.info(f"[v2] 주문 상태를 PAYMENT_REQUESTED로 변경 시작: order_id={order_id}")
+    # logger.info(f"[v2] 주문 상태를 PAYMENT_REQUESTED로 변경 시작: order_id={order_id}")
     try:
         await _mark_all_children_payment_requested(
             db,
@@ -456,7 +468,7 @@ async def confirm_payment_and_update_status_v2(
             hs_orders=order_data.get("homeshopping_orders", []),
             user_id=user_id,
         )
-        logger.info(f"[v2] 주문 상태를 PAYMENT_REQUESTED로 변경 완료: order_id={order_id}")
+    # logger.info(f"[v2] 주문 상태를 PAYMENT_REQUESTED로 변경 완료: order_id={order_id}")
     except Exception as e:
         logger.error(f"[v2] 주문 상태 변경 실패: order_id={order_id}, error={str(e)}")
         # 상태 변경 실패 시에도 결제 진행은 계속 (로깅만 기록)
@@ -467,7 +479,7 @@ async def confirm_payment_and_update_status_v2(
             r = await client.post(f"{PAYMENT_SERVER_URL2}/api/v2/payments", json=payload, headers=headers)
         r.raise_for_status()
         init_ack = r.json()
-        logger.info(f"[v2] 결제서버 시작 요청 성공: order_id={order_id}, tx_id={tx_id}")
+    # logger.info(f"[v2] 결제서버 시작 요청 성공: order_id={order_id}, tx_id={tx_id}")
     except httpx.RequestError as e:
         logger.error(f"[v2] 결제서버 연결 실패: {e}")
         raise HTTPException(status_code=503, detail="외부 결제 서비스에 연결할 수 없습니다.")
@@ -476,14 +488,14 @@ async def confirm_payment_and_update_status_v2(
         raise HTTPException(status_code=400, detail="결제 시작 요청 실패")
 
     # (6) 웹훅 결과 대기
-    logger.info(f"[v2] 웹훅 결과 대기 시작: order_id={order_id}, tx_id={tx_id}, timeout={timeout_sec}초")
+    # logger.info(f"[v2] 웹훅 결과 대기 시작: order_id={order_id}, tx_id={tx_id}, timeout={timeout_sec}초")
     
     try:
         # 웹훅 결과를 기다림
         webhook_future = await webhook_waiters.subscribe(tx_id, check_resolved_first=True)
         webhook_result = await asyncio.wait_for(webhook_future, timeout=timeout_sec)
         
-        logger.info(f"[v2] 웹훅 결과 수신: order_id={order_id}, tx_id={tx_id}, result={webhook_result}")
+    # logger.info(f"[v2] 웹훅 결과 수신: order_id={order_id}, tx_id={tx_id}, result={webhook_result}")
         
         # 웹훅 결과에 따라 최종 응답 구성
         if webhook_result.get("event") == "payment.completed":
@@ -504,6 +516,13 @@ async def confirm_payment_and_update_status_v2(
             
     except asyncio.TimeoutError:
         logger.error(f"[v2] 웹훅 대기 시간 초과: order_id={order_id}, tx_id={tx_id}, timeout={timeout_sec}초")
+        
+        # 웹훅 대기자 정리
+        try:
+            await webhook_waiters.cleanup(max_age_sec=timeout_sec)
+        except Exception as e:
+            logger.warning(f"[v2] 웹훅 대기자 정리 실패: {e}")
+        
         # 타임아웃 시 주문 취소
         try:
             await cancel_order(db, order_id, "결제 시간 초과")
@@ -556,7 +575,7 @@ async def confirm_payment_and_update_status_v2(
         tx_id=tx_id,
     )
     
-    logger.info(f"[v2] 결제 확인 완료: order_id={order_id}, tx_id={tx_id}, status={final_status}")
+    # logger.info(f"[v2] 결제 확인 완료: order_id={order_id}, tx_id={tx_id}, status={final_status}")
     return response
 
 
@@ -578,11 +597,11 @@ async def apply_payment_webhook_v2(
     # (0) (옵션) 서비스 토큰 검증
     if SERVICE_AUTH_TOKEN and authorization:
         expected = f"Bearer {SERVICE_AUTH_TOKEN}"
-        logger.info(f"[v2] 서비스 토큰 검증: expected='{expected}', received='{authorization}'")
+    # logger.info(f"[v2] 서비스 토큰 검증: expected='{expected}', received='{authorization}'")
         if authorization != expected:
             logger.warning(f"[v2] 서비스 토큰 불일치: expected='{expected}', received='{authorization}'")
             return {"ok": False, "reason": "invalid_service_token"}
-        logger.info("[v2] 서비스 토큰 검증 성공")
+    # logger.info("[v2] 서비스 토큰 검증 성공")
     elif not SERVICE_AUTH_TOKEN:
         logger.info("[v2] SERVICE_AUTH_TOKEN이 설정되지 않아 서비스 토큰 검증 생략")
     elif not authorization:
@@ -604,7 +623,7 @@ async def apply_payment_webhook_v2(
     # (2) 페이로드 파싱
     try:
         payload = json.loads(raw_body.decode("utf-8"))
-        logger.info(f"[v2] 웹훅 페이로드 파싱 성공: {payload}")
+        # logger.info(f"[v2] 웹훅 페이로드 파싱 성공: {payload}")
     except Exception as e:
         logger.error(f"[v2] 웹훅 바디 파싱 실패: {e}, raw_body={raw_body}")
         return {"ok": False, "reason": "invalid_body"}
@@ -621,6 +640,7 @@ async def apply_payment_webhook_v2(
         logger.warning(f"[v2] tx_id 불일치: path={tx_id}, body={body_tx_id}")
  
     if not order_id:
+        logger.warning(f"[v2] 웹훅 페이로드에 order_id 없음: tx_id={tx_id}, payload={payload}")
         return {"ok": False, "reason": "missing_order_id"}
 
     # (3) event 처리
@@ -647,7 +667,7 @@ async def apply_payment_webhook_v2(
 
         # (선택) 상태이력/알림 로깅
         # background task가 라우터에 없다면 여기서 바로 적재하거나 생략
-        logger.info(f"[v2] 결제완료 반영: order_id={order_id}, payment_id={payment_id}")
+        # logger.info(f"[v2] 결제완료 반영: order_id={order_id}, payment_id={payment_id}")
 
         # kok_order_ids와 hs_order_id 추출하여 응답에 포함
         kok_order_ids = [kok_order.kok_order_id for kok_order in kok_orders]
@@ -666,7 +686,7 @@ async def apply_payment_webhook_v2(
             "completed_at": completed_at
         }
         awakened_count = await webhook_waiters.resolve(tx_id, webhook_result)
-        logger.info(f"[v2] 웹훅 결과 알림 완료: tx_id={tx_id}, awakened_count={awakened_count}")
+        # logger.info(f"[v2] 웹훅 결과 알림 완료: tx_id={tx_id}, awakened_count={awakened_count}")
 
         return webhook_result
 
@@ -675,12 +695,12 @@ async def apply_payment_webhook_v2(
         try:
             reason = failure_reason if failure_reason else "결제 실패"
             await cancel_order(db, order_id, reason)
-            logger.info(f"[v2] 결제실패/취소로 인한 주문 취소 완료: order_id={order_id}, reason={reason}")
+            # logger.info(f"[v2] 결제실패/취소로 인한 주문 취소 완료: order_id={order_id}, reason={reason}")
         except Exception as e:
             logger.error(f"[v2] 주문 취소 실패: order_id={order_id}, error={str(e)}")
         
         await db.commit()
-        logger.info(f"[v2] 결제실패/취소 반영: order_id={order_id}, reason={failure_reason}")
+        # logger.info(f"[v2] 결제실패/취소 반영: order_id={order_id}, reason={failure_reason}")
         
         # 웹훅 결과를 대기자들에게 알림 (최종 상태이므로 resolve 사용)
         webhook_result = {
@@ -691,7 +711,7 @@ async def apply_payment_webhook_v2(
             "payment_id": payment_id
         }
         awakened_count = await webhook_waiters.resolve(tx_id, webhook_result)
-        logger.info(f"[v2] 웹훅 실패 결과 알림 완료: tx_id={tx_id}, awakened_count={awakened_count}")
+        # logger.info(f"[v2] 웹훅 실패 결과 알림 완료: tx_id={tx_id}, awakened_count={awakened_count}")
         
         return webhook_result
 

@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from common.errors import BadRequestException, InternalServerErrorException
 from common.logger import get_logger
+from common.log_utils import serialize_datetime
 
 from services.log.models.log_model import UserLog
 
@@ -39,13 +40,16 @@ async def create_user_log(db: AsyncSession, log_data: dict) -> UserLog:
         "event_type": log_data["event_type"],
     }
     if "event_data" in log_data and log_data["event_data"] is not None:
-        data["event_data"] = log_data["event_data"]
+        data["event_data"] = serialize_datetime(log_data["event_data"])
     
-    # HTTP 관련 필드들 추가 (null 값도 허용)
+    # HTTP 관련 필드들 추가 (null 값도 허용, datetime 직렬화 적용)
     http_fields = ["http_method", "api_url", "request_time", "response_time", "response_code", "client_ip"]
     for field in http_fields:
         if field in log_data:  # null 값도 포함하여 추가
-            data[field] = log_data[field]
+            if field in ["request_time", "response_time"] and log_data[field] is not None:
+                data[field] = serialize_datetime(log_data[field])
+            else:
+                data[field] = log_data[field]
 
     try:
         log = UserLog(**data)  # created_at 없음!

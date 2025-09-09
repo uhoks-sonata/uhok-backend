@@ -4,6 +4,7 @@
 import os
 import re
 import pandas as pd
+import numpy as np
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
@@ -77,6 +78,21 @@ def apply_exclude(df: pd.DataFrame, name_col: str, ingredient: str) -> pd.DataFr
         mask &= ~name_s.str.contains(re.escape(ban), case=False, na=False)
     return df[mask]
 
+def safe_price(price_value):
+    """가격 값을 안전하게 변환: nan, None, 빈 값은 None으로 변환"""
+    if price_value is None:
+        return None
+    if pd.isna(price_value) or np.isnan(price_value):
+        return None
+    try:
+        # 숫자로 변환 시도
+        price_float = float(price_value)
+        if np.isnan(price_float):
+            return None
+        return int(price_float) if price_float.is_integer() else price_float
+    except (ValueError, TypeError):
+        return None
+
 # ---------- DB 유틸 ----------
 async def _read_df_async(session: AsyncSession, sql: str, params: list) -> pd.DataFrame:
     """SQLAlchemy 세션을 사용하여 데이터프레임 반환"""
@@ -103,16 +119,20 @@ async def _read_df_async(session: AsyncSession, sql: str, params: list) -> pd.Da
 # ---------- SQL 템플릿 (REGEXP + 오른쪽 경계) ----------
 HS_SQL_TMPL = """
 SELECT 
-    hc.PRODUCT_ID,
-    hc.PRODUCT_NAME,
-    hc.CLS_FOOD,
-    hc.CLS_ING,
-    hpi.SALE_PRICE,
-    hpi.STORE_NAME,
-    hiu.IMG_URL
+    hc.PRODUCT_ID as product_id,
+    hc.PRODUCT_NAME as product_name,
+    hc.CLS_FOOD as cls_food,
+    hc.CLS_ING as cls_ing,
+    hpi.SALE_PRICE as sale_price,
+    hpi.STORE_NAME as store_name,
+    hpi.DC_RATE as dc_rate,
+    hfl.THUMB_IMG_URL as thumb_img_url,
+    hfl.LIVE_ID as live_id,
+    hi.HOMESHOPPING_ID as homeshopping_id
 FROM HOMESHOPPING_CLASSIFY hc
 LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hc.PRODUCT_ID = hpi.PRODUCT_ID
-LEFT JOIN FCT_HOMESHOPPING_IMG_URL hiu ON hc.PRODUCT_ID = hiu.PRODUCT_ID AND hiu.SORT_ORDER = 1
+LEFT JOIN FCT_HOMESHOPPING_LIST hfl ON hc.PRODUCT_ID = hfl.PRODUCT_ID
+LEFT JOIN HOMESHOPPING_INFO hi ON hfl.HOMESHOPPING_ID = hi.HOMESHOPPING_ID
 WHERE hc.CLS_FOOD = 1
   AND hc.CLS_ING  = 1
   AND (
@@ -127,14 +147,18 @@ LIMIT :limit_n
 
 KOK_SQL_TMPL = """
 SELECT 
-    kc.PRODUCT_ID,
-    kc.PRODUCT_NAME,
-    kc.CLS_ING,
-    kpi.KOK_PRODUCT_PRICE,
-    kpi.KOK_STORE_NAME,
-    kpi.KOK_THUMBNAIL
+    kc.PRODUCT_ID as product_id,
+    kc.PRODUCT_NAME as product_name,
+    kc.CLS_ING as cls_ing,
+    kpi.KOK_PRODUCT_PRICE as kok_product_price,
+    kpi.KOK_STORE_NAME as kok_store_name,
+    kpi.KOK_THUMBNAIL as kok_thumbnail,
+    kpi.KOK_REVIEW_CNT as kok_review_cnt,
+    kpi.KOK_REVIEW_SCORE as kok_review_score,
+    kpri.KOK_DISCOUNT_RATE as kok_discount_rate
 FROM KOK_CLASSIFY kc
 LEFT JOIN FCT_KOK_PRODUCT_INFO kpi ON kc.PRODUCT_ID = kpi.KOK_PRODUCT_ID
+LEFT JOIN FCT_KOK_PRICE_INFO kpri ON kc.PRODUCT_ID = kpri.KOK_PRODUCT_ID
 WHERE kc.CLS_ING = 1
   AND (
         kc.PRODUCT_NAME REGEXP :pat
@@ -156,9 +180,9 @@ async def search_homeshopping(session: AsyncSession, ingredient: str, limit_n: i
 
     if not df.empty:
         # (선택) 맥락 필터 — 현재 스텁 False
-        df = df[~df['PRODUCT_NAME'].astype(str).apply(lambda n: is_false_positive(n, ingredient))]
+        df = df[~df['product_name'].astype(str).apply(lambda n: is_false_positive(n, ingredient))]
         # 임시 금지어 필터
-        df = apply_exclude(df, 'PRODUCT_NAME', ingredient)
+        df = apply_exclude(df, 'product_name', ingredient)
         df = df.head(limit_n)
     return df
 
@@ -170,15 +194,15 @@ async def search_kok(session: AsyncSession, ingredient: str, limit_n: int) -> pd
     df = await _read_df_async(session, sql, params)
 
     if not df.empty:
-        df = df[~df['PRODUCT_NAME'].astype(str).apply(lambda n: is_false_positive(n, ingredient))]
-        df = apply_exclude(df, 'PRODUCT_NAME', ingredient)
+        df = df[~df['product_name'].astype(str).apply(lambda n: is_false_positive(n, ingredient))]
+        df = apply_exclude(df, 'product_name', ingredient)
         df = df.head(limit_n)
     return df
 
 # ---------- 추천 메인 ----------
 async def recommend_for_ingredient(session: AsyncSession, ingredient: str, max_total: int = 5, max_home: int = 2):
     """
-    반환: list of dict(source, table, name, id, image_url, brand_name, price)
+    반환: list of dict(source, name, id, image_url/thumb_img_url, brand_name, price, ...)
     """
     recs = []
     seen = set()
@@ -187,18 +211,19 @@ async def recommend_for_ingredient(session: AsyncSession, ingredient: str, max_t
     hs = await search_homeshopping(session, ingredient, limit_n=max_home)
     if not hs.empty:
         for _, r in hs.iterrows():
-            name = str(r.get('PRODUCT_NAME', "")); key = norm_for_dedupe(name)
+            name = str(r.get('product_name', "")); key = norm_for_dedupe(name)
             if key in seen:
                 continue
             seen.add(key)
             recs.append({
                 "source": "homeshopping",
-                "table":  "HOMESHOPPING_CLASSIFY",
                 "name":   name,
-                "id":     r.get('PRODUCT_ID'),
-                "image_url": r.get('IMG_URL'),
-                "brand_name": r.get('STORE_NAME'),
-                "price": r.get('SALE_PRICE'),
+                "live_id": r.get('live_id'),
+                "thumb_img_url": r.get('thumb_img_url'),
+                "brand_name": r.get('store_name'),
+                "price": safe_price(r.get('sale_price')),
+                "homeshopping_id": r.get('homeshopping_id'),
+                "dc_rate": safe_price(r.get('dc_rate')),
             })
             if len(recs) >= max_home:
                 break
@@ -211,18 +236,20 @@ async def recommend_for_ingredient(session: AsyncSession, ingredient: str, max_t
             for _, r in kok.iterrows():
                 if len(recs) >= max_total:
                     break
-                name = str(r.get('PRODUCT_NAME', "")); key = norm_for_dedupe(name)
+                name = str(r.get('product_name', "")); key = norm_for_dedupe(name)
                 if key in seen:
                     continue
                 seen.add(key)
                 recs.append({
                     "source": "kok",
-                    "table":  "KOK_CLASSIFY",
                     "name":   name,
-                    "id":     r.get('PRODUCT_ID'),
-                    "image_url": r.get('KOK_THUMBNAIL'),
-                    "brand_name": r.get('KOK_STORE_NAME'),
-                    "price": r.get('KOK_PRODUCT_PRICE'),
+                    "kok_product_id": r.get('product_id'),
+                    "image_url": r.get('kok_thumbnail'),
+                    "brand_name": r.get('kok_store_name'),
+                    "price": safe_price(r.get('kok_product_price')),
+                    "kok_discount_rate": safe_price(r.get('kok_discount_rate')),
+                    "kok_review_cnt": safe_price(r.get('kok_review_cnt')),
+                    "kok_review_score": safe_price(r.get('kok_review_score')),
                 })
 
     return recs

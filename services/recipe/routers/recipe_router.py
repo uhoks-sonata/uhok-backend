@@ -8,6 +8,7 @@
 
 from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, Path, Body, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
 from typing import List, Optional, Dict, Set, Any
 import pandas as pd
 import time
@@ -15,6 +16,7 @@ import re
 import os
 import yaml
 from collections import Counter
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -52,6 +54,7 @@ from ..utils.recommend_service import get_db_vector_searcher
 from ..utils.ports import VectorSearcherPort
 from services.recipe.utils.combination_tracker import CombinationTracker
 from services.recipe.utils.product_recommend import recommend_for_ingredient
+from services.recipe.utils.simple_cache import recipe_cache
 
 # combination_tracker 인스턴스 생성
 combination_tracker = CombinationTracker()
@@ -454,23 +457,24 @@ async def by_ingredients(
     - 2페이지: 2조합 (1조합 제외한 레시피 풀)
     - 3페이지: 3조합 (1조합, 2조합 제외한 레시피 풀)
     """
+    logger.debug(f"재료 기반 레시피 추천 시작: user_id={current_user.user_id}, 재료={ingredient}, 페이지={page}")
     logger.info(f"재료 기반 레시피 추천 API 호출: user_id={current_user.user_id}, 재료={ingredient}, 분량={amount}, 단위={unit}, 페이지={page}, 크기={size}")
     
     # amount 또는 unit 중 하나는 필수
     if amount is None and unit is None:
-        logger.warning("amount와 unit 모두 제공되지 않음")
+        logger.warning(f"amount와 unit 모두 제공되지 않음: user_id={current_user.user_id}")
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="amount 또는 unit 중 하나는 반드시 제공해야 합니다.")
     
     # amount가 제공된 경우 길이 체크
     if amount is not None and len(amount) != len(ingredient):
-        logger.warning(f"amount 길이 불일치: ingredient={len(ingredient)}, amount={len(amount)}")
+        logger.warning(f"amount 길이 불일치: user_id={current_user.user_id}, ingredient={len(ingredient)}, amount={len(amount)}")
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="amount 파라미터 개수가 ingredient와 일치해야 합니다.")
     
     # unit이 제공된 경우 길이 체크
     if unit is not None and len(unit) != len(ingredient):
-        logger.warning(f"unit 길이 불일치: ingredient={len(ingredient)}, unit={len(unit)}")
+        logger.warning(f"unit 길이 불일치: user_id={current_user.user_id}, ingredient={len(ingredient)}, unit={len(unit)}")
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="unit 파라미터 개수가 ingredient와 일치해야 합니다.")
     
@@ -488,27 +492,35 @@ async def by_ingredients(
     )
     
     # 조합별 레시피 추천
-    if combination_number == 1:
-        recipes, total = await recommend_recipes_combination_1(
-            db, ingredient, amount, unit, 1, size, current_user.user_id
-        )
-    elif combination_number == 2:
-        recipes, total = await recommend_recipes_combination_2(
-            db, ingredient, amount, unit, 1, size, excluded_recipe_ids
-        )
-    elif combination_number == 3:
-        recipes, total = await recommend_recipes_combination_3(
-            db, ingredient, amount, unit, 1, size, excluded_recipe_ids
-        )
-    else:
-        # 3페이지 이상은 빈 결과 반환
-        return {
-            "recipes": [],
-            "page": page,
-            "total": 0,
-            "combination_number": combination_number,
-            "has_more_combinations": False
-        }
+    try:
+        if combination_number == 1:
+            recipes, total = await recommend_recipes_combination_1(
+                db, ingredient, amount, unit, 1, size, current_user.user_id
+            )
+            logger.debug(f"조합 1 레시피 추천 성공: user_id={current_user.user_id}, 결과 수={len(recipes)}")
+        elif combination_number == 2:
+            recipes, total = await recommend_recipes_combination_2(
+                db, ingredient, amount, unit, 1, size, excluded_recipe_ids, current_user.user_id
+            )
+            logger.debug(f"조합 2 레시피 추천 성공: user_id={current_user.user_id}, 결과 수={len(recipes)}")
+        elif combination_number == 3:
+            recipes, total = await recommend_recipes_combination_3(
+                db, ingredient, amount, unit, 1, size, excluded_recipe_ids, current_user.user_id
+            )
+            logger.debug(f"조합 3 레시피 추천 성공: user_id={current_user.user_id}, 결과 수={len(recipes)}")
+        else:
+            # 3페이지 이상은 빈 결과 반환
+            logger.debug(f"3페이지 이상 요청: user_id={current_user.user_id}, page={page}")
+            return {
+                "recipes": [],
+                "page": page,
+                "total": 0,
+                "combination_number": combination_number,
+                "has_more_combinations": False
+            }
+    except Exception as e:
+        logger.error(f"레시피 추천 실패: user_id={current_user.user_id}, combination_number={combination_number}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="레시피 추천 중 오류가 발생했습니다.")
     
     # 사용된 레시피 ID들을 추적 시스템에 저장 (현재 조합만)
     if recipes:
@@ -517,7 +529,7 @@ async def by_ingredients(
             current_user.user_id, ingredients_hash, combination_number, used_recipe_ids
         )
     
-    logger.info(f"조합 {combination_number} 레시피 추천 완료: 총 {total}개, 현재 페이지 {len(recipes)}개")
+    logger.info(f"조합 {combination_number} 레시피 추천 완료: user_id={current_user.user_id}, 총 {total}개, 현재 페이지 {len(recipes)}개")
     
     # 재료 기반 레시피 검색 로그 기록
     if background_tasks:
@@ -546,6 +558,28 @@ async def by_ingredients(
         "has_more_combinations": combination_number < 3
     }
 
+
+@router.get("/cache/stats")
+async def get_cache_stats(current_user = Depends(get_current_user)):
+    """
+    레시피 캐시 통계 조회
+    - 캐시 크기 및 상태 정보
+    """
+    logger.debug(f"캐시 통계 조회 시작: user_id={current_user.user_id}")
+    logger.info(f"캐시 통계 조회 요청: user_id={current_user.user_id}")
+    
+    try:
+        stats = recipe_cache.get_stats()
+        logger.debug(f"캐시 통계 조회 성공: user_id={current_user.user_id}")
+    except Exception as e:
+        logger.error(f"캐시 통계 조회 실패: user_id={current_user.user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="캐시 통계 조회 중 오류가 발생했습니다.")
+    
+    return {
+        "cache_stats": stats,
+        "timestamp": datetime.now().isoformat()
+    }
+
 # ============================================================================
 # 2. 레시피 검색 API
 # ============================================================================
@@ -554,7 +588,7 @@ async def search_recipe(
     request: Request,
     recipe: str = Query(..., description="레시피명 또는 식재료 키워드"),
     page: int = Query(1, ge=1),
-    size: int = Query(5, ge=1, le=50),   # 이 함수는 top_k 중심이라 page/size는 외부에서 활용
+    size: int = Query(15, ge=1, le=50),   # 이 함수는 top_k 중심이라 page/size는 외부에서 활용
     method: str = Query("recipe", pattern="^(recipe|ingredient)$", description="검색 방식: recipe|ingredient"),
     current_user = Depends(get_current_user),
     mariadb: AsyncSession = Depends(get_maria_service_db),
@@ -568,31 +602,59 @@ async def search_recipe(
       '다음 페이지가 있는지'를 감지한 뒤, 현재 페이지 구간으로 슬라이스해서 반환한다.
     - method='recipe'일 때만 벡터 유사도(앱 내부 코사인) 사용. 'ingredient'는 DB 검색만.
     """
+    logger.debug(f"레시피 검색 시작: user_id={current_user.user_id}, keyword={recipe}, method={method}, page={page}, size={size}")
+    logger.info(f"레시피 검색 호출: uid={current_user.user_id}, kw={recipe}, method={method}, p={page}, s={size}")
+    
     # 기능 시간 체크 시작
     start_time = time.time()
     
     # 1) 현재 페이지를 포함한 영역 + 다음 페이지 유무 감지를 위해 1개 더 요청
-    requested_top_k = page * size + 1    
-    
-    logger.info(f"레시피 검색 호출: uid={current_user.user_id}, kw={recipe}, method={method}, p={page}, s={size}")
+    requested_top_k = page * size + 1
 
-    df: pd.DataFrame = await recommend_by_recipe_pgvector(
-        mariadb=mariadb,
-        postgres=postgres,
-        query=recipe,
-        method=method,
-        top_k=requested_top_k,
-        vector_searcher=vector_searcher,
-    )
+    try:
+        df: pd.DataFrame = await recommend_by_recipe_pgvector(
+            mariadb=mariadb,
+            postgres=postgres,
+            query=recipe,
+            method=method,
+            top_k=requested_top_k,
+            vector_searcher=vector_searcher,
+            page=page,
+            size=size,
+        )
+        logger.debug(f"레시피 검색 성공: user_id={current_user.user_id}, 결과 수={len(df)}")
+    except Exception as e:
+        logger.error(f"레시피 검색 실패: user_id={current_user.user_id}, keyword={recipe}, method={method}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="레시피 검색 중 오류가 발생했습니다.")
 
-    # 2) 현재 페이지 구간 슬라이싱
-    start, end = (page - 1) * size, page * size
-    has_more = len(df) > end
-    page_df = df.iloc[start:end] if not df.empty else df
-
-    # 3) total 근사값 계산 (기존 정책과 동일하게 근사)
-    #    현재까지 집계된 개수 + (다음 페이지가 존재하면 +1)
-    total_approx = (page - 1) * size + len(page_df) + (1 if has_more else 0)
+    # 2) 현재 페이지 구간 슬라이싱 (method=ingredient일 때는 이미 페이지네이션 처리됨)
+    if method == "ingredient":
+        # method=ingredient일 때는 recommend_by_recipe_pgvector에서 이미 페이지네이션 처리
+        page_df = df
+        
+        # 전체 개수 조회 최적화 (method=ingredient일 때만)
+        ingredients = [i.strip() for i in (recipe or "").split(",") if i.strip()]
+        if ingredients:
+            from services.recipe.models.recipe_model import Material
+            # COUNT 쿼리로 최적화 (전체 데이터 조회 방지)
+            total_stmt = (
+                select(func.count(func.distinct(Material.recipe_id)))
+                .where(Material.material_name.in_(ingredients))
+                .having(func.count(func.distinct(Material.material_name)) == len(ingredients))
+            )
+            total_result = await mariadb.execute(total_stmt)
+            total_count = total_result.scalar() or 0
+        else:
+            total_count = 0
+            
+        has_more = len(df) == size and (page * size) < total_count
+        total_approx = total_count
+    else:
+        # method=recipe일 때는 기존 로직 유지
+        start, end = (page - 1) * size, page * size
+        has_more = len(df) > end
+        page_df = df.iloc[start:end] if not df.empty else df
+        total_approx = (page - 1) * size + len(page_df) + (1 if has_more else 0)
 
     # 기능 시간 체크 완료 및 로깅
     execution_time = time.time() - start_time
@@ -640,10 +702,20 @@ async def get_recipe(
     """
     레시피 상세 정보 + 재료 리스트 + 만개의레시피 url 조회
     """
+    logger.debug(f"레시피 상세 조회 시작: user_id={current_user.user_id}, recipe_id={recipe_id}")
     logger.info(f"레시피 상세 조회 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}")
-    result = await get_recipe_detail(db, recipe_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="레시피가 존재하지 않습니다.")
+    
+    try:
+        result = await get_recipe_detail(db, recipe_id)
+        if not result:
+            logger.warning(f"레시피를 찾을 수 없음: recipe_id={recipe_id}, user_id={current_user.user_id}")
+            raise HTTPException(status_code=404, detail="레시피가 존재하지 않습니다.")
+        logger.debug(f"레시피 상세 조회 성공: recipe_id={recipe_id}, user_id={current_user.user_id}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"레시피 상세 조회 실패: recipe_id={recipe_id}, user_id={current_user.user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="레시피 조회 중 오류가 발생했습니다.")
     
     # 레시피 상세 조회 로그 기록
     if background_tasks:
@@ -674,8 +746,15 @@ async def get_recipe_url_api(
     """
     만개의 레시피 URL 동적 생성하여 반환
     """
+    logger.debug(f"레시피 URL 조회 시작: user_id={current_user.user_id}, recipe_id={recipe_id}")
     logger.info(f"만개의 레시피 URL 조회 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}")
-    url = get_recipe_url(recipe_id)
+    
+    try:
+        url = get_recipe_url(recipe_id)
+        logger.debug(f"레시피 URL 조회 성공: recipe_id={recipe_id}, user_id={current_user.user_id}")
+    except Exception as e:
+        logger.error(f"레시피 URL 조회 실패: recipe_id={recipe_id}, user_id={current_user.user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="레시피 URL 조회 중 오류가 발생했습니다.")
     
     # 레시피 URL 조회 로그 기록
     if background_tasks:
@@ -704,8 +783,15 @@ async def get_rating(
     """
     레시피 별점 평균 조회
     """
+    logger.debug(f"레시피 별점 조회 시작: user_id={current_user.user_id}, recipe_id={recipe_id}")
     logger.info(f"레시피 별점 조회 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}")
-    rating = await get_recipe_rating(db, recipe_id)
+    
+    try:
+        rating = await get_recipe_rating(db, recipe_id)
+        logger.debug(f"레시피 별점 조회 성공: recipe_id={recipe_id}, rating={rating}, user_id={current_user.user_id}")
+    except Exception as e:
+        logger.error(f"레시피 별점 조회 실패: recipe_id={recipe_id}, user_id={current_user.user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="레시피 별점 조회 중 오류가 발생했습니다.")
     
     # 레시피 별점 조회 로그 기록
     if background_tasks:
@@ -735,11 +821,13 @@ async def post_rating(
     """
     레시피 별점 등록 (0~5 정수만 허용)
     """
+    logger.debug(f"레시피 별점 등록 시작: user_id={current_user.user_id}, recipe_id={recipe_id}, rating={req.rating}")
     logger.info(f"레시피 별점 등록 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}, rating={req.rating}")
     
     try:
         # 실제 서비스에서는 user_id를 인증에서 추출
         rating = await set_recipe_rating(db, recipe_id, user_id=current_user.user_id, rating=int(req.rating))
+        logger.debug(f"레시피 별점 등록 성공: recipe_id={recipe_id}, rating={rating}, user_id={current_user.user_id}")
         
         # 트랜잭션 커밋
         await db.commit()
@@ -758,7 +846,7 @@ async def post_rating(
                 **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
-        logger.info(f"레시피 별점 등록 완료: recipe_id={recipe_id}, rating={rating}")
+        logger.info(f"레시피 별점 등록 완료: recipe_id={recipe_id}, rating={rating}, user_id={current_user.user_id}")
         return {"recipe_id": recipe_id, "rating": rating}
         
     except Exception as e:
@@ -784,13 +872,22 @@ async def get_recipe_ingredients_status_handler(
     Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
     비즈니스 로직은 CRUD 계층에 위임
     """
+    logger.debug(f"레시피 식재료 상태 조회 시작: user_id={current_user.user_id}, recipe_id={recipe_id}")
     logger.info(f"레시피 식재료 상태 조회 API 호출: user_id={current_user.user_id}, recipe_id={recipe_id}")
     
-    # CRUD 계층에 식재료 상태 조회 위임
-    result = await get_recipe_ingredients_status(db, current_user.user_id, recipe_id)
-    
-    if not result:
-        raise HTTPException(status_code=404, detail="레시피를 찾을 수 없거나 식재료 정보가 없습니다.")
+    try:
+        # CRUD 계층에 식재료 상태 조회 위임
+        result = await get_recipe_ingredients_status(db, current_user.user_id, recipe_id)
+        
+        if not result:
+            logger.warning(f"레시피 식재료 상태를 찾을 수 없음: recipe_id={recipe_id}, user_id={current_user.user_id}")
+            raise HTTPException(status_code=404, detail="레시피를 찾을 수 없거나 식재료 정보가 없습니다.")
+        logger.debug(f"레시피 식재료 상태 조회 성공: recipe_id={recipe_id}, user_id={current_user.user_id}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"레시피 식재료 상태 조회 실패: recipe_id={recipe_id}, user_id={current_user.user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="레시피 식재료 상태 조회 중 오류가 발생했습니다.")
     
     # 레시피 식재료 상태 조회 로그 기록
     if background_tasks:
@@ -828,11 +925,13 @@ async def get_ingredient_product_recommendations(
     Router 계층: HTTP 요청/응답 처리, 파라미터 검증, 의존성 주입
     비즈니스 로직은 product_recommend 모듈에 위임
     """
+    logger.debug(f"식재료 상품 추천 시작: user_id={current_user.user_id}, ingredient={ingredient}")
     logger.info(f"식재료 상품 추천 API 호출: user_id={current_user.user_id}, ingredient={ingredient}")
     
     try:
         # 상품 추천 로직 실행 (SQLAlchemy 세션 사용)
         recommendations = await recommend_for_ingredient(db, ingredient, max_total=5, max_home=2)
+        logger.debug(f"식재료 상품 추천 성공: ingredient={ingredient}, 추천 상품 수={len(recommendations)}, user_id={current_user.user_id}")
         
         # 상품 추천 로그 기록
         if background_tasks:
@@ -848,7 +947,7 @@ async def get_ingredient_product_recommendations(
                 **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
-        logger.info(f"식재료 상품 추천 완료: ingredient={ingredient}, 추천 상품 수={len(recommendations)}")
+        logger.info(f"식재료 상품 추천 완료: ingredient={ingredient}, 추천 상품 수={len(recommendations)}, user_id={current_user.user_id}")
         
         return ProductRecommendResponse(
             ingredient=ingredient,

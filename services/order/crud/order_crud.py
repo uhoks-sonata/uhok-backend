@@ -35,7 +35,7 @@ logger = get_logger("order_crud")
 
 async def get_delivery_info(db: AsyncSession, order_type: str, order_id: int) -> tuple[str, str]:
     """
-    주문의 배송 상태와 배송완료 날짜를 조회하는 헬퍼 함수
+    주문의 배송 상태와 배송완료 날짜를 조회하는 헬퍼 함수 (최적화: Raw SQL 사용)
     
     Args:
         db: 데이터베이스 세션
@@ -47,42 +47,45 @@ async def get_delivery_info(db: AsyncSession, order_type: str, order_id: int) ->
         
     Note:
         - CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+        - Raw SQL을 사용하여 성능 최적화
         - 배송완료 상태인 경우 한국어 형식으로 날짜 포맷팅
     """
+    from sqlalchemy import text
+    
     try:
         if order_type == "kok":
-            # 콕 주문의 현재 상태 조회
-            result = await db.execute(
-                select(KokOrderStatusHistory, StatusMaster)
-                .join(StatusMaster, KokOrderStatusHistory.status_id == StatusMaster.status_id)
-                .where(KokOrderStatusHistory.kok_order_id == order_id)
-                .order_by(desc(KokOrderStatusHistory.changed_at))
-                .limit(1)
-            )
-            status_history = result.first()
+            # 콕 주문의 현재 상태 조회 (최적화된 쿼리)
+            sql_query = """
+            SELECT 
+                sm.status_name,
+                kosh.changed_at
+            FROM KOK_ORDER_STATUS_HISTORY kosh
+            INNER JOIN STATUS_MASTER sm ON kosh.status_id = sm.status_id
+            WHERE kosh.kok_order_id = :order_id
+            ORDER BY kosh.changed_at DESC
+            LIMIT 1
+            """
         else:
-            # 홈쇼핑 주문의 현재 상태 조회
-            result = await db.execute(
-                select(HomeShoppingOrderStatusHistory, StatusMaster)
-                .join(StatusMaster, HomeShoppingOrderStatusHistory.status_id == StatusMaster.status_id)
-                .where(HomeShoppingOrderStatusHistory.homeshopping_order_id == order_id)
-                .order_by(desc(HomeShoppingOrderStatusHistory.changed_at))
-                .limit(1)
-            )
-            status_history = result.first()
+            # 홈쇼핑 주문의 현재 상태 조회 (최적화된 쿼리)
+            sql_query = """
+            SELECT 
+                sm.status_name,
+                hosh.changed_at
+            FROM HOMESHOPPING_ORDER_STATUS_HISTORY hosh
+            INNER JOIN STATUS_MASTER sm ON hosh.status_id = sm.status_id
+            WHERE hosh.homeshopping_order_id = :order_id
+            ORDER BY hosh.changed_at DESC
+            LIMIT 1
+            """
         
-        if not status_history or len(status_history) < 2:
+        result = await db.execute(text(sql_query), {"order_id": order_id})
+        status_data = result.fetchone()
+        
+        if not status_data:
             return "주문접수", "배송 정보 없음"
         
-        # status_history[0]은 상태 이력, status_history[1]은 상태 마스터
-        status_record = status_history[0]
-        status_master = status_history[1]
-        
-        if not status_record or not status_master:
-            return "주문접수", "배송 정보 없음"
-        
-        current_status = status_master.status_name
-        changed_at = status_record.changed_at
+        current_status = status_data.status_name
+        changed_at = status_data.changed_at
         
         # 배송완료 상태인 경우 배송완료 날짜 설정
         if current_status == "배송완료":
@@ -104,7 +107,7 @@ async def get_delivery_info(db: AsyncSession, order_type: str, order_id: int) ->
 
 async def get_order_by_id(db: AsyncSession, order_id: int) -> dict:
     """
-    주문 ID로 통합 주문 조회 (공통 정보 + 서비스별 상세)
+    주문 ID로 통합 주문 조회 (최적화: 윈도우 함수 사용)
     
     Args:
         db: 데이터베이스 세션
@@ -115,35 +118,101 @@ async def get_order_by_id(db: AsyncSession, order_id: int) -> dict:
         
     Note:
         - CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+        - 윈도우 함수를 사용하여 모든 정보를 한 번에 조회
         - 콕 주문과 홈쇼핑 주문 정보를 모두 포함하여 반환
     """
-    # 주문 기본 정보 조회
-    result = await db.execute(
-        select(Order).where(Order.order_id == order_id)
-    )
-    order = result.scalars().first()
+    from sqlalchemy import text
     
-    if not order:
+    # 최적화된 쿼리: 윈도우 함수를 사용하여 모든 정보를 한 번에 조회
+    sql_query = """
+    WITH kok_orders_data AS (
+        SELECT 
+            ko.order_id,
+            ko.kok_order_id,
+            ko.kok_product_id,
+            ko.quantity,
+            ko.order_price,
+            ko.recipe_id,
+            ko.kok_price_id,
+            ROW_NUMBER() OVER (PARTITION BY ko.order_id ORDER BY ko.kok_order_id) as rn
+        FROM KOK_ORDERS ko
+        WHERE ko.order_id = :order_id
+    ),
+    homeshopping_orders_data AS (
+        SELECT 
+            ho.order_id,
+            ho.homeshopping_order_id,
+            ho.product_id,
+            ho.quantity,
+            ho.order_price,
+            ho.dc_price,
+            ROW_NUMBER() OVER (PARTITION BY ho.order_id ORDER BY ho.homeshopping_order_id) as rn
+        FROM HOMESHOPPING_ORDERS ho
+        WHERE ho.order_id = :order_id
+    )
+    SELECT 
+        o.order_id,
+        o.user_id,
+        o.order_time,
+        o.cancel_time,
+        COALESCE(kod.kok_order_id, 0) as kok_order_id,
+        COALESCE(kod.kok_product_id, 0) as kok_product_id,
+        COALESCE(kod.quantity, 0) as kok_quantity,
+        COALESCE(kod.order_price, 0) as kok_order_price,
+        COALESCE(kod.recipe_id, 0) as recipe_id,
+        COALESCE(kod.kok_price_id, 0) as kok_price_id,
+        COALESCE(hod.homeshopping_order_id, 0) as homeshopping_order_id,
+        COALESCE(hod.product_id, 0) as product_id,
+        COALESCE(hod.quantity, 0) as hs_quantity,
+        COALESCE(hod.order_price, 0) as hs_order_price,
+        COALESCE(hod.dc_price, 0) as dc_price
+    FROM ORDERS o
+    LEFT JOIN kok_orders_data kod ON o.order_id = kod.order_id AND kod.rn = 1
+    LEFT JOIN homeshopping_orders_data hod ON o.order_id = hod.order_id AND hod.rn = 1
+    WHERE o.order_id = :order_id
+    """
+    
+    try:
+        result = await db.execute(text(sql_query), {"order_id": order_id})
+        order_data = result.fetchone()
+    except Exception as e:
+        logger.error(f"주문 조회 SQL 실행 실패: order_id={order_id}, error={str(e)}")
         return None
     
-    # 콕 주문 정보 조회
-    kok_result = await db.execute(
-        select(KokOrder).where(KokOrder.order_id == order.order_id)
-    )
-    kok_orders = kok_result.scalars().all()
+    if not order_data:
+        logger.warning(f"주문을 찾을 수 없음: order_id={order_id}")
+        return None
     
-    # 홈쇼핑 주문 정보 조회
-    homeshopping_result = await db.execute(
-        select(HomeShoppingOrder).where(HomeShoppingOrder.order_id == order.order_id)
-    )
-    homeshopping_orders = homeshopping_result.scalars().all()
+    # 콕 주문과 홈쇼핑 주문을 별도로 조회하여 완전한 데이터 구성
+    kok_orders = []
+    homeshopping_orders = []
+    
+    # 콕 주문 조회
+    try:
+        kok_result = await db.execute(
+            select(KokOrder).where(KokOrder.order_id == order_id)
+        )
+        kok_orders = kok_result.scalars().all()
+    except Exception as e:
+        logger.warning(f"콕 주문 정보 조회 실패: order_id={order_id}, error={str(e)}")
+        kok_orders = []
+    
+    # 홈쇼핑 주문 조회
+    try:
+        homeshopping_result = await db.execute(
+            select(HomeShoppingOrder).where(HomeShoppingOrder.order_id == order_id)
+        )
+        homeshopping_orders = homeshopping_result.scalars().all()
+    except Exception as e:
+        logger.warning(f"홈쇼핑 주문 정보 조회 실패: order_id={order_id}, error={str(e)}")
+        homeshopping_orders = []
     
     # 딕셔너리 형태로 반환
     return {
-        "order_id": order.order_id,
-        "user_id": order.user_id,
-        "order_time": order.order_time,
-        "cancel_time": order.cancel_time,
+        "order_id": order_data.order_id,
+        "user_id": order_data.user_id,
+        "order_time": order_data.order_time,
+        "cancel_time": order_data.cancel_time,
         "kok_orders": kok_orders,
         "homeshopping_orders": homeshopping_orders
     }
@@ -151,7 +220,7 @@ async def get_order_by_id(db: AsyncSession, order_id: int) -> dict:
 
 async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offset: int = 0) -> list:
     """
-    사용자별 주문 목록 조회 (공통 정보 + 서비스별 상세 + 상품 이미지)
+    사용자별 주문 목록 조회 (최적화: 윈도우 함수 + Raw SQL 사용)
     
     Args:
         db: 데이터베이스 세션
@@ -164,59 +233,112 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
         
     Note:
         - CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+        - 윈도우 함수와 Raw SQL을 사용하여 성능 최적화
         - 콕 주문: 상품 이미지, 레시피 정보, 재료 보유 현황 포함
         - 홈쇼핑 주문: 상품 이미지 포함
         - 최신 주문순으로 정렬
-        - 최적화: N+1 쿼리 문제 해결을 위해 JOIN과 배치 쿼리 사용
     """
-    # 1. 주문 기본 정보와 콕 주문 정보를 JOIN으로 한 번에 조회
-    kok_orders_stmt = (
-        select(
-            Order.order_id, Order.user_id, Order.order_time, Order.cancel_time,
-            KokOrder.kok_order_id, KokOrder.kok_product_id, KokOrder.quantity,
-            KokOrder.order_price, KokOrder.recipe_id, KokOrder.kok_price_id,
-            KokProductInfo.kok_product_name, KokProductInfo.kok_thumbnail,
-            Recipe.recipe_title, Recipe.cooking_introduction, Recipe.scrap_count
-        )
-        .outerjoin(KokOrder, Order.order_id == KokOrder.order_id)
-        .outerjoin(KokProductInfo, KokOrder.kok_product_id == KokProductInfo.kok_product_id)
-        .outerjoin(Recipe, KokOrder.recipe_id == Recipe.recipe_id)
-        .where(Order.user_id == user_id)
-        .order_by(Order.order_time.desc())
-        .offset(offset)
-        .limit(limit)
-    )
+    from sqlalchemy import text
     
-    # 2. 주문 기본 정보와 홈쇼핑 주문 정보를 JOIN으로 한 번에 조회
-    hs_orders_stmt = (
-        select(
-            Order.order_id, Order.user_id, Order.order_time, Order.cancel_time,
-            HomeShoppingOrder.homeshopping_order_id, HomeShoppingOrder.product_id,
-            HomeShoppingOrder.quantity, HomeShoppingOrder.order_price, HomeShoppingOrder.dc_price,
-            HomeshoppingList.product_name, HomeshoppingList.thumb_img_url
-        )
-        .outerjoin(HomeShoppingOrder, Order.order_id == HomeShoppingOrder.order_id)
-        .outerjoin(HomeshoppingList, HomeShoppingOrder.product_id == HomeshoppingList.product_id)
-        .where(Order.user_id == user_id)
-        .order_by(Order.order_time.desc())
-        .offset(offset)
-        .limit(limit)
-    )
+    # 1. 먼저 order_id 목록을 limit/offset으로 조회
+    order_ids_sql = """
+    SELECT DISTINCT o.order_id, o.user_id, o.order_time, o.cancel_time
+    FROM ORDERS o
+    WHERE o.user_id = :user_id
+    ORDER BY o.order_time DESC
+    LIMIT :limit OFFSET :offset
+    """
     
-    # 3. 두 쿼리를 병렬로 실행 (SQLAlchemy 2.0에서는 제한적)
+    # 2. 해당 order_id들에 대한 콕 주문 조회 (GROUP BY로 중복 제거)
+    kok_orders_sql = """
+    SELECT 
+        o.order_id,
+        o.user_id,
+        o.order_time,
+        o.cancel_time,
+        ko.kok_order_id,
+        ko.kok_product_id,
+        ko.quantity,
+        ko.order_price,
+        ko.recipe_id,
+        ko.kok_price_id,
+        MAX(kpi.kok_product_name) as kok_product_name,
+        MAX(kpi.kok_thumbnail) as kok_thumbnail,
+        MAX(r.recipe_title) as recipe_title,
+        MAX(r.cooking_introduction) as cooking_introduction,
+        MAX(r.scrap_count) as scrap_count
+    FROM ORDERS o
+    INNER JOIN KOK_ORDERS ko ON o.order_id = ko.order_id
+    LEFT JOIN FCT_KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
+    LEFT JOIN FCT_RECIPE r ON ko.recipe_id = r.recipe_id
+    WHERE o.user_id = :user_id
+    AND o.order_id IN :order_id_list
+    GROUP BY o.order_id, o.user_id, o.order_time, o.cancel_time, ko.kok_order_id, ko.kok_product_id, ko.quantity, ko.order_price, ko.recipe_id, ko.kok_price_id
+    ORDER BY o.order_time DESC, ko.kok_order_id
+    """
+    
+    # 3. 해당 order_id들에 대한 홈쇼핑 주문 조회 (GROUP BY로 중복 제거)
+    hs_orders_sql = """
+    SELECT 
+        o.order_id,
+        o.user_id,
+        o.order_time,
+        o.cancel_time,
+        ho.homeshopping_order_id,
+        ho.product_id,
+        ho.quantity,
+        ho.order_price,
+        ho.dc_price,
+        MAX(hl.product_name) as product_name,
+        MAX(hl.thumb_img_url) as thumb_img_url
+    FROM ORDERS o
+    INNER JOIN HOMESHOPPING_ORDERS ho ON o.order_id = ho.order_id
+    LEFT JOIN FCT_HOMESHOPPING_LIST hl ON ho.product_id = hl.product_id
+    WHERE o.user_id = :user_id
+    AND o.order_id IN :order_id_list
+    GROUP BY o.order_id, o.user_id, o.order_time, o.cancel_time, ho.homeshopping_order_id, ho.product_id, ho.quantity, ho.order_price, ho.dc_price
+    ORDER BY o.order_time DESC, ho.homeshopping_order_id
+    """
+    
+    # 1. 먼저 order_id 목록을 조회
     try:
-        kok_result, hs_result = await asyncio.gather(
-            db.execute(kok_orders_stmt),
-            db.execute(hs_orders_stmt)
-        )
+        order_ids_result = await db.execute(text(order_ids_sql), {
+            "user_id": user_id,
+            "limit": limit,
+            "offset": offset
+        })
+        order_ids_data = order_ids_result.fetchall()
     except Exception as e:
-        # 병렬 실행 실패 시 순차 실행으로 폴백
-        logger.warning(f"병렬 쿼리 실행 실패, 순차 실행으로 전환: {e}")
-        kok_result = await db.execute(kok_orders_stmt)
-        hs_result = await db.execute(hs_orders_stmt)
+        logger.error(f"주문 ID 목록 조회 SQL 실행 실패: user_id={user_id}, error={str(e)}")
+        return []
     
-    kok_orders_data = kok_result.all()
-    hs_orders_data = hs_result.all()
+    if not order_ids_data:
+        return []
+    
+    # order_id 목록 추출
+    order_id_list = [row.order_id for row in order_ids_data]
+    
+    # 2. 해당 order_id들에 대한 콕 주문 조회
+    try:
+        kok_result = await db.execute(text(kok_orders_sql), {
+            "user_id": user_id,
+            "order_id_list": tuple(order_id_list)
+        })
+        kok_orders_data = kok_result.fetchall()
+    except Exception as e:
+        logger.error(f"콕 주문 목록 조회 SQL 실행 실패: user_id={user_id}, error={str(e)}")
+        kok_orders_data = []
+    
+    # 3. 해당 order_id들에 대한 홈쇼핑 주문 조회
+    try:
+        hs_result = await db.execute(text(hs_orders_sql), {
+            "user_id": user_id,
+            "order_id_list": tuple(order_id_list)
+        })
+        hs_orders_data = hs_result.fetchall()
+    except Exception as e:
+        logger.error(f"홈쇼핑 주문 목록 조회 SQL 실행 실패: user_id={user_id}, error={str(e)}")
+        hs_orders_data = []
     
     # 4. 레시피가 있는 콕 주문들의 recipe_id 수집 (재료 상태 배치 조회용)
     recipe_ids = list(set(
@@ -262,7 +384,11 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
     order_dict = {}
     
     # 콕 주문 데이터 처리
+    logger.debug(f"콕 주문 데이터 처리 시작: {len(kok_orders_data)}개 레코드")
+    
     for row in kok_orders_data:
+        logger.debug(f"콕 주문 레코드: order_id={row.order_id}, kok_order_id={row.kok_order_id}, kok_product_id={row.kok_product_id}")
+        
         if row.order_id not in order_dict:
             order_dict[row.order_id] = {
                 "order_id": row.order_id,
@@ -314,9 +440,14 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
                 kok_order.total_ingredients = 0
             
             order_dict[row.order_id]["kok_orders"].append(kok_order)
+            logger.debug(f"콕 주문 추가: order_id={row.order_id}, kok_order_id={row.kok_order_id}, 현재 개수={len(order_dict[row.order_id]['kok_orders'])}")
     
     # 홈쇼핑 주문 데이터 처리
+    logger.debug(f"홈쇼핑 주문 데이터 처리 시작: {len(hs_orders_data)}개 레코드")
+    
     for row in hs_orders_data:
+        logger.debug(f"홈쇼핑 주문 레코드: order_id={row.order_id}, homeshopping_order_id={row.homeshopping_order_id}, product_id={row.product_id}")
+        
         if row.order_id not in order_dict:
             order_dict[row.order_id] = {
                 "order_id": row.order_id,
@@ -344,6 +475,7 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
                 hs_order.product_image = hs_images_cache.get(row.product_id)
             
             order_dict[row.order_id]["homeshopping_orders"].append(hs_order)
+            logger.debug(f"홈쇼핑 주문 추가: order_id={row.order_id}, homeshopping_order_id={row.homeshopping_order_id}, 현재 개수={len(order_dict[row.order_id]['homeshopping_orders'])}")
     
     # 9. 최신 주문순으로 정렬하여 반환
     order_list = list(order_dict.values())
@@ -372,9 +504,13 @@ async def _batch_fetch_recipe_ingredients_status(
         return {}
     
     # 1. 모든 레시피의 재료를 한 번에 조회
-    materials_stmt = select(Material).where(Material.recipe_id.in_(recipe_ids))
-    materials_result = await db.execute(materials_stmt)
-    materials = materials_result.scalars().all()
+    try:
+        materials_stmt = select(Material).where(Material.recipe_id.in_(recipe_ids))
+        materials_result = await db.execute(materials_stmt)
+        materials = materials_result.scalars().all()
+    except Exception as e:
+        logger.error(f"재료 정보 배치 조회 SQL 실행 실패: recipe_ids={recipe_ids}, error={str(e)}")
+        return {}
     
     # 재료별로 그룹화
     recipe_materials = {}
@@ -416,20 +552,20 @@ async def _batch_fetch_recipe_ingredients_status(
         .where(Order.cancel_time.is_(None))
     )
     
-    # 병렬로 주문 정보 조회 (SQLAlchemy 2.0에서는 제한적)
+    # 순차적으로 주문 정보 조회 (SQLAlchemy AsyncSession은 동시 실행 불가)
     try:
-        kok_result, hs_result = await asyncio.gather(
-            db.execute(kok_orders_stmt),
-            db.execute(hs_orders_stmt)
-        )
-    except Exception as e:
-        # 병렬 실행 실패 시 순차 실행으로 폴백
-        logger.warning(f"병렬 쿼리 실행 실패, 순차 실행으로 전환: {e}")
         kok_result = await db.execute(kok_orders_stmt)
-        hs_result = await db.execute(hs_orders_stmt)
+        kok_orders = kok_result.all()
+    except Exception as e:
+        logger.warning(f"콕 주문 배치 조회 실패: user_id={user_id}, error={str(e)}")
+        kok_orders = []
     
-    kok_orders = kok_result.all()
-    hs_orders = hs_result.all()
+    try:
+        hs_result = await db.execute(hs_orders_stmt)
+        hs_orders = hs_result.all()
+    except Exception as e:
+        logger.warning(f"홈쇼핑 주문 배치 조회 실패: user_id={user_id}, error={str(e)}")
+        hs_orders = []
     
     # 주문한 상품명으로 보유 재료 구성
     owned_materials = []
@@ -458,17 +594,9 @@ async def _batch_fetch_recipe_ingredients_status(
         from services.kok.crud.kok_crud import get_kok_cart_items
         from services.homeshopping.crud.homeshopping_crud import get_homeshopping_cart_items
         
-        # 병렬로 장바구니 정보 조회 (SQLAlchemy 2.0에서는 제한적)
-        try:
-            kok_cart_items, hs_cart_items = await asyncio.gather(
-                get_kok_cart_items(db, user_id),
-                get_homeshopping_cart_items(db, user_id)
-            )
-        except Exception as e:
-            # 병렬 실행 실패 시 순차 실행으로 폴백
-            logger.warning(f"병렬 장바구니 조회 실패, 순차 실행으로 전환: {e}")
-            kok_cart_items = await get_kok_cart_items(db, user_id)
-            hs_cart_items = await get_homeshopping_cart_items(db, user_id)
+        # 순차적으로 장바구니 정보 조회 (SQLAlchemy AsyncSession은 동시 실행 불가)
+        kok_cart_items = await get_kok_cart_items(db, user_id)
+        hs_cart_items = await get_homeshopping_cart_items(db, user_id)
         
         # 콕 장바구니 처리
         for cart_item in kok_cart_items:
@@ -611,16 +739,20 @@ async def get_user_order_counts(db: AsyncSession, user_id: int) -> int:
     """
     from sqlalchemy import func
     
-    result = await db.execute(
-        select(func.count(Order.order_id))
-        .where(Order.user_id == user_id)
-    )
-    return result.scalar()
+    try:
+        result = await db.execute(
+            select(func.count(Order.order_id))
+            .where(Order.user_id == user_id)
+        )
+        return result.scalar()
+    except Exception as e:
+        logger.error(f"사용자 주문 개수 조회 SQL 실행 실패: user_id={user_id}, error={str(e)}")
+        return 0
 
 
 async def calculate_order_total_price(db: AsyncSession, order_id: int) -> int:
     """
-    주문 ID로 총 주문 금액 계산 (콕 주문 + 홈쇼핑 주문)
+    주문 ID로 총 주문 금액 계산 (최적화: Raw SQL 사용)
     
     Args:
         db: 데이터베이스 세션
@@ -631,76 +763,93 @@ async def calculate_order_total_price(db: AsyncSession, order_id: int) -> int:
         
     Note:
         - CRUD 계층: DB 조회만 담당, 트랜잭션 변경 없음
+        - Raw SQL을 사용하여 성능 최적화
         - 각 주문 타입별로 이미 계산된 order_price 사용
         - order_price가 없는 경우 계산 함수를 통해 재계산
         - 계산 실패 시 기본값(dc_price * quantity) 사용
     """
-    logger.info(f"주문 총액 계산 시작: order_id={order_id}")
-    total_price = 0
+    from sqlalchemy import text
     
-    # 콕 주문 총액 계산
-    logger.info(f"콕 주문 총액 계산 시작: order_id={order_id}")
-    kok_result = await db.execute(
-        select(KokOrder).where(KokOrder.order_id == order_id)
-    )
-    kok_orders = kok_result.scalars().all()
-    logger.info(f"콕 주문 조회 결과: order_id={order_id}, kok_count={len(kok_orders)}")
+    # 최적화된 쿼리: Raw SQL을 사용하여 모든 주문 금액을 한 번에 계산
+    sql_query = """
+    SELECT 
+        COALESCE(SUM(ko.order_price), 0) as kok_total,
+        COALESCE(SUM(ho.order_price), 0) as homeshopping_total
+    FROM ORDERS o
+    LEFT JOIN KOK_ORDERS ko ON o.order_id = ko.order_id
+    LEFT JOIN HOMESHOPPING_ORDERS ho ON o.order_id = ho.order_id
+    WHERE o.order_id = :order_id
+    """
     
-    for kok_order in kok_orders:
-        if hasattr(kok_order, 'order_price') and kok_order.order_price:
-            logger.info(f"콕 주문 기존 가격 사용: kok_order_id={kok_order.kok_order_id}, order_price={kok_order.order_price}")
-            total_price += kok_order.order_price
-        else:
-            # order_price가 없는 경우 계산 함수 사용
-            logger.info(f"콕 주문 가격 계산 필요: kok_order_id={kok_order.kok_order_id}, kok_price_id={kok_order.kok_price_id}")
+    try:
+        result = await db.execute(text(sql_query), {"order_id": order_id})
+        price_data = result.fetchone()
+        
+        if not price_data:
+            logger.warning(f"주문을 찾을 수 없음: order_id={order_id}")
+            return 0
+        
+        total_price = (price_data.kok_total or 0) + (price_data.homeshopping_total or 0)
+        
+        # order_price가 없는 주문들에 대해 개별 계산
+        if total_price == 0:
+            # 콕 주문 개별 계산
             try:
-                price_info = await calculate_kok_order_price(
-                    db, 
-                    kok_order.kok_price_id, 
-                    kok_order.kok_product_id, 
-                    kok_order.quantity
+                kok_result = await db.execute(
+                    select(KokOrder).where(KokOrder.order_id == order_id)
                 )
-                total_price += price_info["order_price"]
-                logger.info(f"콕 주문 가격 계산 완료: kok_order_id={kok_order.kok_order_id}, calculated_price={price_info['order_price']}")
+                kok_orders = kok_result.scalars().all()
             except Exception as e:
-                logger.warning(f"콕 주문 금액 계산 실패: kok_order_id={kok_order.kok_order_id}, error={str(e)}")
-                # 기본값 사용 (KokOrder는 dc_price가 없으므로 order_price가 없으면 0으로 처리)
-                fallback_price = 0
-                total_price += fallback_price
-                logger.info(f"콕 주문 기본값 사용: kok_order_id={kok_order.kok_order_id}, fallback_price={fallback_price}")
-    
-    # 홈쇼핑 주문 총액 계산
-    logger.info(f"홈쇼핑 주문 총액 계산 시작: order_id={order_id}")
-    homeshopping_result = await db.execute(
-        select(HomeShoppingOrder).where(HomeShoppingOrder.order_id == order_id)
-    )
-    homeshopping_orders = homeshopping_result.scalars().all()
-    logger.info(f"홈쇼핑 주문 조회 결과: order_id={order_id}, hs_count={len(homeshopping_orders)}")
-    
-    for hs_order in homeshopping_orders:
-        if hasattr(hs_order, 'order_price') and hs_order.order_price:
-            logger.info(f"홈쇼핑 주문 기존 가격 사용: hs_order_id={hs_order.homeshopping_order_id}, order_price={hs_order.order_price}")
-            total_price += hs_order.order_price
-        else:
-            # order_price가 없는 경우 계산 함수 사용
-            logger.info(f"홈쇼핑 주문 가격 계산 필요: hs_order_id={hs_order.homeshopping_order_id}, product_id={hs_order.product_id}")
+                logger.error(f"콕 주문 총액 계산 조회 SQL 실행 실패: order_id={order_id}, error={str(e)}")
+                kok_orders = []
+            
+            for kok_order in kok_orders:
+                if not kok_order.order_price:
+                    try:
+                        price_info = await calculate_kok_order_price(
+                            db, 
+                            kok_order.kok_price_id, 
+                            kok_order.kok_product_id, 
+                            kok_order.quantity
+                        )
+                        total_price += price_info["order_price"]
+                    except Exception as e:
+                        logger.warning(f"콕 주문 금액 계산 실패: kok_order_id={kok_order.kok_order_id}, error={str(e)}")
+                        total_price += 0
+                else:
+                    total_price += kok_order.order_price
+            
+            # 홈쇼핑 주문 개별 계산
             try:
-                price_info = await calculate_homeshopping_order_price(
-                    db, 
-                    hs_order.product_id, 
-                    hs_order.quantity
+                homeshopping_result = await db.execute(
+                    select(HomeShoppingOrder).where(HomeShoppingOrder.order_id == order_id)
                 )
-                total_price += price_info["order_price"]
-                logger.info(f"홈쇼핑 주문 가격 계산 완료: hs_order_id={hs_order.homeshopping_order_id}, calculated_price={price_info['order_price']}")
+                homeshopping_orders = homeshopping_result.scalars().all()
             except Exception as e:
-                logger.warning(f"홈쇼핑 주문 금액 계산 실패: homeshopping_order_id={hs_order.homeshopping_order_id}, error={str(e)}")
-                # 기본값 사용
-                fallback_price = getattr(hs_order, 'dc_price', 0) * getattr(hs_order, 'quantity', 1)
-                total_price += fallback_price
-                logger.info(f"홈쇼핑 주문 기본값 사용: hs_order_id={hs_order.homeshopping_order_id}, fallback_price={fallback_price}")
-    
-    logger.info(f"주문 총액 계산 완료: order_id={order_id}, total_price={total_price}")
-    return total_price
+                logger.error(f"홈쇼핑 주문 총액 계산 조회 SQL 실행 실패: order_id={order_id}, error={str(e)}")
+                homeshopping_orders = []
+            
+            for hs_order in homeshopping_orders:
+                if not hs_order.order_price:
+                    try:
+                        price_info = await calculate_homeshopping_order_price(
+                            db, 
+                            hs_order.product_id, 
+                            hs_order.quantity
+                        )
+                        total_price += price_info["order_price"]
+                    except Exception as e:
+                        logger.warning(f"홈쇼핑 주문 금액 계산 실패: homeshopping_order_id={hs_order.homeshopping_order_id}, error={str(e)}")
+                        fallback_price = getattr(hs_order, 'dc_price', 0) * getattr(hs_order, 'quantity', 1)
+                        total_price += fallback_price
+                else:
+                    total_price += hs_order.order_price
+        
+        return total_price
+        
+    except Exception as e:
+        logger.error(f"주문 총액 계산 SQL 실행 실패: order_id={order_id}, error={str(e)}")
+        return 0
 
 
 async def _post_json(url: str, json: Dict[str, Any], timeout: float = 20.0) -> httpx.Response:
@@ -739,12 +888,12 @@ async def _get_json(url: str, timeout: float = 15.0) -> httpx.Response:
         - 상세한 로깅을 통한 디버깅 지원
         - 예외 발생 시 에러 타입과 함께 로깅
     """
-    logger.info(f"HTTP GET 요청 시작: url={url}, timeout={timeout}초")
+    # logger.info(f"HTTP GET 요청 시작: url={url}, timeout={timeout}초")
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            logger.info(f"httpx.AsyncClient 생성 완료, GET 요청 전송: {url}")
+    # logger.info(f"httpx.AsyncClient 생성 완료, GET 요청 전송: {url}")
             response = await client.get(url)
-            logger.info(f"HTTP GET 응답 수신: url={url}, status_code={response.status_code}")
+    # logger.info(f"HTTP GET 응답 수신: url={url}, status_code={response.status_code}")
             return response
     except Exception as e:
         logger.error(f"HTTP GET 요청 실패: url={url}, error={str(e)}, error_type={type(e).__name__}")
@@ -776,7 +925,7 @@ async def _mark_all_children_payment_requested(
         - 실패 시 상위에서 롤백 처리
         - 모든 하위 주문의 상태를 PAYMENT_REQUESTED로 변경
     """
-    logger.info(f"하위 주문 상태를 PAYMENT_REQUESTED로 갱신 시작: kok_count={len(kok_orders)}, hs_count={len(hs_orders)}")
+    # logger.info(f"하위 주문 상태를 PAYMENT_REQUESTED로 갱신 시작: kok_count={len(kok_orders)}, hs_count={len(hs_orders)}")
     
     # 콕 주문 상태 갱신
     for k in kok_orders:
@@ -787,7 +936,7 @@ async def _mark_all_children_payment_requested(
                 new_status_code="PAYMENT_REQUESTED",
                 changed_by=user_id,
             )
-            logger.info(f"콕 주문 상태를 PAYMENT_REQUESTED로 갱신 완료: kok_order_id={k.kok_order_id}")
+    # logger.info(f"콕 주문 상태를 PAYMENT_REQUESTED로 갱신 완료: kok_order_id={k.kok_order_id}")
         except Exception as e:
             logger.error(f"콕 주문 상태 갱신 실패: kok_order_id={k.kok_order_id}, error={str(e)}")
             raise
@@ -801,12 +950,12 @@ async def _mark_all_children_payment_requested(
                 new_status_code="PAYMENT_REQUESTED",
                 changed_by=user_id,
             )
-            logger.info(f"홈쇼핑 주문 상태를 PAYMENT_REQUESTED로 갱신 완료: hs_order_id={h.homeshopping_order_id}")
+    # logger.info(f"홈쇼핑 주문 상태를 PAYMENT_REQUESTED로 갱신 완료: hs_order_id={h.homeshopping_order_id}")
         except Exception as e:
             logger.error(f"홈쇼핑 주문 상태 갱신 실패: homeshopping_order_id={h.homeshopping_order_id}, error={str(e)}")
             raise
     
-    logger.info(f"모든 하위 주문 상태를 PAYMENT_REQUESTED로 갱신 완료")
+    # logger.info(f"모든 하위 주문 상태를 PAYMENT_REQUESTED로 갱신 완료")
 
 
 async def _mark_all_children_payment_completed(
@@ -834,7 +983,7 @@ async def _mark_all_children_payment_completed(
         - 실패 시 상위에서 롤백 처리
         - 모든 하위 주문의 상태를 PAYMENT_COMPLETED로 변경
     """
-    logger.info(f"하위 주문 상태를 PAYMENT_COMPLETED로 갱신 시작: kok_count={len(kok_orders)}, hs_count={len(hs_orders)}")
+    # logger.info(f"하위 주문 상태를 PAYMENT_COMPLETED로 갱신 시작: kok_count={len(kok_orders)}, hs_count={len(hs_orders)}")
     
     # 콕 주문 상태 갱신
     for k in kok_orders:
@@ -845,7 +994,7 @@ async def _mark_all_children_payment_completed(
                 new_status_code="PAYMENT_COMPLETED",
                 changed_by=user_id,
             )
-            logger.info(f"콕 주문 상태를 PAYMENT_COMPLETED로 갱신 완료: kok_order_id={k.kok_order_id}")
+    # logger.info(f"콕 주문 상태를 PAYMENT_COMPLETED로 갱신 완료: kok_order_id={k.kok_order_id}")
         except Exception as e:
             logger.error(f"콕 주문 상태 갱신 실패: kok_order_id={k.kok_order_id}, error={str(e)}")
             raise
@@ -859,12 +1008,12 @@ async def _mark_all_children_payment_completed(
                 new_status_code="PAYMENT_COMPLETED",
                 changed_by=user_id,
             )
-            logger.info(f"홈쇼핑 주문 상태를 PAYMENT_COMPLETED로 갱신 완료: hs_order_id={h.homeshopping_order_id}")
+    # logger.info(f"홈쇼핑 주문 상태를 PAYMENT_COMPLETED로 갱신 완료: hs_order_id={h.homeshopping_order_id}")
         except Exception as e:
             logger.error(f"홈쇼핑 주문 상태 갱신 실패: homeshopping_order_id={h.homeshopping_order_id}, error={str(e)}")
             raise
     
-    logger.info(f"모든 하위 주문 상태를 PAYMENT_COMPLETED로 갱신 완료")
+    # logger.info(f"모든 하위 주문 상태를 PAYMENT_COMPLETED로 갱신 완료")
 
 
 async def _ensure_order_access(db: AsyncSession, order_id: int, user_id: int) -> Dict[str, Any]:
@@ -887,20 +1036,20 @@ async def _ensure_order_access(db: AsyncSession, order_id: int, user_id: int) ->
         - 해당 order_id가 존재하고, 소유자가 user_id인지 확인
         - 권한이 없으면 404 에러 반환
     """
-    logger.info(f"주문 접근 권한 확인: order_id={order_id}, user_id={user_id}")
+    # logger.info(f"주문 접근 권한 확인: order_id={order_id}, user_id={user_id}")
     
     order_data = await get_order_by_id(db, order_id)
-    logger.info(f"주문 데이터 조회 결과: order_id={order_id}, order_data={order_data is not None}")
+    # logger.info(f"주문 데이터 조회 결과: order_id={order_id}, order_data={order_data is not None}")
     
     if not order_data:
-        logger.error(f"주문을 찾을 수 없음: order_id={order_id}")
+        logger.warning(f"주문을 찾을 수 없음: order_id={order_id}, user_id={user_id}")
         raise HTTPException(status_code=404, detail="주문 내역이 없습니다.")
     
     if order_data["user_id"] != user_id:
-        logger.error(f"주문 접근 권한 없음: order_id={order_id}, order_user_id={order_data['user_id']}, request_user_id={user_id}")
+        logger.warning(f"주문 접근 권한 없음: order_id={order_id}, order_user_id={order_data['user_id']}, request_user_id={user_id}")
         raise HTTPException(status_code=404, detail="주문 내역이 없습니다.")
     
-    logger.info(f"주문 접근 권한 확인 완료: order_id={order_id}, user_id={user_id}")
+    # logger.info(f"주문 접근 권한 확인 완료: order_id={order_id}, user_id={user_id}")
     return order_data
 
 async def cancel_order(db: AsyncSession, order_id: int, reason: str):
@@ -923,13 +1072,18 @@ async def cancel_order(db: AsyncSession, order_id: int, reason: str):
     """
     try:
         # 주문 조회
-        order_result = await db.execute(
-            select(Order)
-            .where(Order.order_id == order_id)
-        )
-        order = order_result.scalar_one_or_none()
+        try:
+            order_result = await db.execute(
+                select(Order)
+                .where(Order.order_id == order_id)
+            )
+            order = order_result.scalar_one_or_none()
+        except Exception as e:
+            logger.error(f"주문 취소 조회 SQL 실행 실패: order_id={order_id}, error={str(e)}")
+            raise
         
         if not order:
+            logger.warning(f"취소할 주문을 찾을 수 없음: order_id={order_id}")
             raise ValueError(f"주문을 찾을 수 없습니다: {order_id}")
         
         # 취소 시간 설정
@@ -939,17 +1093,25 @@ async def cancel_order(db: AsyncSession, order_id: int, reason: str):
         order.cancel_time = current_time
         
         # 하위 주문들 조회
-        kok_orders_result = await db.execute(
-            select(KokOrder)
-            .where(KokOrder.order_id == order_id)
-        )
-        kok_orders = kok_orders_result.scalars().all()
+        try:
+            kok_orders_result = await db.execute(
+                select(KokOrder)
+                .where(KokOrder.order_id == order_id)
+            )
+            kok_orders = kok_orders_result.scalars().all()
+        except Exception as e:
+            logger.warning(f"콕 주문 취소 조회 실패: order_id={order_id}, error={str(e)}")
+            kok_orders = []
         
-        hs_orders_result = await db.execute(
-            select(HomeShoppingOrder)
-            .where(HomeShoppingOrder.order_id == order_id)
-        )
-        hs_orders = hs_orders_result.scalars().all()
+        try:
+            hs_orders_result = await db.execute(
+                select(HomeShoppingOrder)
+                .where(HomeShoppingOrder.order_id == order_id)
+            )
+            hs_orders = hs_orders_result.scalars().all()
+        except Exception as e:
+            logger.warning(f"홈쇼핑 주문 취소 조회 실패: order_id={order_id}, error={str(e)}")
+            hs_orders = []
         
         # 콕 주문 상태를 CANCELLED로 업데이트
         for kok_order in kok_orders:
@@ -975,7 +1137,7 @@ async def cancel_order(db: AsyncSession, order_id: int, reason: str):
         
         await db.commit()
         
-        logger.info(f"주문 취소 완료: order_id={order_id}, cancel_time={current_time}, reason={reason}")
+    # logger.info(f"주문 취소 완료: order_id={order_id}, cancel_time={current_time}, reason={reason}")
         
         return {
             "order_id": order_id,
@@ -1007,12 +1169,18 @@ async def _get_status_id_by_code(db: AsyncSession, status_code: str) -> int:
         - StatusMaster 테이블에서 status_code로 status_id 조회
         - 주문 취소 시 CANCELLED 상태 ID 조회에 사용
     """
-    status_result = await db.execute(
-        select(StatusMaster.status_id)
-        .where(StatusMaster.status_code == status_code)
-    )
-    status_id = status_result.scalar_one_or_none()
+    try:
+        status_result = await db.execute(
+            select(StatusMaster.status_id)
+            .where(StatusMaster.status_code == status_code)
+        )
+        status_id = status_result.scalar_one_or_none()
+    except Exception as e:
+        logger.error(f"상태 코드 ID 조회 SQL 실행 실패: status_code={status_code}, error={str(e)}")
+        raise
+    
     if not status_id:
+        logger.warning(f"상태 코드를 찾을 수 없음: status_code={status_code}")
         raise ValueError(f"상태 코드를 찾을 수 없습니다: {status_code}")
     return status_id
 
@@ -1022,7 +1190,7 @@ async def get_recent_orders_with_ingredients(
     days: int = 7
 ) -> dict:
     """
-    7일 내 주문 내역에서 모든 상품의 product_name을 가져와서 키워드를 추출
+    7일 내 주문 내역에서 모든 상품의 product_name을 가져와서 키워드를 추출 (최적화: Raw SQL 사용)
     
     Args:
         db: 데이터베이스 세션
@@ -1032,21 +1200,103 @@ async def get_recent_orders_with_ingredients(
     Returns:
         키워드 추출 결과 딕셔너리
     """
-    logger.info(f"최근 {days}일 주문 내역 키워드 추출 시작: user_id={user_id}")
+    from sqlalchemy import text
+    from datetime import datetime, timedelta
     
     # 7일 전 날짜 계산
-    from datetime import datetime, timedelta
     cutoff_date = datetime.now() - timedelta(days=days)
     
-    # 주문 기본 정보 조회 (7일 내)
-    result = await db.execute(
-        select(Order)
-        .where(Order.user_id == user_id)
-        .where(Order.order_time >= cutoff_date)
-        .where(Order.cancel_time.is_(None))  # 취소되지 않은 주문만
-        .order_by(Order.order_time.desc())
+    # 최적화된 쿼리: Raw SQL을 사용하여 모든 상품 정보를 한 번에 조회
+    sql_query = """
+    WITH recent_orders AS (
+        SELECT DISTINCT o.order_id, o.order_time
+        FROM ORDERS o
+        WHERE o.user_id = :user_id
+        AND o.order_time >= :cutoff_date
+        AND o.cancel_time IS NULL
+    ),
+    kok_products AS (
+        SELECT 
+            ro.order_id,
+            ro.order_time,
+            ko.kok_order_id,
+            ko.kok_product_id,
+            ko.quantity,
+            ko.order_price,
+            kpi.kok_product_name,
+            'kok' as product_type
+        FROM recent_orders ro
+        INNER JOIN KOK_ORDERS ko ON ro.order_id = ko.order_id
+        INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
+        WHERE kpi.kok_product_name IS NOT NULL
+    ),
+    homeshopping_products AS (
+        SELECT 
+            ro.order_id,
+            ro.order_time,
+            ho.homeshopping_order_id,
+            ho.product_id,
+            ho.quantity,
+            ho.order_price,
+            hl.product_name,
+            'homeshopping' as product_type
+        FROM recent_orders ro
+        INNER JOIN HOMESHOPPING_ORDERS ho ON ro.order_id = ho.order_id
+        INNER JOIN FCT_HOMESHOPPING_LIST hl ON ho.product_id = hl.product_id
+        WHERE hl.product_name IS NOT NULL
     )
-    orders = result.scalars().all()
+    SELECT 
+        order_id,
+        order_time,
+        kok_order_id,
+        kok_product_id,
+        homeshopping_order_id,
+        product_id,
+        quantity,
+        order_price,
+        COALESCE(kok_product_name, product_name) as product_name,
+        COALESCE('kok', product_type) as product_type
+    FROM kok_products
+    UNION ALL
+    SELECT 
+        order_id,
+        order_time,
+        NULL as kok_order_id,
+        NULL as kok_product_id,
+        homeshopping_order_id,
+        product_id,
+        quantity,
+        order_price,
+        product_name,
+        product_type
+    FROM homeshopping_products
+    ORDER BY order_time DESC
+    """
+    
+    try:
+        result = await db.execute(text(sql_query), {
+            "user_id": user_id,
+            "cutoff_date": cutoff_date
+        })
+        products_data = result.fetchall()
+    except Exception as e:
+        logger.error(f"최근 주문 조회 SQL 실행 실패: user_id={user_id}, days={days}, error={str(e)}")
+        return {
+            "user_id": user_id,
+            "days": days,
+            "total_orders": 0,
+            "total_products": 0,
+            "total_keywords": 0,
+            "products": [],
+            "keywords": [],
+            "keyword_stats": {},
+            "summary": {
+                "kok_products": 0,
+                "homeshopping_products": 0,
+                "products_with_keywords": 0,
+                "products_without_keywords": 0
+            }
+        }
     
     # ingredient_matcher 초기화
     from services.recipe.utils.ingredient_matcher import IngredientKeywordExtractor
@@ -1056,102 +1306,44 @@ async def get_recent_orders_with_ingredients(
     all_keywords = set()
     keyword_products = {}  # 키워드별로 어떤 상품에서 추출되었는지 추적
     
-    for order in orders:
-        # 콕 주문 처리
-        kok_result = await db.execute(
-            select(KokOrder).where(KokOrder.order_id == order.order_id)
-        )
-        kok_orders = kok_result.scalars().all()
-        
-        for kok_order in kok_orders:
-            try:
-                # 상품 기본 정보 조회
-                product_stmt = select(KokProductInfo).where(KokProductInfo.kok_product_id == kok_order.kok_product_id)
-                product_result = await db.execute(product_stmt)
-                product = product_result.scalar_one_or_none()
+    # 최적화된 처리: 이미 조회된 데이터를 직접 사용
+    for row in products_data:
+        try:
+            product_name = row.product_name
+            if not product_name:
+                continue
+            
+            # 키워드 추출
+            extracted_keywords = ingredient_extractor.extract_keywords(product_name)
+            
+            # 결과 저장
+            product_info = {
+                "order_id": row.order_id,
+                "order_time": row.order_time,
+                "product_id": row.kok_product_id or row.product_id,
+                "product_name": product_name,
+                "product_type": row.product_type,
+                "quantity": row.quantity,
+                "price": row.order_price,
+                "extracted_keywords": extracted_keywords,
+                "keyword_count": len(extracted_keywords)
+            }
+            
+            all_products.append(product_info)
+            
+            # 키워드별 상품 추적
+            for keyword in extracted_keywords:
+                all_keywords.add(keyword)
+                if keyword not in keyword_products:
+                    keyword_products[keyword] = []
+                keyword_products[keyword].append({
+                    "product_name": product_name,
+                    "product_type": row.product_type,
+                    "order_time": row.order_time
+                })
                 
-                if product and product.kok_product_name:
-                    product_name = product.kok_product_name
-                    
-                    # 키워드 추출
-                    extracted_keywords = ingredient_extractor.extract_keywords(product_name)
-                    
-                    # 결과 저장
-                    product_info = {
-                        "order_id": order.order_id,
-                        "order_time": order.order_time,
-                        "product_id": kok_order.kok_product_id,
-                        "product_name": product_name,
-                        "product_type": "kok",
-                        "quantity": kok_order.quantity,
-                        "price": kok_order.order_price,
-                        "extracted_keywords": extracted_keywords,
-                        "keyword_count": len(extracted_keywords)
-                    }
-                    
-                    all_products.append(product_info)
-                    
-                    # 키워드별 상품 추적
-                    for keyword in extracted_keywords:
-                        all_keywords.add(keyword)
-                        if keyword not in keyword_products:
-                            keyword_products[keyword] = []
-                        keyword_products[keyword].append({
-                            "product_name": product_name,
-                            "product_type": "kok",
-                            "order_time": order.order_time
-                        })
-                        
-            except Exception as e:
-                logger.warning(f"콕 주문 처리 실패: kok_order_id={kok_order.kok_order_id}, error={str(e)}")
-        
-        # 홈쇼핑 주문 처리
-        homeshopping_result = await db.execute(
-            select(HomeShoppingOrder).where(HomeShoppingOrder.order_id == order.order_id)
-        )
-        homeshopping_orders = homeshopping_result.scalars().all()
-        
-        for hs_order in homeshopping_orders:
-            try:
-                # 상품 기본 정보 조회
-                product_stmt = select(HomeshoppingList).where(HomeshoppingList.product_id == hs_order.product_id)
-                product_result = await db.execute(product_stmt)
-                product = product_result.scalar_one_or_none()
-                
-                if product and product.product_name:
-                    product_name = product.product_name
-                    
-                    # 키워드 추출
-                    extracted_keywords = ingredient_extractor.extract_keywords(product_name)
-                    
-                    # 결과 저장
-                    product_info = {
-                        "order_id": order.order_id,
-                        "order_time": order.order_time,
-                        "product_id": hs_order.product_id,
-                        "product_name": product_name,
-                        "product_type": "homeshopping",
-                        "quantity": hs_order.quantity,
-                        "price": hs_order.order_price,
-                        "extracted_keywords": extracted_keywords,
-                        "keyword_count": len(extracted_keywords)
-                    }
-                    
-                    all_products.append(product_info)
-                    
-                    # 키워드별 상품 추적
-                    for keyword in extracted_keywords:
-                        all_keywords.add(keyword)
-                        if keyword not in keyword_products:
-                            keyword_products[keyword] = []
-                        keyword_products[keyword].append({
-                            "product_name": product_name,
-                            "product_type": "homeshopping",
-                            "order_time": order.order_time
-                        })
-                        
-            except Exception as e:
-                logger.warning(f"홈쇼핑 주문 처리 실패: homeshopping_order_id={hs_order.homeshopping_order_id}, error={str(e)}")
+        except Exception as e:
+            logger.warning(f"상품 처리 실패: product_name={row.product_name}, error={str(e)}")
     
     # 키워드 통계 계산
     keyword_stats = {}
@@ -1171,7 +1363,7 @@ async def get_recent_orders_with_ingredients(
     result = {
         "user_id": user_id,
         "days": days,
-        "total_orders": len(orders),
+        "total_orders": len(set(row.order_id for row in products_data)),
         "total_products": len(all_products),
         "total_keywords": len(all_keywords),
         "products": all_products,
@@ -1185,5 +1377,5 @@ async def get_recent_orders_with_ingredients(
         }
     }
     
-    logger.info(f"최근 {days}일 주문 내역 키워드 추출 완료: 총 {len(all_products)}개 상품, {len(all_keywords)}개 키워드")
+    # logger.info(f"최근 {days}일 주문 내역 키워드 추출 완료: 총 {len(all_products)}개 상품, {len(all_keywords)}개 키워드")
     return result

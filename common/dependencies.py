@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from jose import jwt
 
-from common.auth.jwt_handler import verify_token
+from common.auth.jwt_handler import verify_token, is_token_expired
 from common.database.mariadb_auth import SessionLocal, get_maria_auth_db
 from common.errors import InvalidTokenException, NotFoundException
 from common.logger import get_logger
@@ -25,18 +25,30 @@ async def get_current_user(
 ) -> UserOut:
     """토큰 기반 사용자 인증 후 유저 정보 반환"""
     try:
-        # logger.debug(f"Token verification started: {token[:10]}...")
+        logger.debug(f"토큰 인증 시작: {token[:10] if token else 'None'}...")
         
+        # 토큰 기본 검증
+        if not token:
+            logger.warning("토큰이 제공되지 않았습니다")
+            raise InvalidTokenException("인증 토큰이 필요합니다.")
+        
+        # 토큰 만료 확인 (먼저 확인하여 더 명확한 오류 메시지 제공)
+        if is_token_expired(token):
+            logger.warning("토큰이 만료되었습니다")
+            raise InvalidTokenException("인증 토큰이 만료되었습니다. 다시 로그인해주세요.")
+        
+        # JWT 토큰 검증
         payload = verify_token(token)
         if payload is None:
             logger.warning("토큰 검증 실패: 유효하지 않은 토큰")
-            raise InvalidTokenException()
+            raise InvalidTokenException("유효하지 않은 인증 토큰입니다. 다시 로그인해주세요.")
 
         # 토큰이 블랙리스트에 있는지 확인
         if await is_token_blacklisted(db, token):
-            # logger.warning(f"토큰이 블랙리스트에 등록됨: {token[:10]}...")
-            raise InvalidTokenException("로그아웃된 토큰입니다.")
+            logger.warning(f"토큰이 블랙리스트에 등록됨: {token[:10]}...")
+            raise InvalidTokenException("로그아웃된 토큰입니다. 다시 로그인해주세요.")
 
+        # 사용자 ID 추출 및 검증
         user_id_raw = payload.get("sub")
         if not user_id_raw:
             logger.warning("토큰 페이로드에 사용자 ID 누락")
@@ -48,6 +60,7 @@ async def get_current_user(
             logger.error(f"토큰의 사용자 ID가 유효하지 않음: {user_id_raw}")
             raise InvalidTokenException("토큰의 사용자 ID가 유효하지 않습니다.")
 
+        # 사용자 정보 조회
         try:
             user = await get_user_by_id(db, user_id)
             if user is None:
@@ -62,7 +75,7 @@ async def get_current_user(
                 created_at=user.created_at
             )
 
-            # logger.debug(f"사용자 인증 성공: user_id={user_id}")
+            logger.debug(f"사용자 인증 성공: user_id={user_id}, username={user.username}")
             return user_out
             
         except Exception as db_error:

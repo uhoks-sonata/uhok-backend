@@ -64,9 +64,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         # 로컬 개발 환경
+        "http://localhost:80",      # 도커 포트(Nginx)
         "http://localhost:3001",      # React 포트
         "http://localhost:9001",      # FastAPI 포트
-        "http://localhost:8501",      # Streamlit 포트
+        "http://localhost:8502",      # Streamlit 포트
         
         # hosts 파일에 등록한 alias (팀원별)
         "http://webapp.uhok.com:3001", # 프론트엔드 1
@@ -75,7 +76,7 @@ app.add_middleware(
         "http://api.uhok.com:9000", # 백엔드 1
         "http://api2.uhok.com:9000", # 백엔드 2
 
-        "http://payment.uhok.com:9001", # 결제서버
+        "http://payment.uhok.com:9002", # 결제서버
     ],
     allow_credentials=True,  # 쿠키/인증 헤더 허용
     allow_methods=["*"],
@@ -132,6 +133,22 @@ app.include_router(recipe_router)
 logger.info("레시피 라우터 포함 완료")
 
 logger.info("모든 서비스 라우터 등록 완료")
+
+# 헬스체크 엔드포인트
+@app.get("/api/health")
+async def health_check():
+    """
+    API Gateway 헬스체크 엔드포인트
+    - 서비스 상태 확인용
+    - 로드밸런서나 모니터링 시스템에서 사용
+    """
+    return {
+        "status": "healthy",
+        "service": "uhok-backend-gateway",
+        "version": "1.0.0",
+        "timestamp": "2024-01-01T00:00:00Z"
+    }
+
 logger.info("API Gateway 시작 완료")    
 
 

@@ -107,6 +107,7 @@ from services.kok.crud.kok_crud import (
 from services.kok.utils.kok_homeshopping import (
     get_recommendation_strategy
 )
+from services.kok.utils.cache_utils import cache_manager
 from services.recipe.crud.recipe_crud import recommend_by_recipe_pgvector
 
 logger = get_logger("kok_router")
@@ -122,18 +123,40 @@ async def get_discounted_products(
         request: Request,
         page: int = Query(1, ge=1, description="페이지 번호"),
         size: int = Query(20, ge=1, le=100, description="페이지 크기"),
+        use_cache: bool = Query(True, description="캐시 사용 여부"),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
     """
-    할인 특가 상품 리스트 조회
+    할인 특가 상품 리스트 조회 (성능 최적화 적용)
+    - N+1 쿼리 문제 해결
+    - Redis 캐싱 적용 (5분 TTL)
+    - 데이터베이스 인덱스 최적화
     """
+    import time
+    start_time = time.time()
+    
+    logger.debug(f"할인 상품 조회 시작: page={page}, size={size}, use_cache={use_cache}")
+    
     # 공통 디버깅 함수 사용
     current_user = await get_current_user_optional(request)
     user_id = current_user.user_id if current_user else None
-    logger.info(f"할인 상품 조회 요청: user_id={user_id}, page={page}, size={size}")
     
-    products = await get_kok_discounted_products(db, page=page, size=size)
+    if not current_user:
+        logger.warning("인증되지 않은 사용자가 할인 상품 조회 요청")
+    
+    logger.info(f"할인 상품 조회 요청: user_id={user_id}, page={page}, size={size}, use_cache={use_cache}")
+    
+    try:
+        products = await get_kok_discounted_products(db, page=page, size=size, use_cache=use_cache)
+        logger.debug(f"할인 상품 조회 성공: 결과 수={len(products)}")
+    except Exception as e:
+        logger.error(f"할인 상품 조회 실패: user_id={user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="할인 상품 조회 중 오류가 발생했습니다.")
+    
+    # 성능 측정
+    execution_time = (time.time() - start_time) * 1000  # ms 단위
+    logger.info(f"할인 상품 조회 성능: user_id={user_id}, 실행시간={execution_time:.2f}ms, 결과 수={len(products)}")
     
     # 인증된 사용자의 경우에만 로그 기록
     if current_user and background_tasks:
@@ -142,12 +165,15 @@ async def get_discounted_products(
             send_user_log, 
             user_id=current_user.user_id, 
             event_type="kok_discounted_products_view", 
-            event_data={"product_count": len(products)},
+            event_data={
+                "product_count": len(products),
+                "execution_time_ms": round(execution_time, 2),
+                "use_cache": use_cache
+            },
             **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
-    logger.info(f"할인 상품 조회 완료: user_id={user_id}, 결과 수={len(products)}")
-    return {"products": products}
+    return KokDiscountedProductsResponse(products=products)
 
 
 @router.get("/top-selling", response_model=KokTopSellingProductsResponse)
@@ -163,11 +189,22 @@ async def get_top_selling_products(
     판매율 높은 상품 리스트 조회
     - sort_by: review_count (리뷰 개수 순) 또는 rating (별점 평균 순)
     """
+    logger.debug(f"인기 상품 조회 시작: page={page}, size={size}, sort_by={sort_by}")
+    
     current_user = await get_current_user_optional(request)
     user_id = current_user.user_id if current_user else None
+    
+    if not current_user:
+        logger.warning("인증되지 않은 사용자가 인기 상품 조회 요청")
+    
     logger.info(f"인기 상품 조회 요청: user_id={user_id}, page={page}, size={size}, sort_by={sort_by}")
     
-    products = await get_kok_top_selling_products(db, page=page, size=size, sort_by=sort_by)
+    try:
+        products = await get_kok_top_selling_products(db, page=page, size=size, sort_by=sort_by)
+        logger.debug(f"인기 상품 조회 성공: 결과 수={len(products)}")
+    except Exception as e:
+        logger.error(f"인기 상품 조회 실패: user_id={user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="인기 상품 조회 중 오류가 발생했습니다.")
     
     # 인증된 사용자의 경우에만 로그 기록
     if current_user and background_tasks:
@@ -195,11 +232,22 @@ async def get_store_best_items(
     구매한 스토어의 베스트 상품 리스트 조회
     - sort_by: review_count (리뷰 개수 순) 또는 rating (별점 평균 순)
     """
+    logger.debug(f"스토어 베스트 상품 조회 시작: sort_by={sort_by}")
+    
     current_user = await get_current_user_optional(request)
     user_id = current_user.user_id if current_user else None
+    
+    if not current_user:
+        logger.warning("인증되지 않은 사용자가 스토어 베스트 상품 조회 요청")
+    
     logger.info(f"스토어 베스트 상품 조회 요청: user_id={user_id}, sort_by={sort_by}")
     
-    products = await get_kok_store_best_items(db, user_id, sort_by=sort_by)
+    try:
+        products = await get_kok_store_best_items(db, user_id, sort_by=sort_by)
+        logger.debug(f"스토어 베스트 상품 조회 성공: 결과 수={len(products)}")
+    except Exception as e:
+        logger.error(f"스토어 베스트 상품 조회 실패: user_id={user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="스토어 베스트 상품 조회 중 오류가 발생했습니다.")
     
     # 인증된 사용자의 경우에만 로그 기록
     if current_user and background_tasks:
@@ -230,13 +278,27 @@ async def get_product_info(
     """
     상품 기본 정보 조회
     """
+    logger.debug(f"상품 기본 정보 조회 시작: kok_product_id={kok_product_id}")
+    
     current_user = await get_current_user_optional(request)
     user_id = current_user.user_id if current_user else None
+    
+    if not current_user:
+        logger.warning(f"인증되지 않은 사용자가 상품 기본 정보 조회 요청: kok_product_id={kok_product_id}")
+    
     logger.info(f"상품 기본 정보 조회 요청: user_id={user_id}, kok_product_id={kok_product_id}")
     
-    product = await get_kok_product_info(db, kok_product_id, user_id)
-    if not product:
-        raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
+    try:
+        product = await get_kok_product_info(db, kok_product_id, user_id)
+        if not product:
+            logger.warning(f"상품을 찾을 수 없음: kok_product_id={kok_product_id}, user_id={user_id}")
+            raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
+        logger.debug(f"상품 기본 정보 조회 성공: kok_product_id={kok_product_id}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"상품 기본 정보 조회 실패: kok_product_id={kok_product_id}, user_id={user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="상품 기본 정보 조회 중 오류가 발생했습니다.")
     
     # 인증된 사용자의 경우에만 로그 기록
     if current_user and background_tasks:
@@ -263,13 +325,27 @@ async def get_product_tabs(
     """
     상품 설명 탭 정보 조회
     """
+    logger.debug(f"상품 탭 정보 조회 시작: kok_product_id={kok_product_id}")
+    
     current_user = await get_current_user_optional(request)
     user_id = current_user.user_id if current_user else None
+    
+    if not current_user:
+        logger.warning(f"인증되지 않은 사용자가 상품 탭 정보 조회 요청: kok_product_id={kok_product_id}")
+    
     logger.info(f"상품 탭 정보 조회 요청: user_id={user_id}, kok_product_id={kok_product_id}")
     
-    images_response = await get_kok_product_tabs(db, kok_product_id)
-    if images_response is None:
-        raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
+    try:
+        images_response = await get_kok_product_tabs(db, kok_product_id)
+        if images_response is None:
+            logger.warning(f"상품 탭 정보를 찾을 수 없음: kok_product_id={kok_product_id}")
+            raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
+        logger.debug(f"상품 탭 정보 조회 성공: kok_product_id={kok_product_id}, 탭 수={len(images_response.images)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"상품 탭 정보 조회 실패: kok_product_id={kok_product_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="상품 탭 정보 조회 중 오류가 발생했습니다.")
     
     # 인증된 사용자의 경우에만 로그 기록
     if current_user and background_tasks:
@@ -298,13 +374,27 @@ async def get_product_reviews(
     - KOK_PRODUCT_INFO 테이블에서 리뷰 통계 정보
     - KOK_REVIEW_EXAMPLE 테이블에서 개별 리뷰 목록
     """
+    logger.debug(f"상품 리뷰 조회 시작: kok_product_id={kok_product_id}")
+    
     current_user = await get_current_user_optional(request)
     user_id = current_user.user_id if current_user else None
+    
+    if not current_user:
+        logger.warning(f"인증되지 않은 사용자가 상품 리뷰 조회 요청: kok_product_id={kok_product_id}")
+    
     logger.info(f"상품 리뷰 조회 요청: user_id={user_id}, kok_product_id={kok_product_id}")
     
-    review_data = await get_kok_review_data(db, kok_product_id)
-    if review_data is None:
-        raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
+    try:
+        review_data = await get_kok_review_data(db, kok_product_id)
+        if review_data is None:
+            logger.warning(f"상품 리뷰 정보를 찾을 수 없음: kok_product_id={kok_product_id}")
+            raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
+        logger.debug(f"상품 리뷰 조회 성공: kok_product_id={kok_product_id}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"상품 리뷰 조회 실패: kok_product_id={kok_product_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="상품 리뷰 조회 중 오류가 발생했습니다.")
     
     # 인증된 사용자의 경우에만 로그 기록
     if current_user and background_tasks:
@@ -335,13 +425,27 @@ async def get_product_details(
     """
     상품 판매자 정보 및 상세정보 조회
     """
+    logger.debug(f"상품 상세 정보 조회 시작: kok_product_id={kok_product_id}")
+    
     current_user = await get_current_user_optional(request)
     user_id = current_user.user_id if current_user else None
+    
+    if not current_user:
+        logger.warning(f"인증되지 않은 사용자가 상품 상세 정보 조회 요청: kok_product_id={kok_product_id}")
+    
     logger.info(f"상품 상세 정보 조회 요청: user_id={user_id}, kok_product_id={kok_product_id}")
     
-    product_details = await get_kok_product_seller_details(db, kok_product_id)
-    if not product_details:
-        raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
+    try:
+        product_details = await get_kok_product_seller_details(db, kok_product_id)
+        if not product_details:
+            logger.warning(f"상품 상세 정보를 찾을 수 없음: kok_product_id={kok_product_id}")
+            raise HTTPException(status_code=404, detail="상품이 존재하지 않습니다.")
+        logger.debug(f"상품 상세 정보 조회 성공: kok_product_id={kok_product_id}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"상품 상세 정보 조회 실패: kok_product_id={kok_product_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="상품 상세 정보 조회 중 오류가 발생했습니다.")
     
     # 인증된 사용자의 경우에만 로그 기록
     if current_user and background_tasks:
@@ -374,13 +478,19 @@ async def search_products(
     """
     키워드 기반으로 콕 쇼핑몰 내에 있는 상품을 검색
     """
+    logger.debug(f"상품 검색 시작: keyword='{keyword}', page={page}, size={size}")
+    
     try:
         current_user = await get_current_user_optional(request)
         user_id = current_user.user_id if current_user else None
+        
+        if not current_user:
+            logger.warning(f"인증되지 않은 사용자가 상품 검색 요청: keyword='{keyword}'")
+        
         logger.info(f"상품 검색 요청: user_id={user_id}, keyword='{keyword}', page={page}, size={size}")
         
         products, total = await search_kok_products(db, keyword, page, size)
-        
+        logger.debug(f"상품 검색 성공: keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
         logger.info(f"상품 검색 완료: user_id={user_id}, keyword='{keyword}', 결과 수={len(products)}, 총 개수={total}")
         
         # 인증된 사용자의 경우에만 로그 기록과 검색 기록 저장
@@ -429,7 +539,14 @@ async def get_search_history(
     """
     사용자의 검색 이력을 조회
     """
-    history = await get_kok_search_history(db, current_user.user_id, limit)
+    logger.debug(f"검색 이력 조회 시작: user_id={current_user.user_id}, limit={limit}")
+    
+    try:
+        history = await get_kok_search_history(db, current_user.user_id, limit)
+        logger.debug(f"검색 이력 조회 성공: user_id={current_user.user_id}, 결과 수={len(history)}")
+    except Exception as e:
+        logger.error(f"검색 이력 조회 실패: user_id={current_user.user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="검색 이력 조회 중 오류가 발생했습니다.")
     
     # 검색 이력 조회 로그 기록
     if background_tasks:
@@ -456,12 +573,13 @@ async def add_search_history(
     """
     사용자의 검색 이력을 저장
     """
+    logger.debug(f"검색 이력 추가 시작: user_id={current_user.user_id}, keyword='{search_data.keyword}'")
     logger.info(f"검색 이력 추가 요청: user_id={current_user.user_id}, keyword='{search_data.keyword}'")
     
     try:
         saved_history = await add_kok_search_history(db, current_user.user_id, search_data.keyword)
         await db.commit()
-        
+        logger.debug(f"검색 이력 추가 성공: user_id={current_user.user_id}, history_id={saved_history['kok_history_id']}")
         logger.info(f"검색 이력 추가 완료: user_id={current_user.user_id}, history_id={saved_history['kok_history_id']}")
         
         # 검색 이력 저장 로그 기록
@@ -496,6 +614,7 @@ async def delete_search_history(
     """
     사용자의 검색 이력을 삭제
     """
+    logger.debug(f"검색 이력 삭제 시작: user_id={current_user.user_id}, history_id={history_id}")
     logger.info(f"검색 이력 삭제 요청: user_id={current_user.user_id}, history_id={history_id}")
     
     try:
@@ -503,6 +622,7 @@ async def delete_search_history(
         
         if deleted:
             await db.commit()
+            logger.debug(f"검색 이력 삭제 성공: user_id={current_user.user_id}, history_id={history_id}")
             logger.info(f"검색 이력 삭제 완료: user_id={current_user.user_id}, history_id={history_id}")
             
             # 검색 이력 삭제 로그 기록
@@ -543,12 +663,13 @@ async def toggle_likes(
     """
     상품 찜 등록/해제
     """
+    logger.debug(f"찜 토글 시작: user_id={current_user.user_id}, kok_product_id={like_data.kok_product_id}")
     logger.info(f"찜 토글 요청: user_id={current_user.user_id}, kok_product_id={like_data.kok_product_id}")
     
     try:
         liked = await toggle_kok_likes(db, current_user.user_id, like_data.kok_product_id)
         await db.commit()
-        
+        logger.debug(f"찜 토글 성공: user_id={current_user.user_id}, kok_product_id={like_data.kok_product_id}, liked={liked}")
         logger.info(f"찜 토글 완료: user_id={current_user.user_id}, kok_product_id={like_data.kok_product_id}, liked={liked}")
         
         # 찜 토글 로그 기록
@@ -592,7 +713,14 @@ async def get_liked_products(
     """
     찜한 상품 목록 조회
     """
-    liked_products = await get_kok_liked_products(db, current_user.user_id, limit)
+    logger.debug(f"찜한 상품 목록 조회 시작: user_id={current_user.user_id}, limit={limit}")
+    
+    try:
+        liked_products = await get_kok_liked_products(db, current_user.user_id, limit)
+        logger.debug(f"찜한 상품 목록 조회 성공: user_id={current_user.user_id}, 결과 수={len(liked_products)}")
+    except Exception as e:
+        logger.error(f"찜한 상품 목록 조회 실패: user_id={current_user.user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="찜한 상품 목록 조회 중 오류가 발생했습니다.")
     
     # 찜한 상품 목록 조회 로그 기록
     if background_tasks:
@@ -626,6 +754,7 @@ async def add_cart_item(
     """
     장바구니에 상품 추가
     """
+    logger.debug(f"장바구니 추가 시작: user_id={current_user.user_id}, kok_product_id={cart_data.kok_product_id}, kok_quantity={cart_data.kok_quantity}, recipe_id={cart_data.recipe_id}")
     logger.info(f"장바구니 추가 요청: user_id={current_user.user_id}, kok_product_id={cart_data.kok_product_id}, kok_quantity={cart_data.kok_quantity}, recipe_id={cart_data.recipe_id}")
     
     try:
@@ -647,7 +776,7 @@ async def add_cart_item(
         cart_result = await db.execute(stmt)
         new_cart = cart_result.scalar_one()
         actual_cart_id = new_cart.kok_cart_id if new_cart else 0
-        
+        logger.debug(f"장바구니 추가 성공: user_id={current_user.user_id}, kok_cart_id={actual_cart_id}")
         logger.info(f"장바구니 추가 완료: user_id={current_user.user_id}, kok_cart_id={actual_cart_id}, message={result['message']}")
         
         # 장바구니 추가 로그 기록
@@ -687,7 +816,14 @@ async def get_cart_items(
     """
     장바구니 상품 목록 조회
     """
-    cart_items = await get_kok_cart_items(db, current_user.user_id, limit)
+    logger.debug(f"장바구니 상품 목록 조회 시작: user_id={current_user.user_id}, limit={limit}")
+    
+    try:
+        cart_items = await get_kok_cart_items(db, current_user.user_id, limit)
+        logger.debug(f"장바구니 상품 목록 조회 성공: user_id={current_user.user_id}, 결과 수={len(cart_items)}")
+    except Exception as e:
+        logger.error(f"장바구니 상품 목록 조회 실패: user_id={current_user.user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="장바구니 상품 목록 조회 중 오류가 발생했습니다.")
     
     # 장바구니 상품 목록 조회 로그 기록
     if background_tasks:
@@ -718,9 +854,12 @@ async def update_cart_quantity(
     """
     장바구니 상품 수량 변경
     """
+    logger.debug(f"장바구니 수량 변경 시작: user_id={current_user.user_id}, kok_cart_id={kok_cart_id}, quantity={update_data.kok_quantity}")
+    
     try:
         result = await update_kok_cart_quantity(db, current_user.user_id, kok_cart_id, update_data.kok_quantity)
         await db.commit()
+        logger.debug(f"장바구니 수량 변경 성공: user_id={current_user.user_id}, kok_cart_id={kok_cart_id}")
         
         # 장바구니 수량 변경 로그 기록
         if background_tasks:
@@ -761,11 +900,14 @@ async def delete_cart_item(
     """
     장바구니에서 상품 삭제
     """
+    logger.debug(f"장바구니 삭제 시작: user_id={current_user.user_id}, kok_cart_id={kok_cart_id}")
+    
     try:
         deleted = await delete_kok_cart_item(db, current_user.user_id, kok_cart_id)
         
         if deleted:
             await db.commit()
+            logger.debug(f"장바구니 삭제 성공: user_id={current_user.user_id}, kok_cart_id={kok_cart_id}")
             
             # 장바구니 삭제 로그 기록
             if background_tasks:
@@ -780,6 +922,7 @@ async def delete_cart_item(
             
             return KokCartDeleteResponse(message="장바구니에서 상품이 삭제되었습니다.")
         else:
+            logger.warning(f"장바구니 항목을 찾을 수 없음: user_id={current_user.user_id}, kok_cart_id={kok_cart_id}")
             raise HTTPException(status_code=404, detail="장바구니 항목을 찾을 수 없습니다.")
     except HTTPException:
         raise
@@ -806,16 +949,20 @@ async def recommend_recipes_from_cart_items(
     - 해당 상품들의 product_name에서 키워드 추출
     - recipe 폴더 내에서 식재료명 기반 레시피 추천 로직을 사용
     """
+    logger.debug(f"레시피 추천 시작: user_id={current_user.user_id}, product_ids={product_ids}, page={page}, size={size}")
+    
     try:
         # 통합 상품 ID 파싱 (KOK 또는 홈쇼핑 상품 ID 혼용 가능)
         all_product_ids = [int(pid.strip()) for pid in product_ids.split(",") if pid.strip().isdigit()]
         
         if not all_product_ids:
+            logger.warning(f"유효한 상품 ID가 없음: product_ids={product_ids}")
             raise HTTPException(status_code=400, detail="유효한 상품 ID가 없습니다.")
         
         logger.info(f"레시피 추천 요청: user_id={current_user.user_id}, product_ids={all_product_ids}, page={page}, size={size}")
         
         # KOK와 홈쇼핑 상품에서 재료명 추출
+        logger.debug("상품에서 재료명 추출 시작")
         ingredients = await get_ingredients_from_cart_product_ids(
             db, [], [], all_product_ids
         )
@@ -836,10 +983,12 @@ async def recommend_recipes_from_cart_items(
         # 추출된 재료를 기반으로 레시피 추천 (pgvector 기반 ingredient 방식)
         # 쉼표로 구분된 재료명을 하나의 문자열로 결합
         ingredients_query = ",".join(ingredients)
+        logger.debug(f"레시피 추천 쿼리 생성: {ingredients_query}")
         
         # recommend_by_recipe_pgvector 함수 호출 (method="ingredient")
         # ingredient 모드에서는 vector_searcher가 필요하지 않지만 함수 시그니처상 필수
         # None을 전달하여 실제 사용하지 않음을 표시
+        logger.debug("레시피 추천 실행 시작")
         recipes_df = await recommend_by_recipe_pgvector(
             mariadb=db,
             postgres=db,  # MariaDB를 postgres로도 사용 (ingredient 모드에서는 pgvector 사용 안함)
@@ -850,10 +999,13 @@ async def recommend_recipes_from_cart_items(
             include_materials=True,
             vector_searcher=None  # ingredient 모드에서는 사용하지 않음
         )
+        logger.debug(f"레시피 추천 결과: DataFrame 크기={len(recipes_df)}")
         
         # DataFrame을 응답 형식에 맞게 변환
+        logger.debug("DataFrame을 응답 형식으로 변환 시작")
         recipes = []
         if not recipes_df.empty:
+            logger.debug(f"레시피 데이터 변환: {len(recipes_df)}개 레시피 처리")
             for _, row in recipes_df.iterrows():
                 recipe_dict = {
                     "recipe_id": int(row["RECIPE_ID"]),
@@ -880,10 +1032,11 @@ async def recommend_recipes_from_cart_items(
                         pass
                 
                 recipes.append(recipe_dict)
+        else:
+            logger.debug("추천된 레시피가 없음")
         
         total_count = len(recipes)
         total_pages = (total_count + size - 1) // size
-        
         logger.info(f"레시피 추천 완료: {len(recipes)}개 레시피, 총 {total_count}개")
         
         # 레시피 추천 로그 기록
@@ -936,11 +1089,14 @@ async def get_homeshopping_recommend(
     - 사용자의 찜 목록과 장바구니 목록에서 kok_product_id 자동 수집
     - KOK utils의 추천 알고리즘 사용
     """
+    logger.debug(f"홈쇼핑 추천 시작: user_id={current_user.user_id}, k={k}")
+    
     try:
         user_id = current_user.user_id
         logger.info(f"홈쇼핑 추천 요청: user_id={user_id}, k={k}")
         
         # 1. 현재 사용자의 KOK 찜 목록과 장바구니 목록에서 kok_product_id 수집
+        logger.debug("사용자의 찜 목록과 장바구니 목록에서 상품 ID 수집 시작")
         # 찜한 상품들의 kok_product_id 수집
         liked_products = await get_kok_liked_products(db, user_id, limit=100)
         liked_product_ids = [product["kok_product_id"] for product in liked_products]
@@ -953,11 +1109,13 @@ async def get_homeshopping_recommend(
         all_product_ids = list(set(liked_product_ids + cart_product_ids))
         
         if not all_product_ids:
+            logger.warning(f"찜하거나 장바구니에 담긴 상품이 없음: user_id={user_id}")
             raise HTTPException(status_code=400, detail="찜하거나 장바구니에 담긴 상품이 없습니다.")
         
         logger.info(f"수집된 KOK 상품 ID: 찜={len(liked_product_ids)}개, 장바구니={len(cart_product_ids)}개, 총={len(all_product_ids)}개")
         
         # 2. 각 KOK 상품명 조회 및 추천 키워드 수집        
+        logger.debug("각 KOK 상품명 조회 및 추천 키워드 수집 시작")
         all_search_terms = set()
         kok_product_names = []
         
@@ -983,11 +1141,13 @@ async def get_homeshopping_recommend(
                 continue
         
         if not all_search_terms:
+            logger.warning(f"추천 키워드를 추출할 수 없음: user_id={user_id}")
             raise HTTPException(status_code=400, detail="추천 키워드를 추출할 수 없습니다.")
         
         logger.info(f"추출된 추천 키워드: {list(all_search_terms)}")
         
         # 3. 각 KOK 상품별로 홈쇼핑 상품 추천 조회 (각각 최대 5개씩)        
+        logger.debug("각 KOK 상품별로 홈쇼핑 상품 추천 조회 시작")
         all_recommendations = []
         product_recommendations = {}  # 각 상품별 추천 결과를 저장
         
@@ -1019,12 +1179,14 @@ async def get_homeshopping_recommend(
                         search_conditions.append(f"c.PRODUCT_NAME LIKE '%{brand}%'")
                 
                 # 해당 상품에 대한 추천 조회
+                logger.debug(f"상품 '{product_name}'에 대한 홈쇼핑 추천 조회 시작")
                 product_recs = await get_homeshopping_recommendations_by_kok(
                     db, product_name, search_conditions, 5
                 )
                 
                 if not product_recs:
                     # 폴백: 상품명에서 주요 키워드만 추출하여 검색
+                    logger.debug(f"상품 '{product_name}' 추천 실패, 폴백 시스템 사용")
                     fallback_keywords = [term for term in search_terms if len(term) > 1]
                     if fallback_keywords:
                         fallback_recs = await get_homeshopping_recommendations_fallback(
@@ -1032,6 +1194,7 @@ async def get_homeshopping_recommend(
                         )
                         if fallback_recs:
                             product_recs = fallback_recs
+                            logger.debug(f"폴백 시스템으로 추천 성공: {len(product_recs)}개")
                 
                 # 결과 저장
                 product_recommendations[product_name] = product_recs
@@ -1045,6 +1208,7 @@ async def get_homeshopping_recommend(
                 continue
         
         # 전체 추천 결과에서 중복 제거 (product_id 기준)
+        logger.debug("전체 추천 결과에서 중복 제거 시작")
         seen_product_ids = set()
         final_recommendations = []
         for rec in all_recommendations:
@@ -1138,4 +1302,85 @@ async def get_homeshopping_recommend(
             status_code=500,
             detail=f"홈쇼핑 추천 중 오류가 발생했습니다: {str(e)}"
         )
+
+
+# ================================
+# 캐시 관리 API
+# ================================
+
+@router.post("/cache/invalidate/discounted")
+async def invalidate_discounted_cache():
+    """
+    할인 상품 캐시 무효화
+    """
+    logger.debug("할인 상품 캐시 무효화 시작")
+    
+    try:
+        deleted_count = cache_manager.invalidate_discounted_products()
+        logger.debug(f"할인 상품 캐시 무효화 성공: 삭제된 키 수={deleted_count}")
+        logger.info(f"할인 상품 캐시 무효화 완료: 삭제된 키 수={deleted_count}")
+        return {"message": f"할인 상품 캐시가 무효화되었습니다. 삭제된 키 수: {deleted_count}"}
+    except Exception as e:
+        logger.error(f"할인 상품 캐시 무효화 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"캐시 무효화 중 오류가 발생했습니다: {str(e)}")
+
+@router.post("/cache/invalidate/top-selling")
+async def invalidate_top_selling_cache():
+    """
+    인기 상품 캐시 무효화
+    """
+    logger.debug("인기 상품 캐시 무효화 시작")
+    
+    try:
+        deleted_count = cache_manager.invalidate_top_selling_products()
+        logger.debug(f"인기 상품 캐시 무효화 성공: 삭제된 키 수={deleted_count}")
+        logger.info(f"인기 상품 캐시 무효화 완료: 삭제된 키 수={deleted_count}")
+        return {"message": f"인기 상품 캐시가 무효화되었습니다. 삭제된 키 수: {deleted_count}"}
+    except Exception as e:
+        logger.error(f"인기 상품 캐시 무효화 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"캐시 무효화 중 오류가 발생했습니다: {str(e)}")
+
+@router.post("/cache/invalidate/store-best")
+async def invalidate_store_best_cache():
+    """
+    스토어 베스트 상품 캐시 무효화
+    """
+    logger.debug("스토어 베스트 상품 캐시 무효화 시작")
+    
+    try:
+        deleted_count = cache_manager.invalidate_store_best_items()
+        logger.debug(f"스토어 베스트 상품 캐시 무효화 성공: 삭제된 키 수={deleted_count}")
+        logger.info(f"스토어 베스트 상품 캐시 무효화 완료: 삭제된 키 수={deleted_count}")
+        return {"message": f"스토어 베스트 상품 캐시가 무효화되었습니다. 삭제된 키 수: {deleted_count}"}
+    except Exception as e:
+        logger.error(f"스토어 베스트 상품 캐시 무효화 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"캐시 무효화 중 오류가 발생했습니다: {str(e)}")
+
+@router.post("/cache/invalidate/all")
+async def invalidate_all_cache():
+    """
+    모든 KOK 관련 캐시 무효화
+    """
+    logger.debug("모든 KOK 관련 캐시 무효화 시작")
+    
+    try:
+        discounted_count = cache_manager.invalidate_discounted_products()
+        top_selling_count = cache_manager.invalidate_top_selling_products()
+        store_best_count = cache_manager.invalidate_store_best_items()
+        
+        total_count = discounted_count + top_selling_count + store_best_count
+        logger.debug(f"모든 KOK 캐시 무효화 성공: 총 삭제된 키 수={total_count}")
+        logger.info(f"모든 KOK 캐시 무효화 완료: 총 삭제된 키 수={total_count}")
+        return {
+            "message": f"모든 KOK 캐시가 무효화되었습니다.",
+            "deleted_keys": {
+                "discounted_products": discounted_count,
+                "top_selling_products": top_selling_count,
+                "store_best_items": store_best_count,
+                "total": total_count
+            }
+        }
+    except Exception as e:
+        logger.error(f"모든 KOK 캐시 무효화 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"캐시 무효화 중 오류가 발생했습니다: {str(e)}")
         

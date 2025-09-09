@@ -32,10 +32,10 @@ from services.order.crud.order_crud import (
 logger = get_logger("order_router")
 router = APIRouter(prefix="/api/orders", tags=["Orders"])
 
-@router.get("/", response_model=OrdersListResponse)
+@router.get("", response_model=OrdersListResponse)
 async def list_orders(
     request: Request,
-    limit: int = Query(10, description="조회 개수"),
+    limit: int = Query(30, description="조회 개수"),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db),
     user=Depends(get_current_user)
@@ -59,10 +59,23 @@ async def list_orders(
         - 각 주문에 배송 정보, 레시피 정보, 재료 보유 현황 포함
         - 사용자 행동 로그 기록
     """
+    logger.debug(f"주문 리스트 조회 시작: user_id={user.user_id}, limit={limit}")
+    logger.info(f"주문 리스트 조회 요청: user_id={user.user_id}, limit={limit}")
+    
     # CRUD 계층에 주문 조회 위임
-    order_list = await get_user_orders(db, user.user_id, limit, 0)
+    try:
+        order_list = await get_user_orders(db, user.user_id, limit, 0)
+        logger.debug(f"주문 조회 성공: user_id={user.user_id}, 조회된 주문 수={len(order_list)}")
+        
+        # 전체 주문 개수 조회 (페이징을 위한 total_count)
+        total_order_count = await get_user_order_counts(db, user.user_id)
+        logger.debug(f"전체 주문 개수: {total_order_count}")
+    except Exception as e:
+        logger.error(f"주문 조회 실패: user_id={user.user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="주문 조회 중 오류가 발생했습니다.")
     
     # order_id별로 그룹화
+    logger.debug("주문 그룹화 시작")
     order_groups = []
     
     for order in order_list:
@@ -142,16 +155,25 @@ async def list_orders(
             order_items.append(item)
             total_amount += (getattr(hs_order, "order_price", 0) or 0) * getattr(hs_order, "quantity", 1)
         
+        # 실제 quantity 합계 계산
+        total_quantity = sum(
+            getattr(kok_order, "quantity", 1) for kok_order in order.get("kok_orders", [])
+        ) + sum(
+            getattr(hs_order, "quantity", 1) for hs_order in order.get("homeshopping_orders", [])
+        )
+        
         # 주문 그룹 생성
         order_group = OrderGroup(
             order_id=order["order_id"],
             order_number=order_number,
             order_date=order_date,
             total_amount=total_amount,
-            item_count=len(order_items),
+            item_count=total_quantity,  # 실제 quantity 합계 사용
             items=order_items
         )
         order_groups.append(order_group)
+    
+    logger.debug(f"주문 그룹화 완료: 총 {len(order_groups)}개 그룹 생성")
     
     # 주문 목록 조회 로그 기록
     if background_tasks:
@@ -164,9 +186,11 @@ async def list_orders(
             **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
+    logger.info(f"주문 리스트 조회 완료: user_id={user.user_id}, 결과 수={len(order_groups)}")
+    
     return OrdersListResponse(
         limit=limit,
-        total_count=len(order_groups),
+        total_count=total_order_count,  # 전체 주문 개수 (order_groups 기준)
         order_groups=order_groups
     )
 
@@ -195,8 +219,16 @@ async def get_order_count(
         - COUNT 쿼리만 실행하여 성능 최적화
         - 사용자 행동 로그 기록
     """
+    logger.debug(f"주문 개수 조회 시작: user_id={user.user_id}")
+    logger.info(f"주문 개수 조회 요청: user_id={user.user_id}")
+    
     # CRUD 계층에 주문 개수만 조회 위임 (성능 최적화)
-    order_count = await get_user_order_counts(db, user.user_id)
+    try:
+        order_count = await get_user_order_counts(db, user.user_id)
+        logger.debug(f"주문 개수 조회 성공: user_id={user.user_id}, 개수={order_count}")
+    except Exception as e:
+        logger.error(f"주문 개수 조회 실패: user_id={user.user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="주문 개수 조회 중 오류가 발생했습니다.")
     
     # 주문 개수 조회 로그 기록
     if background_tasks:
@@ -242,8 +274,16 @@ async def get_recent_orders(
         - 각 주문에 배송 정보, 레시피 정보 포함
         - 사용자 행동 로그 기록
     """
+    logger.debug(f"최근 주문 조회 시작: user_id={user.user_id}, days={days}")
+    logger.info(f"최근 주문 조회 요청: user_id={user.user_id}, days={days}")
+    
     # CRUD 계층에 주문 조회 위임
-    order_list = await get_user_orders(db, user.user_id, limit=1000, offset=0)
+    try:
+        order_list = await get_user_orders(db, user.user_id, limit=1000, offset=0)
+        logger.debug(f"주문 조회 성공: user_id={user.user_id}, 조회된 주문 수={len(order_list)}")
+    except Exception as e:
+        logger.error(f"주문 조회 실패: user_id={user.user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="주문 조회 중 오류가 발생했습니다.")
     
     # 최근 N일 필터링
     cutoff_date = datetime.now() - timedelta(days=days)
@@ -251,6 +291,7 @@ async def get_recent_orders(
         order for order in order_list 
         if order["order_time"] >= cutoff_date
     ]
+    logger.debug(f"최근 {days}일 필터링 완료: {len(filtered_orders)}개 주문")
     
     recent_order_items = []
     
@@ -333,6 +374,8 @@ async def get_recent_orders(
             )
             recent_order_items.append(item)
     
+    logger.debug(f"최근 주문 아이템 생성 완료: {len(recent_order_items)}개 아이템")
+    
     # 최근 주문 조회 로그 기록
     if background_tasks:
         http_info = extract_http_info(request, response_code=200)
@@ -378,10 +421,24 @@ async def read_order(
         - 공통 주문 정보 + 콕 주문 상세 + 홈쇼핑 주문 상세 포함
         - 사용자 행동 로그 기록
     """
+    logger.debug(f"주문 상세 조회 시작: user_id={user.user_id}, order_id={order_id}")
+    logger.info(f"주문 상세 조회 요청: user_id={user.user_id}, order_id={order_id}")
+    
     # CRUD 계층에 주문 조회 위임
-    order_data = await get_order_by_id(db, order_id)
-    if not order_data or order_data["user_id"] != user.user_id:
-        raise HTTPException(status_code=404, detail="주문 내역이 없습니다.")
+    try:
+        order_data = await get_order_by_id(db, order_id)
+        if not order_data:
+            logger.warning(f"주문을 찾을 수 없음: order_id={order_id}, user_id={user.user_id}")
+            raise HTTPException(status_code=404, detail="주문 내역이 없습니다.")
+        if order_data["user_id"] != user.user_id:
+            logger.warning(f"주문 접근 권한 없음: order_id={order_id}, 요청 user_id={user.user_id}, 주문자 user_id={order_data['user_id']}")
+            raise HTTPException(status_code=404, detail="주문 내역이 없습니다.")
+        logger.debug(f"주문 상세 조회 성공: order_id={order_id}, user_id={user.user_id}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"주문 상세 조회 실패: order_id={order_id}, user_id={user.user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="주문 조회 중 오류가 발생했습니다.")
 
     # 주문 상세 조회 로그 기록
     if background_tasks:

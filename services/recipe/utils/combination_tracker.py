@@ -129,8 +129,6 @@ class CombinationTracker:
         self.logger.info(f"제외할 레시피 ID 조회: user_id={user_id}, combo={current_combination}, excluded_ids={excluded_ids}")
         return list(set(excluded_ids))  # 중복 제거
     
-
-    
     def _cleanup_memory_cache(self):
         """메모리 캐시에서 만료된 데이터 정리 (6시간 이상 된 데이터만)"""
         current_time = datetime.now()
@@ -154,8 +152,5 @@ class CombinationTracker:
         # 파일에 저장
         self._save_cache_to_file()
     
-
-
-
 # 전역 인스턴스 생성
 combination_tracker = CombinationTracker()

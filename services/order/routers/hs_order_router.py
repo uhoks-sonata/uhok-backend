@@ -68,6 +68,7 @@ async def create_order(
         - 주문 생성 후 사용자 행동 로그 기록
         - 주문 접수 상태로 초기화 및 알림 생성
     """
+    logger.debug(f"홈쇼핑 주문 생성 시작: user_id={current_user.user_id}, product_id={order_data.product_id}, quantity={order_data.quantity}")
     logger.info(f"홈쇼핑 주문 생성 요청: user_id={current_user.user_id}, product_id={order_data.product_id}, quantity={order_data.quantity}")
     
     try:
@@ -78,6 +79,7 @@ async def create_order(
             order_data.product_id,
             order_data.quantity
         )
+        logger.debug(f"홈쇼핑 주문 생성 성공: user_id={current_user.user_id}, order_id={order_result['order_id']}")
         
         # 주문 생성 로그 기록
         if background_tasks:
@@ -98,9 +100,8 @@ async def create_order(
         return order_result
         
     except ValueError as e:
-        logger.warning(f"홈쇼핑 주문 생성 실패 (검증 오류): user_id={current_user.user_id}, error={str(e)}")
+        logger.warning(f"홈쇼핑 주문 생성 실패 - 잘못된 값: user_id={current_user.user_id}, error={str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
-        
     except Exception as e:
         logger.error(f"홈쇼핑 주문 생성 실패: user_id={current_user.user_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail="주문 생성 중 오류가 발생했습니다.")
@@ -133,13 +134,16 @@ async def get_order_status(
         - 상태 이력이 없는 경우 기본 상태(ORDER_RECEIVED) 사용
         - 사용자 행동 로그 기록
     """
+    logger.debug(f"홈쇼핑 주문 상태 조회 시작: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
     logger.info(f"홈쇼핑 주문 상태 조회 요청: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
     
     try:
         # CRUD 계층에 주문 상태 조회 위임
         order_data = await get_hs_order_with_status(db, homeshopping_order_id)
         if not order_data:
+            logger.warning(f"홈쇼핑 주문을 찾을 수 없음: homeshopping_order_id={homeshopping_order_id}, user_id={current_user.user_id}")
             raise HTTPException(status_code=404, detail="해당 홈쇼핑 주문을 찾을 수 없습니다.")
+        logger.debug(f"홈쇼핑 주문 조회 성공: homeshopping_order_id={homeshopping_order_id}")
         
         # 2. 현재 상태 조회
         current_status = await get_hs_current_status(db, homeshopping_order_id)
@@ -150,9 +154,11 @@ async def get_order_status(
         )
         default_status = default_status_result.scalars().first()
         if not default_status:
+            logger.error(f"기본 상태 정보를 찾을 수 없음: ORDER_RECEIVED")
             raise HTTPException(status_code=404, detail="기본 상태 정보를 찾을 수 없습니다.")
         
         if not current_status:
+            logger.debug(f"현재 상태가 없어 기본 상태 사용: homeshopping_order_id={homeshopping_order_id}")
             # 기본 상태로 current_status 설정
             current_status = type('obj', (object,), {
                 'status': default_status
@@ -160,6 +166,7 @@ async def get_order_status(
         
         # 상태 변경 이력 조회
         status_history = await get_hs_order_status_history(db, homeshopping_order_id)
+        logger.debug(f"상태 이력 조회 완료: homeshopping_order_id={homeshopping_order_id}, history_count={len(status_history)}")
         
         # 주문 상태 조회 로그 기록
         if background_tasks:
@@ -215,7 +222,7 @@ async def get_order_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"홈쇼핑 주문 상태 조회 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
+        logger.error(f"홈쇼핑 주문 상태 조회 실패: homeshopping_order_id={homeshopping_order_id}, user_id={current_user.user_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail="주문 상태 조회 중 오류가 발생했습니다.")
 
 
@@ -246,12 +253,15 @@ async def get_order_with_status(
         - 상품 정보, 주문 정보, 상태 정보를 모두 포함
         - 사용자 행동 로그 기록
     """
-    logger.info(f"홈쇼핑 주문과 상태 함께 조회 요청: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
+    logger.debug(f"홈쇼핑 주문 상세 조회 시작: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
+    logger.info(f"홈쇼핑 주문 상세 조회 요청: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
     
     try:
         order_data = await get_hs_order_with_status(db, homeshopping_order_id)
         if not order_data:
+            logger.warning(f"홈쇼핑 주문을 찾을 수 없음: homeshopping_order_id={homeshopping_order_id}, user_id={current_user.user_id}")
             raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+        logger.debug(f"홈쇼핑 주문 상세 조회 성공: homeshopping_order_id={homeshopping_order_id}")
         
         # 주문과 상태 함께 조회 로그 기록
         if background_tasks:
@@ -267,15 +277,15 @@ async def get_order_with_status(
                 **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
-        logger.info(f"홈쇼핑 주문과 상태 함께 조회 완료: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
+        logger.info(f"홈쇼핑 주문 상세 조회 완료: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
         
         return order_data
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"홈쇼핑 주문과 상태 함께 조회 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
-        raise HTTPException(status_code=500, detail="주문과 상태 함께 조회 중 오류가 발생했습니다.")
+        logger.error(f"홈쇼핑 주문 상세 조회 실패: homeshopping_order_id={homeshopping_order_id}, user_id={current_user.user_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail="주문 조회 중 오류가 발생했습니다.")
 
 
 @router.post("/{homeshopping_order_id}/payment/confirm", response_model=PaymentConfirmResponse)
@@ -292,16 +302,19 @@ async def confirm_payment(
     - 권한: 주문자 본인만 가능
     - 부가효과: 상태 변경 이력/알림 기록
     """
+    logger.debug(f"홈쇼핑 결제 확인 시작: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
     logger.info(f"홈쇼핑 결제 확인 요청: user_id={current_user.user_id}, homeshopping_order_id={homeshopping_order_id}")
     
     try:
         # 1. 주문 존재 여부 확인
         order_data = await get_hs_order_with_status(db, homeshopping_order_id)
         if not order_data:
+            logger.warning(f"홈쇼핑 주문을 찾을 수 없음: homeshopping_order_id={homeshopping_order_id}, user_id={current_user.user_id}")
             raise HTTPException(status_code=404, detail="해당 홈쇼핑 주문을 찾을 수 없습니다.")
         
         # 2. 결제 확인 처리
         payment_result = await confirm_hs_payment(db, homeshopping_order_id, current_user.user_id)
+        logger.debug(f"홈쇼핑 결제 확인 성공: homeshopping_order_id={homeshopping_order_id}, previous_status={payment_result['previous_status']}, current_status={payment_result['current_status']}")
         
         # 결제 확인 로그 기록
         if background_tasks:
@@ -348,6 +361,9 @@ async def start_auto_status_update_api(
     특정 주문의 자동 상태 업데이트 시작 (테스트용)
     - 결제 완료 상태인 경우에만 자동 업데이트 시작
     """
+    logger.debug(f"홈쇼핑 자동 상태 업데이트 시작 요청: homeshopping_order_id={homeshopping_order_id}")
+    logger.info(f"홈쇼핑 자동 상태 업데이트 시작 요청: homeshopping_order_id={homeshopping_order_id}")
+    
     try:
         # 주문 존재 확인
         hs_order_result = await db.execute(
@@ -355,7 +371,10 @@ async def start_auto_status_update_api(
         )
         hs_order = hs_order_result.scalars().first()
         if not hs_order:
+            logger.warning(f"홈쇼핑 주문을 찾을 수 없음: homeshopping_order_id={homeshopping_order_id}")
             raise HTTPException(status_code=404, detail="해당 홈쇼핑 주문을 찾을 수 없습니다.")
+        
+        logger.debug(f"홈쇼핑 주문 조회 성공: homeshopping_order_id={homeshopping_order_id}")
         
         # 디버깅: 직접 상태 이력 조회
         
@@ -369,12 +388,13 @@ async def start_auto_status_update_api(
         
         current_history = history_result.scalars().first()
         if not current_history:
+            logger.warning(f"상태 이력이 없음: homeshopping_order_id={homeshopping_order_id}")
             raise HTTPException(
                 status_code=400, 
                 detail="주문이 생성되었지만 아직 상태 이력이 없습니다."
             )
         
-        logger.info(f"상태 이력 조회 성공: history_id={current_history.history_id}, status_id={current_history.status_id}")
+        logger.debug(f"상태 이력 조회 성공: history_id={current_history.history_id}, status_id={current_history.status_id}")
         
         # 2단계: 상태 정보 조회
         status_result = await db.execute(
@@ -389,10 +409,11 @@ async def start_auto_status_update_api(
                 detail=f"상태 ID {current_history.status_id}에 해당하는 상태 정보를 찾을 수 없습니다."
             )
         
-        logger.info(f"상태 정보 조회 성공: status_id={current_status.status_id}, status_code={current_status.status_code}, status_name={current_status.status_name}")
+        logger.debug(f"상태 정보 조회 성공: status_id={current_status.status_id}, status_code={current_status.status_code}, status_name={current_status.status_name}")
         
         # 결제 완료 상태가 아니면 에러 반환
         if current_status.status_code != "PAYMENT_COMPLETED":
+            logger.warning(f"결제 완료 상태가 아님: homeshopping_order_id={homeshopping_order_id}, current_status={current_status.status_code}")
             raise HTTPException(
                 status_code=400, 
                 detail=f"결제 완료 상태가 아닙니다. 현재 상태: {current_status.status_name} ({current_status.status_code})"
@@ -400,11 +421,13 @@ async def start_auto_status_update_api(
         
         # 자동 상태 업데이트 시작
         if background_tasks:
+            logger.debug(f"자동 상태 업데이트 백그라운드 작업 시작: homeshopping_order_id={homeshopping_order_id}")
             background_tasks.add_task(
                 start_auto_hs_order_status_update,
                 homeshopping_order_id=homeshopping_order_id
             )
         
+        # logger.info(f"홈쇼핑 자동 상태 업데이트 완료: homeshopping_order_id={homeshopping_order_id}, current_status={current_status.status_code}")
         return {"message": f"주문 {homeshopping_order_id}의 자동 상태 업데이트가 시작되었습니다. (현재 상태: {current_status.status_name})"}
         
     except HTTPException:
