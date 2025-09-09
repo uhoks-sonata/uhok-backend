@@ -56,16 +56,18 @@ async def calculate_kok_order_price(
     """
     from sqlalchemy import text
     
-    # 최적화된 쿼리: Raw SQL 사용
+    # 최적화된 쿼리: Raw SQL 사용 (모델 기반으로 수정)
     sql_query = """
     SELECT 
         kpi.kok_price_id,
         kpi.kok_product_id,
         kpi.kok_discounted_price,
-        kpi.kok_product_price,
-        COALESCE(kpi.kok_discounted_price, kpi.kok_product_price, 0) as unit_price,
-        kpi.kok_product_name
+        kpi.kok_discount_rate,
+        kpr.kok_product_price,
+        kpr.kok_product_name,
+        COALESCE(kpi.kok_discounted_price, kpr.kok_product_price, 0) as unit_price
     FROM FCT_KOK_PRICE_INFO kpi
+    LEFT JOIN FCT_KOK_PRODUCT_INFO kpr ON kpi.kok_product_id = kpr.kok_product_id
     WHERE kpi.kok_price_id = :kok_price_id
     """
     

@@ -240,79 +240,100 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
     """
     from sqlalchemy import text
     
-    # 최적화된 쿼리: 윈도우 함수를 사용하여 모든 정보를 한 번에 조회
+    # 1. 먼저 order_id 목록을 limit/offset으로 조회
+    order_ids_sql = """
+    SELECT DISTINCT o.order_id, o.user_id, o.order_time, o.cancel_time
+    FROM ORDERS o
+    WHERE o.user_id = :user_id
+    ORDER BY o.order_time DESC
+    LIMIT :limit OFFSET :offset
+    """
+    
+    # 2. 해당 order_id들에 대한 콕 주문 조회 (GROUP BY로 중복 제거)
     kok_orders_sql = """
-    WITH kok_orders_with_products AS (
-        SELECT 
-            o.order_id,
-            o.user_id,
-            o.order_time,
-            o.cancel_time,
-            ko.kok_order_id,
-            ko.kok_product_id,
-            ko.quantity,
-            ko.order_price,
-            ko.recipe_id,
-            ko.kok_price_id,
-            kpi.kok_product_name,
-            kpi.kok_thumbnail,
-            r.recipe_title,
-            r.cooking_introduction,
-            r.scrap_count,
-            ROW_NUMBER() OVER (PARTITION BY o.order_id ORDER BY ko.kok_order_id) as rn
-        FROM ORDERS o
-        LEFT JOIN KOK_ORDERS ko ON o.order_id = ko.order_id
-        LEFT JOIN FCT_KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
-        LEFT JOIN FCT_RECIPE r ON ko.recipe_id = r.recipe_id
-        WHERE o.user_id = :user_id
-        ORDER BY o.order_time DESC
-        LIMIT :limit OFFSET :offset
-    )
-    SELECT * FROM kok_orders_with_products
+    SELECT 
+        o.order_id,
+        o.user_id,
+        o.order_time,
+        o.cancel_time,
+        ko.kok_order_id,
+        ko.kok_product_id,
+        ko.quantity,
+        ko.order_price,
+        ko.recipe_id,
+        ko.kok_price_id,
+        MAX(kpi.kok_product_name) as kok_product_name,
+        MAX(kpi.kok_thumbnail) as kok_thumbnail,
+        MAX(r.recipe_title) as recipe_title,
+        MAX(r.cooking_introduction) as cooking_introduction,
+        MAX(r.scrap_count) as scrap_count
+    FROM ORDERS o
+    INNER JOIN KOK_ORDERS ko ON o.order_id = ko.order_id
+    LEFT JOIN FCT_KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
+    LEFT JOIN FCT_RECIPE r ON ko.recipe_id = r.recipe_id
+    WHERE o.user_id = :user_id
+    AND o.order_id IN :order_id_list
+    GROUP BY o.order_id, o.user_id, o.order_time, o.cancel_time, ko.kok_order_id, ko.kok_product_id, ko.quantity, ko.order_price, ko.recipe_id, ko.kok_price_id
+    ORDER BY o.order_time DESC, ko.kok_order_id
     """
     
+    # 3. 해당 order_id들에 대한 홈쇼핑 주문 조회 (GROUP BY로 중복 제거)
     hs_orders_sql = """
-    WITH hs_orders_with_products AS (
-        SELECT 
-            o.order_id,
-            o.user_id,
-            o.order_time,
-            o.cancel_time,
-            ho.homeshopping_order_id,
-            ho.product_id,
-            ho.quantity,
-            ho.order_price,
-            ho.dc_price,
-            hl.product_name,
-            hl.thumb_img_url,
-            ROW_NUMBER() OVER (PARTITION BY o.order_id ORDER BY ho.homeshopping_order_id) as rn
-        FROM ORDERS o
-        LEFT JOIN HOMESHOPPING_ORDERS ho ON o.order_id = ho.order_id
-        LEFT JOIN FCT_HOMESHOPPING_LIST hl ON ho.product_id = hl.product_id
-        WHERE o.user_id = :user_id
-        ORDER BY o.order_time DESC
-        LIMIT :limit OFFSET :offset
-    )
-    SELECT * FROM hs_orders_with_products
+    SELECT 
+        o.order_id,
+        o.user_id,
+        o.order_time,
+        o.cancel_time,
+        ho.homeshopping_order_id,
+        ho.product_id,
+        ho.quantity,
+        ho.order_price,
+        ho.dc_price,
+        MAX(hl.product_name) as product_name,
+        MAX(hl.thumb_img_url) as thumb_img_url
+    FROM ORDERS o
+    INNER JOIN HOMESHOPPING_ORDERS ho ON o.order_id = ho.order_id
+    LEFT JOIN FCT_HOMESHOPPING_LIST hl ON ho.product_id = hl.product_id
+    WHERE o.user_id = :user_id
+    AND o.order_id IN :order_id_list
+    GROUP BY o.order_id, o.user_id, o.order_time, o.cancel_time, ho.homeshopping_order_id, ho.product_id, ho.quantity, ho.order_price, ho.dc_price
+    ORDER BY o.order_time DESC, ho.homeshopping_order_id
     """
     
-    # 두 쿼리를 순차적으로 실행 (SQLAlchemy AsyncSession은 동시 실행 불가)
+    # 1. 먼저 order_id 목록을 조회
     try:
-        kok_result = await db.execute(text(kok_orders_sql), {
+        order_ids_result = await db.execute(text(order_ids_sql), {
             "user_id": user_id,
             "limit": limit,
             "offset": offset
+        })
+        order_ids_data = order_ids_result.fetchall()
+    except Exception as e:
+        logger.error(f"주문 ID 목록 조회 SQL 실행 실패: user_id={user_id}, error={str(e)}")
+        return []
+    
+    if not order_ids_data:
+        return []
+    
+    # order_id 목록 추출
+    order_id_list = [row.order_id for row in order_ids_data]
+    
+    # 2. 해당 order_id들에 대한 콕 주문 조회
+    try:
+        kok_result = await db.execute(text(kok_orders_sql), {
+            "user_id": user_id,
+            "order_id_list": tuple(order_id_list)
         })
         kok_orders_data = kok_result.fetchall()
     except Exception as e:
         logger.error(f"콕 주문 목록 조회 SQL 실행 실패: user_id={user_id}, error={str(e)}")
         kok_orders_data = []
     
+    # 3. 해당 order_id들에 대한 홈쇼핑 주문 조회
     try:
         hs_result = await db.execute(text(hs_orders_sql), {
             "user_id": user_id,
-            "limit": limit,
-            "offset": offset
+            "order_id_list": tuple(order_id_list)
         })
         hs_orders_data = hs_result.fetchall()
     except Exception as e:
@@ -363,7 +384,11 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
     order_dict = {}
     
     # 콕 주문 데이터 처리
+    logger.debug(f"콕 주문 데이터 처리 시작: {len(kok_orders_data)}개 레코드")
+    
     for row in kok_orders_data:
+        logger.debug(f"콕 주문 레코드: order_id={row.order_id}, kok_order_id={row.kok_order_id}, kok_product_id={row.kok_product_id}")
+        
         if row.order_id not in order_dict:
             order_dict[row.order_id] = {
                 "order_id": row.order_id,
@@ -415,9 +440,14 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
                 kok_order.total_ingredients = 0
             
             order_dict[row.order_id]["kok_orders"].append(kok_order)
+            logger.debug(f"콕 주문 추가: order_id={row.order_id}, kok_order_id={row.kok_order_id}, 현재 개수={len(order_dict[row.order_id]['kok_orders'])}")
     
     # 홈쇼핑 주문 데이터 처리
+    logger.debug(f"홈쇼핑 주문 데이터 처리 시작: {len(hs_orders_data)}개 레코드")
+    
     for row in hs_orders_data:
+        logger.debug(f"홈쇼핑 주문 레코드: order_id={row.order_id}, homeshopping_order_id={row.homeshopping_order_id}, product_id={row.product_id}")
+        
         if row.order_id not in order_dict:
             order_dict[row.order_id] = {
                 "order_id": row.order_id,
@@ -445,6 +475,7 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
                 hs_order.product_image = hs_images_cache.get(row.product_id)
             
             order_dict[row.order_id]["homeshopping_orders"].append(hs_order)
+            logger.debug(f"홈쇼핑 주문 추가: order_id={row.order_id}, homeshopping_order_id={row.homeshopping_order_id}, 현재 개수={len(order_dict[row.order_id]['homeshopping_orders'])}")
     
     # 9. 최신 주문순으로 정렬하여 반환
     order_list = list(order_dict.values())

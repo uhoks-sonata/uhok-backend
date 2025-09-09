@@ -35,7 +35,7 @@ router = APIRouter(prefix="/api/orders", tags=["Orders"])
 @router.get("", response_model=OrdersListResponse)
 async def list_orders(
     request: Request,
-    limit: int = Query(10, description="조회 개수"),
+    limit: int = Query(30, description="조회 개수"),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_maria_service_db),
     user=Depends(get_current_user)
@@ -66,6 +66,10 @@ async def list_orders(
     try:
         order_list = await get_user_orders(db, user.user_id, limit, 0)
         logger.debug(f"주문 조회 성공: user_id={user.user_id}, 조회된 주문 수={len(order_list)}")
+        
+        # 전체 주문 개수 조회 (페이징을 위한 total_count)
+        total_order_count = await get_user_order_counts(db, user.user_id)
+        logger.debug(f"전체 주문 개수: {total_order_count}")
     except Exception as e:
         logger.error(f"주문 조회 실패: user_id={user.user_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail="주문 조회 중 오류가 발생했습니다.")
@@ -151,13 +155,20 @@ async def list_orders(
             order_items.append(item)
             total_amount += (getattr(hs_order, "order_price", 0) or 0) * getattr(hs_order, "quantity", 1)
         
+        # 실제 quantity 합계 계산
+        total_quantity = sum(
+            getattr(kok_order, "quantity", 1) for kok_order in order.get("kok_orders", [])
+        ) + sum(
+            getattr(hs_order, "quantity", 1) for hs_order in order.get("homeshopping_orders", [])
+        )
+        
         # 주문 그룹 생성
         order_group = OrderGroup(
             order_id=order["order_id"],
             order_number=order_number,
             order_date=order_date,
             total_amount=total_amount,
-            item_count=len(order_items),
+            item_count=total_quantity,  # 실제 quantity 합계 사용
             items=order_items
         )
         order_groups.append(order_group)
@@ -179,7 +190,7 @@ async def list_orders(
     
     return OrdersListResponse(
         limit=limit,
-        total_count=len(order_groups),
+        total_count=total_order_count,  # 전체 주문 개수 (order_groups 기준)
         order_groups=order_groups
     )
 
