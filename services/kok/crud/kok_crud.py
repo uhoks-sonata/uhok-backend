@@ -643,7 +643,7 @@ async def get_kok_store_best_items(
             sort_by=sort_by
         )
         if cached_data:
-    # logger.info(f"캐시에서 스토어 베스트 상품 조회 완료: user_id={user_id}, 결과 수={len(cached_data)}")
+            # logger.info(f"캐시에서 스토어 베스트 상품 조회 완료: user_id={user_id}, 결과 수={len(cached_data)}")
             return cached_data
     
     if user_id:
@@ -666,7 +666,7 @@ async def get_kok_store_best_items(
             logger.warning(f"사용자가 구매한 상품이 없음: user_id={user_id}")
             return []
         
-    # logger.info(f"사용자 구매 상품 조회 결과: user_id={user_id}, 구매 상품 수={len(results)}")
+        logger.info(f"사용자 구매 상품 조회 결과: user_id={user_id}, 구매 상품 수={len(results)}")
         
         # 2. 구매한 상품들의 판매자 정보 수집
         store_names = set()
@@ -705,7 +705,7 @@ async def get_kok_store_best_items(
             )
     else:
         # user_id가 없으면 전체 베스트 상품 조회
-    # logger.info("전체 베스트 상품 조회 모드 (user_id 없음)")
+        logger.info("전체 베스트 상품 조회 모드 (user_id 없음)")
         
         if sort_by == "rating":
             # 별점 평균 순으로 정렬 (리뷰가 있는 상품만)
@@ -733,7 +733,7 @@ async def get_kok_store_best_items(
         logger.error(f"스토어 베스트 상품 조회 SQL 실행 실패: user_id={user_id}, sort_by={sort_by}, error={str(e)}")
         return []
     
-    # logger.info(f"해당 판매자들의 현재 판매 상품 수: {len(store_results)}")
+    logger.info(f"해당 판매자들의 현재 판매 상품 수: {len(store_results)}")
     if store_results:
         logger.debug(f"첫 번째 상품 정보: {store_results[0].kok_product_name}, 판매자: {store_results[0].kok_store_name}, 리뷰 수: {store_results[0].kok_review_cnt}")
     
