@@ -18,8 +18,8 @@ import time
 logger = get_logger("remote_ml_adapter")
 
 # 환경 변수에서 ML 서비스 설정 가져오기
-ML_INFERENCE_URL = os.getenv("ML_INFERENCE_URL", "http://localhost:8001")
-ML_TIMEOUT = float(os.getenv("ML_TIMEOUT", "3.0"))
+ML_INFERENCE_URL = os.getenv("ML_INFERENCE_URL")
+ML_TIMEOUT = float(os.getenv("ML_TIMEOUT", "10.0"))
 ML_RETRIES = int(os.getenv("ML_RETRIES", "2"))
 EMBEDDING_DIM = 384
 VECTOR_COL = '"VECTOR_NAME"'
@@ -94,10 +94,12 @@ class RemoteMLAdapter(VectorSearcherPort):
         """
         url = f"{ML_INFERENCE_URL}/api/v1/embed"
         payload = {"text": text, "normalize": True}
+        logger.info(f"ML 서비스 호출: URL={url}")
         
         async with httpx.AsyncClient(timeout=ML_TIMEOUT) as client:
             for attempt in range(ML_RETRIES + 1):
                 try:
+                    logger.info(f"ML 서비스 호출 시도 {attempt + 1}: {url}")
                     response = await client.post(url, json=payload)
                     response.raise_for_status()
                     

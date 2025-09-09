@@ -614,17 +614,21 @@ async def auto_update_order_status(kok_order_id: int, db: AsyncSession):
         "DELIVERED"
     ]
     
+    logger.info(f"콕 주문 자동 상태 업데이트 시작: order_id={kok_order_id}")
+    
     for i, status_code in enumerate(status_sequence):
         try:
             # 첫 단계는 이미 설정되었을 수 있으므로 건너뜀
             if i == 0:
-    # logger.info(f"주문 {kok_order_id} 상태가 '{status_code}'로 이미 설정되어 있습니다.")
+                logger.info(f"콕 주문 {kok_order_id} 상태가 '{status_code}'로 이미 설정되어 있습니다.")
                 continue
                 
-            # 5초 대기
+            # 2초 대기
+            logger.info(f"콕 주문 {kok_order_id} 상태 업데이트 대기 중... (2초 후 '{status_code}'로 변경)")
             await asyncio.sleep(2)
             
             # 상태 업데이트
+            logger.info(f"콕 주문 {kok_order_id} 상태를 '{status_code}'로 업데이트 중...")
             await update_kok_order_status(
                 db=db,
                 kok_order_id=kok_order_id,
@@ -632,11 +636,13 @@ async def auto_update_order_status(kok_order_id: int, db: AsyncSession):
                 changed_by=1  # 시스템 자동 업데이트
             )
             
-            logger.info(f"주문 {kok_order_id} 상태가 '{status_code}'로 업데이트되었습니다.")
+            logger.info(f"콕 주문 {kok_order_id} 상태가 '{status_code}'로 성공적으로 업데이트되었습니다.")
             
         except Exception as e:
-            logger.error(f"주문 {kok_order_id} 상태 업데이트 실패: {str(e)}")
+            logger.error(f"콕 주문 {kok_order_id} 상태 업데이트 실패: {str(e)}")
             break
+    
+    logger.info(f"🏁 콕 주문 자동 상태 업데이트 완료: order_id={kok_order_id}")
 
 
 async def start_auto_kok_order_status_update(kok_order_id: int):
@@ -655,13 +661,15 @@ async def start_auto_kok_order_status_update(kok_order_id: int):
         - 첫 번째 세션만 사용하여 리소스 효율성 확보
     """
     try:
+        logger.info(f"🚀 콕 주문 자동 상태 업데이트 백그라운드 작업 시작: order_id={kok_order_id}")
+        
         # 새로운 DB 세션 생성
         async for db in get_maria_service_db():
             await auto_update_order_status(kok_order_id, db)
             break  # 첫 번째 세션만 사용
             
     except Exception as e:
-        logger.error(f"콕 주문 자동 상태 업데이트 백그라운드 작업 실패: kok_order_id={kok_order_id}, error={str(e)}")
+        logger.error(f"❌ 콕 주문 자동 상태 업데이트 백그라운드 작업 실패: kok_order_id={kok_order_id}, error={str(e)}")
         # 백그라운드 작업 실패는 전체 프로세스를 중단하지 않음
 
 

@@ -831,17 +831,21 @@ async def auto_update_hs_order_status(homeshopping_order_id: int, db: AsyncSessi
         "DELIVERED"
     ]
     
+    logger.info(f"홈쇼핑 주문 자동 상태 업데이트 시작: order_id={homeshopping_order_id}")
+    
     for i, status_code in enumerate(status_sequence):
         try:
             # 첫 단계는 이미 설정되었을 수 있으므로 건너뜀
             if i == 0:
-            # logger.info(f"홈쇼핑 주문 {homeshopping_order_id} 상태가 '{status_code}'로 이미 설정되어 있습니다.")
+                logger.info(f"홈쇼핑 주문 {homeshopping_order_id} 상태가 '{status_code}'로 이미 설정되어 있습니다.")
                 continue
                 
-            # 5초 대기
+            # 2초 대기
+            logger.info(f"홈쇼핑 주문 {homeshopping_order_id} 상태 업데이트 대기 중... (2초 후 '{status_code}'로 변경)")
             await asyncio.sleep(2)
             
             # 상태 업데이트
+            logger.info(f"홈쇼핑 주문 {homeshopping_order_id} 상태를 '{status_code}'로 업데이트 중...")
             await update_hs_order_status(
                 db=db,
                 homeshopping_order_id=homeshopping_order_id,
@@ -857,6 +861,8 @@ async def auto_update_hs_order_status(homeshopping_order_id: int, db: AsyncSessi
         except Exception as e:
             logger.error(f"홈쇼핑 주문 {homeshopping_order_id} 상태 업데이트 실패: {str(e)}")
             break
+    
+    logger.info(f"홈쇼핑 주문 자동 상태 업데이트 완료: order_id={homeshopping_order_id}")
 
 
 async def start_auto_hs_order_status_update(homeshopping_order_id: int):
@@ -876,13 +882,15 @@ async def start_auto_hs_order_status_update(homeshopping_order_id: int):
         - 첫 번째 세션만 사용하여 리소스 효율성 확보
     """
     try:
+        logger.info(f"홈쇼핑 주문 자동 상태 업데이트 백그라운드 작업 시작: order_id={homeshopping_order_id}")
+        
         # 새로운 DB 세션 생성
         async for db in get_maria_service_db():
             await auto_update_hs_order_status(homeshopping_order_id, db)
             break  # 첫 번째 세션만 사용
             
     except Exception as e:
-        logger.error(f"홈쇼핑 주문 자동 상태 업데이트 백그라운드 작업 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
+        logger.error(f"❌ 홈쇼핑 주문 자동 상태 업데이트 백그라운드 작업 실패: homeshopping_order_id={homeshopping_order_id}, error={str(e)}")
         # 백그라운드 작업 실패는 전체 프로세스를 중단하지 않음
 
 

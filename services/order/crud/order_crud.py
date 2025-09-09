@@ -287,6 +287,8 @@ async def get_user_orders(db: AsyncSession, user_id: int, limit: int = 20, offse
             hl.thumb_img_url,
             ROW_NUMBER() OVER (PARTITION BY o.order_id ORDER BY ho.homeshopping_order_id) as rn
         FROM ORDERS o
+        LEFT JOIN HOMESHOPPING_ORDERS ho ON o.order_id = ho.order_id
+        LEFT JOIN FCT_HOMESHOPPING_LIST hl ON ho.product_id = hl.product_id
         WHERE o.user_id = :user_id
         ORDER BY o.order_time DESC
         LIMIT :limit OFFSET :offset

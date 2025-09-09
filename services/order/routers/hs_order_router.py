@@ -427,7 +427,7 @@ async def start_auto_status_update_api(
                 homeshopping_order_id=homeshopping_order_id
             )
         
-        logger.info(f"홈쇼핑 자동 상태 업데이트 완료: homeshopping_order_id={homeshopping_order_id}, current_status={current_status.status_code}")
+        # logger.info(f"홈쇼핑 자동 상태 업데이트 완료: homeshopping_order_id={homeshopping_order_id}, current_status={current_status.status_code}")
         return {"message": f"주문 {homeshopping_order_id}의 자동 상태 업데이트가 시작되었습니다. (현재 상태: {current_status.status_name})"}
         
     except HTTPException:
