@@ -502,7 +502,7 @@ async def get_hs_order_with_status(
         COALESCE(ls.status_id, 1) as current_status_id,
         COALESCE(ls.status_code, 'ORDER_RECEIVED') as current_status_code,
         COALESCE(ls.status_name, '주문 접수') as current_status_name
-    FROM HOMESHOPPING_ORDER ho
+    FROM HOMESHOPPING_ORDERS ho
     INNER JOIN ORDERS o ON ho.order_id = o.order_id
     LEFT JOIN latest_product_info lpi ON ho.product_id = lpi.product_id AND lpi.rn = 1
     LEFT JOIN latest_status_info ls ON ho.homeshopping_order_id = ls.homeshopping_order_id AND ls.rn = 1

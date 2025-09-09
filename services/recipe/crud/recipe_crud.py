@@ -910,7 +910,7 @@ async def fetch_recipe_ingredients_status(
             hl.product_name as kok_product_name,
             'homeshopping' as order_type
         FROM ORDERS o
-        INNER JOIN HOMESHOPPING_ORDER ho ON o.order_id = ho.order_id
+        INNER JOIN HOMESHOPPING_ORDERS ho ON o.order_id = ho.order_id
         INNER JOIN FCT_HOMESHOPPING_LIST hl ON ho.product_id = hl.product_id
         WHERE o.user_id = :user_id
         AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
@@ -1154,7 +1154,7 @@ async def get_recipe_ingredients_status(
                 ho.quantity,
                 'homeshopping' as order_type
             FROM ORDERS o
-            INNER JOIN HOMESHOPPING_ORDER ho ON o.order_id = ho.order_id
+            INNER JOIN HOMESHOPPING_ORDERS ho ON o.order_id = ho.order_id
             INNER JOIN FCT_HOMESHOPPING_LIST hl ON ho.product_id = hl.product_id
             WHERE o.user_id = :user_id
             AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
