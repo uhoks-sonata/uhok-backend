@@ -61,8 +61,8 @@ async def get_recipe_detail(db: AsyncSession, recipe_id: int) -> Optional[Dict]:
         m.material_name,
         m.measure_amount,
         m.measure_unit
-    FROM RECIPE r
-    LEFT JOIN MATERIAL m ON r.recipe_id = m.recipe_id
+    FROM FCT_RECIPE r
+    LEFT JOIN FCT_MTRL m ON r.recipe_id = m.recipe_id
     WHERE r.recipe_id = :recipe_id
     ORDER BY m.material_name
     """
@@ -884,7 +884,7 @@ async def fetch_recipe_ingredients_status(
     sql_query = """
     WITH recipe_materials AS (
         SELECT material_name
-        FROM MATERIAL
+        FROM FCT_MTRL
         WHERE recipe_id = :recipe_id
     ),
     recent_orders AS (
@@ -1126,7 +1126,7 @@ async def get_recipe_ingredients_status(
         sql_query = """
         WITH recipe_materials AS (
             SELECT material_name
-            FROM MATERIAL
+            FROM FCT_MTRL
             WHERE recipe_id = :recipe_id
         ),
         recent_orders AS (
