@@ -6,7 +6,7 @@
 
 import json
 import asyncio
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List
 from datetime import date, datetime, timedelta
 from common.logger import get_logger
 
@@ -45,23 +45,19 @@ class MemoryCacheManager:
     
     async def get_schedule_cache(
         self, 
-        live_date: Optional[date] = None, 
-        page: int = 1, 
-        size: int = 50
-    ) -> Optional[Tuple[List[Dict], int]]:
+        live_date: Optional[date] = None
+    ) -> Optional[List[Dict]]:
         """스케줄 캐시 조회"""
         try:
             cache_key = self._generate_cache_key(
                 "schedule", 
-                live_date=live_date.isoformat() if live_date else "all",
-                page=page,
-                size=size
+                live_date=live_date.isoformat() if live_date else "all"
             )
             
             if cache_key in self.cache and not self._is_expired(cache_key):
                 data = self.cache[cache_key]
                 logger.info(f"메모리 캐시 히트: {cache_key}")
-                return data["schedules"], data["total_count"]
+                return data["schedules"]
             
             logger.info(f"메모리 캐시 미스: {cache_key}")
             return None
@@ -73,23 +69,17 @@ class MemoryCacheManager:
     async def set_schedule_cache(
         self, 
         schedules: List[Dict], 
-        total_count: int,
-        live_date: Optional[date] = None, 
-        page: int = 1, 
-        size: int = 50
+        live_date: Optional[date] = None
     ) -> bool:
         """스케줄 캐시 저장"""
         try:
             cache_key = self._generate_cache_key(
                 "schedule", 
-                live_date=live_date.isoformat() if live_date else "all",
-                page=page,
-                size=size
+                live_date=live_date.isoformat() if live_date else "all"
             )
             
             cache_data = {
                 "schedules": schedules,
-                "total_count": total_count,
                 "cached_at": datetime.now().isoformat()
             }
             

@@ -6,7 +6,7 @@
 
 import json
 import asyncio
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List
 from datetime import date, datetime, timedelta
 import redis.asyncio as redis
 from common.logger import get_logger
@@ -52,10 +52,8 @@ class HomeshoppingCacheManager:
     
     async def get_schedule_cache(
         self, 
-        live_date: Optional[date] = None, 
-        page: int = 1, 
-        size: int = 50
-    ) -> Optional[Tuple[List[Dict], int]]:
+        live_date: Optional[date] = None
+    ) -> Optional[List[Dict]]:
         """스케줄 캐시 조회"""
         try:
             redis_client = await self.get_redis_client()
@@ -64,16 +62,14 @@ class HomeshoppingCacheManager:
             
             cache_key = self._generate_cache_key(
                 "schedule", 
-                live_date=live_date.isoformat() if live_date else "all",
-                page=page,
-                size=size
+                live_date=live_date.isoformat() if live_date else "all"
             )
             
             cached_data = await redis_client.get(cache_key)
             if cached_data:
                 data = json.loads(cached_data)
                 logger.info(f"스케줄 캐시 히트: {cache_key}")
-                return data["schedules"], data["total_count"]
+                return data["schedules"]
             
             logger.info(f"스케줄 캐시 미스: {cache_key}")
             return None
@@ -85,10 +81,7 @@ class HomeshoppingCacheManager:
     async def set_schedule_cache(
         self, 
         schedules: List[Dict], 
-        total_count: int,
-        live_date: Optional[date] = None, 
-        page: int = 1, 
-        size: int = 50
+        live_date: Optional[date] = None
     ) -> bool:
         """스케줄 캐시 저장"""
         try:
@@ -98,14 +91,11 @@ class HomeshoppingCacheManager:
             
             cache_key = self._generate_cache_key(
                 "schedule", 
-                live_date=live_date.isoformat() if live_date else "all",
-                page=page,
-                size=size
+                live_date=live_date.isoformat() if live_date else "all"
             )
             
             cache_data = {
                 "schedules": schedules,
-                "total_count": total_count,
                 "cached_at": datetime.now().isoformat()
             }
             
