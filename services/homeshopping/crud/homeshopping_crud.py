@@ -12,7 +12,7 @@ import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, insert, delete, and_, update, or_, text, exists
 from sqlalchemy.orm import selectinload
-from typing import Optional, List, Tuple, Dict
+from typing import Optional, List, Dict, Tuple
 from datetime import datetime, date, time, timedelta
 
 from services.homeshopping.models.homeshopping_model import (
@@ -44,30 +44,26 @@ logger = get_logger("homeshopping_crud")
 
 async def get_homeshopping_schedule(
     db: AsyncSession,
-    live_date: Optional[date] = None,
-    page: int = 1,
-    size: int = 50
-) -> Tuple[List[dict], int]:
+    live_date: Optional[date] = None
+) -> List[dict]:
     """
     홈쇼핑 편성표 조회 (식품만) - 캐싱 최적화 버전
     - live_date가 제공되면 해당 날짜의 스케줄만 조회
     - live_date가 None이면 전체 스케줄 조회
     - Redis 캐싱으로 성능 최적화
+    - 제한 없이 모든 결과 반환
     """
-    # logger.info(f"홈쇼핑 편성표 조회 시작: live_date={live_date}, page={page}, size={size}")
+    logger.info(f"홈쇼핑 편성표 조회 시작: live_date={live_date}")
     
-    # Redis 캐시 비활성화 (연결 에러 방지)
-    # cached_result = await cache_manager.get_schedule_cache(live_date, page, size)
-    # if cached_result:
-    #     schedules, total_count = cached_result
-    #     logger.info(f"캐시에서 스케줄 조회 완료: 결과 수={len(schedules)}, 전체={total_count}")
-    #     return schedules, total_count
+    # Redis 캐시 활성화
+    cached_result = await cache_manager.get_schedule_cache(live_date)
+    if cached_result:
+        schedules = cached_result
+        logger.info(f"캐시에서 스케줄 조회 완료: 결과 수={len(schedules)}")
+        return schedules
     
     # DB에서 직접 조회
-    # logger.info("DB에서 스케줄 조회 (캐시 비활성화)")
-    
-    # 페이징 계산
-    offset = (page - 1) * size
+    logger.info("DB에서 스케줄 조회 (캐시 미스)")
     
     # 극한 최적화: 더 간단한 Raw SQL 사용
     if live_date:
@@ -94,20 +90,10 @@ async def get_homeshopping_schedule(
         LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
         WHERE hl.live_date = :live_date
         AND hc.cls_food = 1
-        ORDER BY hl.live_date DESC, hl.live_start_time ASC
-        LIMIT :limit OFFSET :offset
+        ORDER BY hl.live_date ASC, hl.live_start_time ASC, hl.live_id ASC
         """
         
-        count_sql = """
-        SELECT COUNT(*)
-        FROM FCT_HOMESHOPPING_LIST hl
-        INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
-        WHERE hl.live_date = :live_date
-        AND hc.cls_food = 1
-        """
-        
-        params = {"live_date": live_date, "limit": size, "offset": offset}
-        count_params = {"live_date": live_date}
+        params = {"live_date": live_date}
     else:
         # 전체 조회 - 가격 정보 포함
         sql_query = """
@@ -131,31 +117,18 @@ async def get_homeshopping_schedule(
         INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
         LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
         WHERE hc.cls_food = 1
-        ORDER BY hl.live_date DESC, hl.live_start_time ASC
-        LIMIT :limit OFFSET :offset
+        ORDER BY hl.live_date ASC, hl.live_start_time ASC, hl.live_id ASC
         """
         
-        count_sql = """
-        SELECT COUNT(*)
-        FROM FCT_HOMESHOPPING_LIST hl
-        INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
-        WHERE hc.cls_food = 1
-        """
-        
-        params = {"limit": size, "offset": offset}
-        count_params = {}
+        params = {}
     
     # Raw SQL 실행
     # logger.info("최적화된 Raw SQL로 스케줄 데이터 조회 시작")
     try:
         result = await db.execute(text(sql_query), params)
         schedules = result.fetchall()
-        
-        # logger.info("최적화된 Raw SQL로 스케줄 개수 조회 시작")
-        count_result = await db.execute(text(count_sql), count_params)
-        total_count = count_result.scalar()
     except Exception as e:
-        logger.error(f"스케줄 조회 Raw SQL 실행 실패: live_date={live_date}, page={page}, size={size}, error={str(e)}")
+        logger.error(f"스케줄 조회 Raw SQL 실행 실패: live_date={live_date}, error={str(e)}")
         raise
     
     # 결과 변환 - 시간 타입 처리
@@ -189,13 +162,13 @@ async def get_homeshopping_schedule(
             "dc_rate": row.dc_rate
         })
     
-    # Redis 캐시 저장 비활성화 (연결 에러 방지)
-    # asyncio.create_task(
-    #     cache_manager.set_schedule_cache(schedule_list, total_count, live_date, page, size)
-    # )
+    # Redis 캐시 저장 활성화
+    asyncio.create_task(
+        cache_manager.set_schedule_cache(schedule_list, live_date)
+    )
     
-    # logger.info(f"홈쇼핑 편성표 조회 완료: live_date={live_date}, 결과 수={len(schedule_list)}, 전체={total_count}")
-    return schedule_list, total_count
+    logger.info(f"홈쇼핑 편성표 조회 완료: live_date={live_date}, 결과 수={len(schedule_list)}")
+    return schedule_list
 
 
 # -----------------------------
@@ -323,7 +296,7 @@ async def search_homeshopping_products(
             HomeshoppingList.product_name.contains(keyword) |
             HomeshoppingProductInfo.store_name.contains(keyword)
         )
-        .order_by(HomeshoppingList.live_date.desc())
+        .order_by(HomeshoppingList.live_date.asc(), HomeshoppingList.live_start_time.asc(), HomeshoppingList.live_id.asc())
     )
     
     try:
@@ -636,7 +609,7 @@ async def get_recipe_recommendations_for_ingredient(
         # 현재는 더미 데이터 반환
         
         # 상품명 조회 (가장 최근 방송 정보에서 선택)
-        stmt = select(HomeshoppingList.product_name).where(HomeshoppingList.product_id == homeshopping_product_id).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
+        stmt = select(HomeshoppingList.product_name).where(HomeshoppingList.product_id == homeshopping_product_id).order_by(HomeshoppingList.live_date.asc(), HomeshoppingList.live_start_time.asc(), HomeshoppingList.live_id.asc())
         result = await db.execute(stmt)
         product_name = result.scalar_one_or_none()
         
@@ -723,7 +696,7 @@ async def toggle_homeshopping_likes(
                 live_info_result = await db.execute(
                     select(HomeshoppingList).where(
                         HomeshoppingList.product_id == homeshopping_product_id
-                    ).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
+                    ).order_by(HomeshoppingList.live_date.asc(), HomeshoppingList.live_start_time.asc(), HomeshoppingList.live_id.asc())
                 )
                 live_info = live_info_result.scalar_one_or_none()
                 # logger.info(f"방송 정보 조회 결과: {live_info is not None}")
@@ -792,7 +765,9 @@ async def get_homeshopping_liked_products(
         .join(HomeshoppingProductInfo, HomeshoppingList.product_id == HomeshoppingProductInfo.product_id)
         .where(HomeshoppingLikes.user_id == user_id)
         .order_by(
-            HomeshoppingLikes.homeshopping_like_created_at.desc(),
+            HomeshoppingList.live_date.asc(),
+            HomeshoppingList.live_start_time.asc(),
+            HomeshoppingList.live_id.asc(),
             HomeshoppingLikes.product_id
         )
     )
@@ -1035,7 +1010,7 @@ async def get_notifications_with_filter(
                         HomeShoppingOrder.product_id == HomeshoppingList.product_id
                     ).where(
                         HomeShoppingOrder.homeshopping_order_id == notification.homeshopping_order_id
-                    ).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc()).limit(1)
+                    ).order_by(HomeshoppingList.live_date.asc(), HomeshoppingList.live_start_time.asc(), HomeshoppingList.live_id.asc()).limit(1)
                     product_result = await db.execute(product_query)
                     product_name = product_result.scalar_one_or_none()
                 except Exception as e:
@@ -1174,7 +1149,7 @@ async def get_homeshopping_product_name(
     # logger.info(f"홈쇼핑 상품명 조회 시작: homeshopping_product_id={homeshopping_product_id}")
     
     try:
-        stmt = select(HomeshoppingList.product_name).where(HomeshoppingList.product_id == homeshopping_product_id).order_by(HomeshoppingList.live_date.desc(), HomeshoppingList.live_start_time.desc())
+        stmt = select(HomeshoppingList.product_name).where(HomeshoppingList.product_id == homeshopping_product_id).order_by(HomeshoppingList.live_date.asc(), HomeshoppingList.live_start_time.asc(), HomeshoppingList.live_id.asc())
         try:
             result = await db.execute(stmt)
             product_name = result.scalar()

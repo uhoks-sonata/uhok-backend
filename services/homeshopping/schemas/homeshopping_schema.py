@@ -44,7 +44,6 @@ class HomeshoppingSchedulePagination(BaseModel):
 class HomeshoppingScheduleResponse(BaseModel):
     """편성표 조회 응답 - 최적화된 버전"""
     schedules: List[HomeshoppingScheduleItem] = Field(default_factory=list)
-    pagination: HomeshoppingSchedulePagination = Field(..., description="페이징 정보")
 
 
 # -----------------------------
