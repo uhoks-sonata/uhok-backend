@@ -58,6 +58,7 @@ async def get_recipe_detail(db: AsyncSession, recipe_id: int) -> Optional[Dict]:
         r.cooking_case_name,
         r.cooking_category_name,
         r.number_of_serving,
+        m.material_id,
         m.material_name,
         m.measure_amount,
         m.measure_unit
@@ -98,6 +99,7 @@ async def get_recipe_detail(db: AsyncSession, recipe_id: int) -> Optional[Dict]:
     for row in rows:
         if row.material_name:  # 재료가 있는 경우만 추가
             materials.append({
+                "material_id": row.material_id,
                 "material_name": row.material_name,
                 "measure_amount": row.measure_amount,
                 "measure_unit": row.measure_unit
