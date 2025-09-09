@@ -82,7 +82,7 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
     # RECIPE_ID 컬럼을 int형으로 강제 변환 (정확한 비교를 위해)
     try:
         recipe_df['RECIPE_ID'] = recipe_df['RECIPE_ID'].astype(int)
-        logger.info("RECIPE_ID 컬럼을 int형으로 변환 완료")
+        # logger.info("RECIPE_ID 컬럼을 int형으로 변환 완료")
     except Exception as e:
         logger.error(f"RECIPE_ID 컬럼 변환 실패: {e}")
         return [], remaining_stock, False
@@ -139,7 +139,7 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
         
         # Pydantic 스키마에 맞게 필드명 변환
         total_ingredients = len(recipe_material_map.get(best_recipe, []))
-        logger.info(f"레시피 {best_recipe}의 전체 재료 개수: {total_ingredients}")
+        # logger.info(f"레시피 {best_recipe}의 전체 재료 개수: {total_ingredients}")
         
         formatted_recipe = {
             "recipe_id": recipe_info.get('RECIPE_ID'),
@@ -157,7 +157,7 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
             "used_ingredients": []
         }
         
-        logger.info(f"formatted_recipe 생성 완료: {formatted_recipe}")
+        # logger.info(f"formatted_recipe 생성 완료: {formatted_recipe}")
         
         # 사용된 재료 정보를 API 명세서 형식으로 변환
         for mat_name, detail in best_usage.items():
@@ -177,7 +177,7 @@ def recommend_sequentially_for_inventory(initial_ingredients, recipe_material_ma
             f"추천 목록에 추가: recipe_id={formatted_recipe['recipe_id']}, "
             f"total_ingredients_count={formatted_recipe.get('total_ingredients_count')}"
         )
-        logger.info(f"formatted_recipe 전체 내용: {formatted_recipe}")
+        # logger.info(f"formatted_recipe 전체 내용: {formatted_recipe}")
         recommended.append(formatted_recipe)  # recipe_info가 아닌 formatted_recipe를 추가
         used_recipe_ids.add(best_recipe)  # 재사용 방지
 

@@ -70,5 +70,14 @@
             7034585
         ],
         "combo_1_timestamp": "2025-09-09T17:02:05.785917"
+    },
+    "user:6:ingredients:f5e11ba4da41cdaac96118e70bec18e0:combinations": {
+        "combo_1": [
+            7020508,
+            7028101,
+            7035971,
+            7027340
+        ],
+        "combo_1_timestamp": "2025-09-09T17:14:23.938622"
     }
 }
