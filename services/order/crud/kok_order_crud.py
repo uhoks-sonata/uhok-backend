@@ -741,14 +741,14 @@ async def get_kok_order_notifications_history(
         # 전체 개수 조회
         count_result = await db.execute(text(count_sql), {
             "user_id": user_id,
-            "order_status_codes": order_status_codes
+            "order_status_codes": tuple(order_status_codes)
         })
         total_count = count_result.scalar()
         
         # 알림 목록 조회
         result = await db.execute(text(sql_query), {
             "user_id": user_id,
-            "order_status_codes": order_status_codes,
+            "order_status_codes": tuple(order_status_codes),
             "limit": limit,
             "offset": offset
         })

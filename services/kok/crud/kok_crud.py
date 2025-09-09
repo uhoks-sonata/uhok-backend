@@ -1601,7 +1601,7 @@ async def get_kok_notifications(
     stmt = (
         select(KokNotification)
         .where(KokNotification.user_id == user_id)
-        .order_by(KokNotification.created_at.desc())
+        .order_by(KokNotification.notification_id.desc())
         .limit(limit)
     )
     
