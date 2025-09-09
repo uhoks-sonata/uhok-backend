@@ -105,8 +105,6 @@ router = APIRouter(prefix="/api/homeshopping", tags=["HomeShopping"])
 async def get_schedule(
         request: Request,
         live_date: Optional[date] = Query(None, description="조회할 날짜 (YYYY-MM-DD 형식, 미입력시 전체 스케줄)"),
-        page: int = Query(1, ge=1, description="페이지 번호"),
-        size: int = Query(50, ge=1, le=100, description="페이지 크기 (최대 100)"),
         background_tasks: BackgroundTasks = None,
         db: AsyncSession = Depends(get_maria_service_db)
 ):
@@ -114,9 +112,9 @@ async def get_schedule(
     홈쇼핑 편성표 조회 (식품만) - 최적화된 버전
     - live_date가 제공되면 해당 날짜의 스케줄만 조회
     - live_date가 미입력시 전체 스케줄 조회
-    - 페이징 처리로 성능 최적화
+    - 제한 없이 모든 결과 반환
     """
-    logger.debug(f"홈쇼핑 편성표 조회 시작: live_date={live_date}, page={page}, size={size}")
+    logger.debug(f"홈쇼핑 편성표 조회 시작: live_date={live_date}")
     
     current_user = await get_current_user_optional(request)
     user_id = current_user.user_id if current_user else None
@@ -124,18 +122,16 @@ async def get_schedule(
     if not current_user:
         logger.warning("인증되지 않은 사용자가 편성표 조회 요청")
     
-    logger.info(f"홈쇼핑 편성표 조회 요청: user_id={user_id}, live_date={live_date}, page={page}, size={size}")
+    logger.info(f"홈쇼핑 편성표 조회 요청: user_id={user_id}, live_date={live_date}")
     
     try:
         logger.info(f"=== 라우터에서 get_homeshopping_schedule 호출 시작 ===")
-        schedules, total_count = await get_homeshopping_schedule(
+        schedules = await get_homeshopping_schedule(
             db, 
-            live_date=live_date, 
-            page=page, 
-            size=size
+            live_date=live_date
         )
-        logger.info(f"=== 라우터에서 get_homeshopping_schedule 호출 완료: 결과={len(schedules)}, 전체={total_count} ===")
-        logger.debug(f"편성표 조회 성공: 결과 수={len(schedules)}, 전체={total_count}")
+        logger.info(f"=== 라우터에서 get_homeshopping_schedule 호출 완료: 결과={len(schedules)} ===")
+        logger.debug(f"편성표 조회 성공: 결과 수={len(schedules)}")
     except Exception as e:
         logger.error(f"편성표 조회 실패: user_id={user_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail="편성표 조회 중 오류가 발생했습니다.")
@@ -149,26 +145,15 @@ async def get_schedule(
             event_type="homeshopping_schedule_view", 
             event_data={
                 "live_date": live_date.isoformat() if live_date else None,
-                "page": page,
-                "size": size,
-                "total_count": total_count
+                "total_count": len(schedules)
             },
             **http_info  # HTTP 정보를 키워드 인자로 전달
         )
     
-    logger.info(f"홈쇼핑 편성표 조회 완료: user_id={user_id}, 결과 수={len(schedules)}, 전체={total_count}")
-    
-    has_more = (page * size) < total_count
-    logger.debug(f"페이징 정보: page={page}, size={size}, total_count={total_count}, has_more={has_more}")
+    logger.info(f"홈쇼핑 편성표 조회 완료: user_id={user_id}, 결과 수={len(schedules)}")
     
     return {
-        "schedules": schedules,
-        "pagination": {
-            "page": page,
-            "size": size,
-            "total_count": total_count,
-            "has_more": has_more
-        }
+        "schedules": schedules
     }
 
 
