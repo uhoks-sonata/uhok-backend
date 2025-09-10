@@ -461,7 +461,7 @@ async def get_homeshopping_product_detail(
     if user_id:
         like_stmt = select(HomeshoppingLikes).where(
             HomeshoppingLikes.user_id == user_id,
-            HomeshoppingLikes.product_id == live.product_id
+            HomeshoppingLikes.live_id == live_id
         )
         like_result = await db.execute(like_stmt)
         is_liked = like_result.scalars().first() is not None
@@ -1070,7 +1070,7 @@ async def get_pending_broadcast_notifications(
         stmt = (
             select(HomeshoppingNotification, HomeshoppingLikes, HomeshoppingList, HomeshoppingProductInfo)
             .join(HomeshoppingLikes, HomeshoppingNotification.homeshopping_like_id == HomeshoppingLikes.homeshopping_like_id)
-            .join(HomeshoppingList, HomeshoppingLikes.product_id == HomeshoppingList.product_id)
+            .join(HomeshoppingList, HomeshoppingLikes.live_id == HomeshoppingList.live_id)
             .join(HomeshoppingProductInfo, HomeshoppingList.product_id == HomeshoppingProductInfo.product_id)
             .where(
                 HomeshoppingNotification.notification_type == "broadcast_start",
