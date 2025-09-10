@@ -761,13 +761,13 @@ async def toggle_likes(
     """
     홈쇼핑 상품 찜 등록/해제
     """
-    logger.debug(f"홈쇼핑 찜 토글 시작: user_id={current_user.user_id}, product_id={like_data.product_id}")
-    logger.info(f"홈쇼핑 찜 토글 요청: user_id={current_user.user_id}, product_id={like_data.product_id}")
+    logger.debug(f"홈쇼핑 찜 토글 시작: user_id={current_user.user_id}, live_id={like_data.live_id}")
+    logger.info(f"홈쇼핑 찜 토글 요청: user_id={current_user.user_id}, live_id={like_data.live_id}")
     
     try:
-        liked = await toggle_homeshopping_likes(db, current_user.user_id, like_data.product_id)
+        liked = await toggle_homeshopping_likes(db, current_user.user_id, like_data.live_id)
         await db.commit()
-        logger.debug(f"찜 토글 성공: user_id={current_user.user_id}, product_id={like_data.product_id}, liked={liked}")
+        logger.debug(f"찜 토글 성공: user_id={current_user.user_id}, live_id={like_data.live_id}, liked={liked}")
         
         # 찜 토글 로그 기록
         if background_tasks:
@@ -776,12 +776,12 @@ async def toggle_likes(
                 send_user_log, 
                 user_id=current_user.user_id, 
                 event_type="homeshopping_likes_toggle", 
-                event_data={"product_id": like_data.product_id, "liked": liked},
+                event_data={"live_id": like_data.live_id, "liked": liked},
                 **http_info  # HTTP 정보를 키워드 인자로 전달
             )
         
         message = "찜이 등록되었습니다." if liked else "찜이 해제되었습니다."
-        logger.info(f"홈쇼핑 찜 토글 완료: user_id={current_user.user_id}, product_id={like_data.product_id}, liked={liked}")
+        logger.info(f"홈쇼핑 찜 토글 완료: user_id={current_user.user_id}, live_id={like_data.live_id}, liked={liked}")
         
         return {
             "liked": liked,
@@ -789,7 +789,7 @@ async def toggle_likes(
         }
     except Exception as e:
         await db.rollback()
-        logger.error(f"홈쇼핑 찜 토글 실패: user_id={current_user.user_id}, product_id={like_data.product_id}, error={str(e)}")
+        logger.error(f"홈쇼핑 찜 토글 실패: user_id={current_user.user_id}, live_id={like_data.live_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail="찜 토글 중 오류가 발생했습니다.")
 
 

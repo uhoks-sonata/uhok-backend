@@ -605,26 +605,26 @@ async def get_recipe_recommendations_for_ingredient(
 async def toggle_homeshopping_likes(
     db: AsyncSession,
     user_id: int,
-    homeshopping_product_id: int
+    homeshopping_live_id: int
 ) -> bool:
     """
-    홈쇼핑 상품 찜 등록/해제
-    - product_id를 찜 목록에서 조회한 후 없을 경우 추가
-    - product_id를 찜 목록에서 조회했을 때 있는 경우에는 삭제
+    홈쇼핑 방송 찜 등록/해제
+    - live_id를 찜 목록에서 조회한 후 없을 경우 추가
+    - live_id를 찜 목록에서 조회했을 때 있는 경우에는 삭제
     """
-    # logger.info(f"홈쇼핑 찜 토글 시작: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}")
+    # logger.info(f"홈쇼핑 찜 토글 시작: user_id={user_id}, homeshopping_live_id={homeshopping_live_id}")
     
     try:
         # 데이터베이스 연결 상태 확인
         # logger.info(f"데이터베이스 세션 상태 확인: {db.is_active}")
         
         # 기존 찜 여부 확인
-        # logger.info(f"기존 찜 조회 시작: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}")
+        # logger.info(f"기존 찜 조회 시작: user_id={user_id}, homeshopping_live_id={homeshopping_live_id}")
         existing_like_result = await db.execute(
             select(HomeshoppingLikes).where(
                 and_(
                     HomeshoppingLikes.user_id == user_id,
-                    HomeshoppingLikes.product_id == homeshopping_product_id
+                    HomeshoppingLikes.live_id == homeshopping_live_id
                 )
             )
         )
@@ -646,29 +646,29 @@ async def toggle_homeshopping_likes(
             await db.delete(existing_like)
             # logger.info("찜 레코드 삭제 완료")
             
-            # logger.info(f"홈쇼핑 찜 해제 완료: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}")
+            # logger.info(f"홈쇼핑 찜 해제 완료: user_id={user_id}, homeshopping_live_id={homeshopping_live_id}")
             return False
             
         else:
             # 기존 찜이 없으면 찜 등록
-            # logger.info(f"새로운 찜 등록 처리: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}")
+            # logger.info(f"새로운 찜 등록 처리: user_id={user_id}, homeshopping_live_id={homeshopping_live_id}")
             
             # 찜 레코드 생성
             new_like = HomeshoppingLikes(
                 user_id=user_id,
-                product_id=homeshopping_product_id,
+                live_id=homeshopping_live_id,
                 homeshopping_like_created_at=datetime.now()
             )
             db.add(new_like)
             # logger.info("찜 레코드 생성 완료")
             
             try:
-                # 방송 정보 조회하여 알림 생성 (가장 최근 방송 정보 선택)
-                # logger.info(f"방송 정보 조회 시작: homeshopping_product_id={homeshopping_product_id}")
+                # 방송 정보 조회하여 알림 생성
+                # logger.info(f"방송 정보 조회 시작: homeshopping_live_id={homeshopping_live_id}")
                 live_info_result = await db.execute(
                     select(HomeshoppingList).where(
-                        HomeshoppingList.product_id == homeshopping_product_id
-                    ).order_by(HomeshoppingList.live_date.asc(), HomeshoppingList.live_start_time.asc(), HomeshoppingList.live_id.asc()).limit(1)
+                        HomeshoppingList.live_id == homeshopping_live_id
+                    )
                 )
                 live_info = live_info_result.scalar_one_or_none()
                 # logger.info(f"방송 정보 조회 결과: {live_info is not None}")
@@ -679,7 +679,7 @@ async def toggle_homeshopping_likes(
                         db=db,
                         user_id=user_id,
                         homeshopping_like_id=new_like.homeshopping_like_id,
-                        product_id=homeshopping_product_id,
+                        live_id=homeshopping_live_id,
                         product_name=live_info.product_name,
                         broadcast_date=live_info.live_date,
                         broadcast_start_time=live_info.live_start_time
@@ -690,11 +690,11 @@ async def toggle_homeshopping_likes(
             except Exception as e:
                 logger.warning(f"방송 알림 생성 실패 (무시하고 진행): {str(e)}")
             
-            # logger.info(f"홈쇼핑 찜 등록 완료: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}, like_id={new_like.homeshopping_like_id}")
+            # logger.info(f"홈쇼핑 찜 등록 완료: user_id={user_id}, homeshopping_live_id={homeshopping_live_id}, like_id={new_like.homeshopping_like_id}")
             return True
             
     except Exception as e:
-        logger.error(f"홈쇼핑 찜 토글 실패: user_id={user_id}, homeshopping_product_id={homeshopping_product_id}, error={str(e)}")
+        logger.error(f"홈쇼핑 찜 토글 실패: user_id={user_id}, homeshopping_live_id={homeshopping_live_id}, error={str(e)}")
         logger.error(f"에러 타입: {type(e).__name__}")
         logger.error(f"에러 상세: {str(e)}")
         import traceback
@@ -720,8 +720,9 @@ async def get_homeshopping_liked_products(
     stmt = (
         select(
             HomeshoppingList.live_id,
-            HomeshoppingLikes.product_id,
+            HomeshoppingLikes.live_id,
             HomeshoppingLikes.homeshopping_like_created_at,
+            HomeshoppingList.product_id,
             HomeshoppingList.product_name,
             HomeshoppingList.thumb_img_url,
             HomeshoppingProductInfo.store_name,
@@ -733,14 +734,14 @@ async def get_homeshopping_liked_products(
             HomeshoppingList.homeshopping_id
         )
         .select_from(HomeshoppingLikes)
-        .join(HomeshoppingList, HomeshoppingLikes.product_id == HomeshoppingList.product_id)
+        .join(HomeshoppingList, HomeshoppingLikes.live_id == HomeshoppingList.live_id)
         .join(HomeshoppingProductInfo, HomeshoppingList.product_id == HomeshoppingProductInfo.product_id)
         .where(HomeshoppingLikes.user_id == user_id)
         .order_by(
             HomeshoppingList.live_date.asc(),
             HomeshoppingList.live_start_time.asc(),
             HomeshoppingList.live_id.asc(),
-            HomeshoppingLikes.product_id
+            HomeshoppingLikes.live_id
         )
     )
     
@@ -751,13 +752,13 @@ async def get_homeshopping_liked_products(
         logger.error(f"홈쇼핑 찜한 상품 조회 SQL 실행 실패: user_id={user_id}, error={str(e)}")
         raise
     
-    # Python에서 중복 제거 (product_id 기준)
-    seen_products = set()
+    # Python에서 중복 제거 (live_id 기준)
+    seen_lives = set()
     product_list = []
     
     for row in all_liked_products:
-        if row.product_id not in seen_products:
-            seen_products.add(row.product_id)
+        if row.live_id not in seen_lives:
+            seen_lives.add(row.live_id)
             product_list.append({
                 "live_id": row.live_id,
                 "product_id": row.product_id,
@@ -789,7 +790,7 @@ async def create_broadcast_notification(
     db: AsyncSession,
     user_id: int,
     homeshopping_like_id: int,
-    homeshopping_product_id: int,
+    live_id: int,
     homeshopping_product_name: str,
     broadcast_date: date,
     broadcast_start_time: time
@@ -797,15 +798,15 @@ async def create_broadcast_notification(
     """
     방송 찜 알림 생성
     """
-    # logger.info(f"방송 찜 알림 생성 시작: user_id={user_id}, homeshopping_like_id={homeshopping_like_id}, homeshopping_product_id={homeshopping_product_id}")
+    # logger.info(f"방송 찜 알림 생성 시작: user_id={user_id}, homeshopping_like_id={homeshopping_like_id}, live_id={live_id}")
     
     try:
         # 방송 시작 알림 생성
         notification_data = {
             "user_id": user_id,
             "notification_type": "broadcast_start",
-            "related_entity_type": "product",
-            "related_entity_id": homeshopping_product_id,
+            "related_entity_type": "live",
+            "related_entity_id": live_id,
             "homeshopping_like_id": homeshopping_like_id,
             "homeshopping_order_id": None,
             "status_id": None,

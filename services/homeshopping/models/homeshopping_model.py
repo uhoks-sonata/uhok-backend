@@ -158,13 +158,13 @@ class HomeshoppingLikes(MariaBase):
     
     homeshopping_like_id = Column("HOMESHOPPING_LIKE_ID", Integer, primary_key=True, autoincrement=True, comment="찜 ID (PK)")
     user_id = Column("USER_ID", Integer, nullable=False, comment="사용자 ID (회원 PK 참조, 논리 FK)")
-    product_id = Column("PRODUCT_ID", BigInteger, ForeignKey("FCT_HOMESHOPPING_PRODUCT_INFO.PRODUCT_ID", ondelete="RESTRICT"), nullable=False, comment="제품 ID (FK)")
+    live_id = Column("LIVE_ID", Integer, ForeignKey("FCT_HOMESHOPPING_LIST.LIVE_ID", ondelete="RESTRICT"), nullable=False, comment="방송 ID (FK)")
     homeshopping_like_created_at = Column("HOMESHOPPING_LIKE_CREATED_AT", DateTime, nullable=False, comment="찜한 시간")
 
-    # 제품 정보와 N:1 관계 설정
-    product_info = relationship(
-        "HomeshoppingProductInfo",
-        primaryjoin="HomeshoppingLikes.product_id==HomeshoppingProductInfo.product_id",
+    # 방송 정보와 N:1 관계 설정
+    live_info = relationship(
+        "HomeshoppingList",
+        primaryjoin="HomeshoppingLikes.live_id==HomeshoppingList.live_id",
         lazy="select"
     )
 

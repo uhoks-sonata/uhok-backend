@@ -216,7 +216,7 @@ class HomeshoppingStreamResponse(BaseModel):
 
 class HomeshoppingLikesToggleRequest(BaseModel):
     """찜 등록/해제 요청"""
-    product_id: int = Field(..., description="상품 ID")
+    live_id: int = Field(..., description="방송 ID")
 
 
 class HomeshoppingLikesToggleResponse(BaseModel):
