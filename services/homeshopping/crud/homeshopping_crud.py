@@ -680,7 +680,7 @@ async def toggle_homeshopping_likes(
                         user_id=user_id,
                         homeshopping_like_id=new_like.homeshopping_like_id,
                         live_id=homeshopping_live_id,
-                        product_name=live_info.product_name,
+                        homeshopping_product_name=live_info.product_name,
                         broadcast_date=live_info.live_date,
                         broadcast_start_time=live_info.live_start_time
                     )
