@@ -663,7 +663,7 @@ async def start_auto_kok_order_status_update(kok_order_id: int):
         - 첫 번째 세션만 사용하여 리소스 효율성 확보
     """
     try:
-        logger.info(f"🚀 콕 주문 자동 상태 업데이트 백그라운드 작업 시작: order_id={kok_order_id}")
+        logger.info(f"콕 주문 자동 상태 업데이트 백그라운드 작업 시작: order_id={kok_order_id}")
         
         # 새로운 DB 세션 생성
         async for db in get_maria_service_db():
@@ -671,7 +671,7 @@ async def start_auto_kok_order_status_update(kok_order_id: int):
             break  # 첫 번째 세션만 사용
             
     except Exception as e:
-        logger.error(f"❌ 콕 주문 자동 상태 업데이트 백그라운드 작업 실패: kok_order_id={kok_order_id}, error={str(e)}")
+        logger.error(f"콕 주문 자동 상태 업데이트 백그라운드 작업 실패: kok_order_id={kok_order_id}, error={str(e)}")
         # 백그라운드 작업 실패는 전체 프로세스를 중단하지 않음
 
 
