@@ -927,17 +927,6 @@ async def fetch_recipe_ingredients_status(
         FROM KOK_CART kc
         INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON kc.kok_product_id = kpi.kok_product_id
         WHERE kc.user_id = :user_id
-        
-        UNION ALL
-        
-        SELECT 
-            hc.cart_id as kok_cart_id,
-            hl.product_name as kok_product_name,
-            hc.quantity as kok_quantity,
-            'homeshopping' as cart_type
-        FROM HOMESHOPPING_CART hc
-        INNER JOIN FCT_HOMESHOPPING_LIST hl ON hc.product_id = hl.product_id
-        WHERE hc.user_id = :user_id
     )
     SELECT 
         rm.material_name,
@@ -948,9 +937,9 @@ async def fetch_recipe_ingredients_status(
         ci.kok_cart_id,
         ci.kok_quantity,
         ci.cart_type
-    FROM recipe_materials rm
-    LEFT JOIN recent_orders ro ON rm.material_name = ro.kok_product_name
-    LEFT JOIN cart_items ci ON rm.material_name = ci.kok_product_name
+        FROM recipe_materials rm
+        LEFT JOIN recent_orders ro ON ro.kok_product_name LIKE CONCAT('%', rm.material_name, '%')
+        LEFT JOIN cart_items ci ON ci.kok_product_name LIKE CONCAT('%', rm.material_name, '%')
     ORDER BY rm.material_name
     """
     
@@ -1109,7 +1098,7 @@ async def get_recipe_ingredients_status(
     recipe_id: int
 ) -> Optional[Dict]:
     """
-    레시피의 식재료별 사용자 보유/장바구니/미보유 상태 조회 (최적화: Raw SQL 사용)
+    레시피의 식재료별 사용자 보유/장바구니/미보유 상태 조회 (키워드 추출 방식)
     
     Args:
         db: 데이터베이스 세션
@@ -1120,117 +1109,137 @@ async def get_recipe_ingredients_status(
         식재료 상태 정보 딕셔너리
     """
     from sqlalchemy import text
+    from common.keyword_extraction import extract_kok_keywords, extract_homeshopping_keywords, load_ing_vocab, parse_mariadb_url
+    from common.config import get_settings
     
     # logger.info(f"레시피 식재료 상태 조회 시작: user_id={user_id}, recipe_id={recipe_id}")
     
     try:
-        # 최적화된 쿼리: 레시피 재료와 주문/장바구니 정보를 한 번에 조회
-        sql_query = """
-        WITH recipe_materials AS (
-            SELECT material_name
-            FROM FCT_MTRL
-            WHERE recipe_id = :recipe_id
-        ),
-        recent_orders AS (
-            SELECT 
-                o.order_id,
-                o.order_time,
-                ko.kok_product_id,
-                kpi.kok_product_name,
-                ko.quantity,
-                'kok' as order_type
-            FROM ORDERS o
-            INNER JOIN KOK_ORDERS ko ON o.order_id = ko.order_id
-            INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
-            WHERE o.user_id = :user_id
-            AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-            AND o.cancel_time IS NULL
-            
-            UNION ALL
-            
-            SELECT 
-                o.order_id,
-                o.order_time,
-                ho.product_id as kok_product_id,
-                hl.product_name as kok_product_name,
-                ho.quantity,
-                'homeshopping' as order_type
-            FROM ORDERS o
-            INNER JOIN HOMESHOPPING_ORDERS ho ON o.order_id = ho.order_id
-            INNER JOIN FCT_HOMESHOPPING_LIST hl ON ho.product_id = hl.product_id
-            WHERE o.user_id = :user_id
-            AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-            AND o.cancel_time IS NULL
-        ),
-        cart_items AS (
-            SELECT 
-                kc.kok_cart_id,
-                kpi.kok_product_name,
-                kc.kok_quantity,
-                'kok' as cart_type
-            FROM KOK_CART kc
-            INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON kc.kok_product_id = kpi.kok_product_id
-            WHERE kc.user_id = :user_id
-        )
-        SELECT 
-            rm.material_name,
-            ro.order_id,
-            ro.order_time,
-            ro.kok_product_name,
-            ro.quantity as order_quantity,
-            ro.order_type,
-            ci.kok_cart_id,
-            ci.kok_quantity as cart_quantity,
-            ci.cart_type
-        FROM recipe_materials rm
-        LEFT JOIN recent_orders ro ON rm.material_name = ro.kok_product_name
-        LEFT JOIN cart_items ci ON rm.material_name = ci.kok_product_name
-        ORDER BY rm.material_name
+        # 1. 레시피 재료 조회
+        recipe_sql = """
+        SELECT material_name
+        FROM FCT_MTRL
+        WHERE recipe_id = :recipe_id
         """
+        recipe_result = await db.execute(text(recipe_sql), {"recipe_id": recipe_id})
+        recipe_rows = recipe_result.fetchall()
         
-        result = await db.execute(text(sql_query), {
-            "recipe_id": recipe_id,
-            "user_id": user_id
-        })
-        rows = result.fetchall()
-        
-        if not rows:
+        if not recipe_rows:
             logger.warning(f"레시피를 찾을 수 없음: recipe_id={recipe_id}")
-            return None
+            return {
+                "recipe_id": recipe_id,
+                "user_id": user_id,
+                "ingredients": [],
+                "summary": {"total_ingredients": 0, "owned_count": 0, "cart_count": 0, "not_owned_count": 0}
+            }
         
-        # 재료별로 상태 분류
+        # 2. 최근 7일 주문 내역 조회
+        orders_sql = """
+        SELECT 
+            o.order_id,
+            o.order_time,
+            ko.kok_product_id,
+            kpi.kok_product_name,
+            ko.quantity,
+            'kok' as order_type
+        FROM ORDERS o
+        INNER JOIN KOK_ORDERS ko ON o.order_id = ko.order_id
+        INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
+        WHERE o.user_id = :user_id
+        AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+        AND o.cancel_time IS NULL
+        
+        UNION ALL
+        
+        SELECT 
+            o.order_id,
+            o.order_time,
+            ho.product_id as kok_product_id,
+            hl.product_name as kok_product_name,
+            ho.quantity,
+            'homeshopping' as order_type
+        FROM ORDERS o
+        INNER JOIN HOMESHOPPING_ORDERS ho ON o.order_id = ho.order_id
+        INNER JOIN FCT_HOMESHOPPING_LIST hl ON ho.product_id = hl.product_id
+        WHERE o.user_id = :user_id
+        AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+        AND o.cancel_time IS NULL
+        """
+        orders_result = await db.execute(text(orders_sql), {"user_id": user_id})
+        orders_rows = orders_result.fetchall()
+        
+        # 3. 장바구니 조회
+        cart_sql = """
+        SELECT 
+            kc.kok_cart_id,
+            kpi.kok_product_name,
+            kc.kok_quantity,
+            'kok' as cart_type
+        FROM KOK_CART kc
+        INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON kc.kok_product_id = kpi.kok_product_id
+        WHERE kc.user_id = :user_id
+        """
+        cart_result = await db.execute(text(cart_sql), {"user_id": user_id})
+        cart_rows = cart_result.fetchall()
+        
+        # 4. 표준 재료 어휘 로드
+        ing_vocab = load_ing_vocab(parse_mariadb_url(get_settings().mariadb_service_url))
+        
+        # 5. 재료별 상태 매칭
         material_status = {}
-        for row in rows:
-            material_name = row.material_name
-            if material_name not in material_status:
-                material_status[material_name] = {
-                    "owned": [],
-                    "cart": [],
-                    "not_owned": []
-                }
-            
-            # 주문 정보가 있는 경우 (보유 상태)
-            if row.order_id:
-                material_status[material_name]["owned"].append({
-                    "order_id": row.order_id,
-                    "order_date": row.order_time,
-                    "order_type": row.order_type,
-                    "product_name": row.kok_product_name,
-                    "quantity": row.order_quantity,
-                    "match_score": 1.0  # 정확한 매치
-                })
-            
-            # 장바구니 정보가 있는 경우 (장바구니 상태)
-            if row.kok_cart_id:
-                material_status[material_name]["cart"].append({
-                    "cart_id": row.kok_cart_id,
-                    "cart_type": row.cart_type,
-                    "product_name": row.kok_product_name,
-                    "quantity": row.cart_quantity,
-                    "match_score": 1.0  # 정확한 매치
-                })
         
-        # 최종 상태 판별
+        for recipe_row in recipe_rows:
+            material_name = recipe_row.material_name
+            material_status[material_name] = {
+                "owned": [],
+                "cart": [],
+                "status": "not_owned"
+            }
+            
+            # 주문 내역에서 매칭
+            for order_row in orders_rows:
+                product_name = order_row.kok_product_name
+                order_type = order_row.order_type
+                
+                # 키워드 추출
+                if order_type == "kok":
+                    keywords_result = extract_kok_keywords(product_name, ing_vocab)
+                else:  # homeshopping
+                    keywords_result = extract_homeshopping_keywords(product_name, ing_vocab)
+                
+                keywords = keywords_result.get("keywords", [])
+                
+                # 재료명과 매칭 확인
+                if material_name in keywords:
+                    material_status[material_name]["owned"].append({
+                        "order_id": order_row.order_id,
+                        "order_date": order_row.order_time,
+                        "product_name": product_name,
+                        "quantity": order_row.quantity,
+                        "order_type": order_type
+                    })
+                    material_status[material_name]["status"] = "owned"
+            
+            # 장바구니에서 매칭 (보유가 아닌 경우에만)
+            if material_status[material_name]["status"] != "owned":
+                for cart_row in cart_rows:
+                    product_name = cart_row.kok_product_name
+                    
+                    # 키워드 추출
+                    keywords_result = extract_kok_keywords(product_name, ing_vocab)
+                    keywords = keywords_result.get("keywords", [])
+                    
+                    # 재료명과 매칭 확인
+                    if material_name in keywords:
+                        material_status[material_name]["cart"].append({
+                            "cart_id": cart_row.kok_cart_id,
+                            "product_name": product_name,
+                            "quantity": cart_row.kok_quantity,
+                            "cart_type": cart_row.cart_type
+                        })
+                        material_status[material_name]["status"] = "cart"
+        
+        # 6. 최종 결과 생성
         ingredients_status = []
         owned_count = 0
         cart_count = 0
@@ -1239,22 +1248,17 @@ async def get_recipe_ingredients_status(
         for material_name, status in material_status.items():
             order_info = None
             cart_info = None
-            status_type = "not_owned"
+            status_type = status["status"]
             
-            # 보유 상태 확인
-            if status["owned"]:
-                status_type = "owned"
-                order_info = status["owned"][0]  # 첫 번째 주문 정보 사용
+            if status_type == "owned":
+                order_info = status["owned"][0] if status["owned"] else None
                 owned_count += 1
-            # 장바구니 상태 확인 (보유가 아닌 경우에만)
-            elif status["cart"]:
-                status_type = "cart"
-                cart_info = status["cart"][0]  # 첫 번째 장바구니 정보 사용
+            elif status_type == "cart":
+                cart_info = status["cart"][0] if status["cart"] else None
                 cart_count += 1
             else:
                 not_owned_count += 1
             
-            # 재료 상태 정보 추가
             ingredients_status.append({
                 "material_name": material_name,
                 "status": status_type,
