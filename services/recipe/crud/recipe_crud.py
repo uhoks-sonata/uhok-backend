@@ -693,155 +693,7 @@ async def recommend_by_recipe_pgvector(
     return final_df
 
 
-# async def recommend_by_recipe_pgvector(
-#     *,
-#     mariadb: AsyncSession,
-#     postgres: AsyncSession,
-#     query: str,
-#     method: str = "recipe",
-#     top_k: int = 25,
-#     vector_searcher: VectorSearcherPort,   # ⬅️ 포트 주입
-# ) -> pd.DataFrame:
-#     """
-#     pgvector 컬럼(Vector(384))을 사용하는 레시피/식재료 추천(비동기).
-#     - method="recipe":
-#         1) MariaDB: 제목 부분/정확 일치 우선(RANK_TYPE=0, 인기순)
-#         2) PostgreSQL: pgvector <-> 연산으로 부족분 보완(RANK_TYPE=1, 거리 오름차순)
-#         3) MariaDB: 상세 정보 조인 + 재료 붙이기
-#     - method="ingredient":
-#         입력 재료(쉼표 구분)를 모두 포함하는 레시피를 MariaDB에서 조회 (유사도 없음)
-#     - 반환: 상세 정보가 포함된 DataFrame (No. 컬럼 포함)
-#     """
-#     if method not in {"recipe", "ingredient"}:
-#         raise ValueError("method must be 'recipe' or 'ingredient'")
 
-#     # ========================== method: ingredient ==========================
-#     if method == "ingredient":
-#         ingredients = [i.strip() for i in query.split(",") if i.strip()]
-#         if not ingredients:
-#             return pd.DataFrame()
-
-#         from sqlalchemy import func as sa_func
-#         ids_stmt = (
-#             select(Material.recipe_id)
-#             .where(Material.material_name.in_(ingredients))
-#             .group_by(Material.recipe_id)
-#             .having(sa_func.count(sa_func.distinct(Material.material_name)) == len(ingredients))
-#         )
-#         ids_rows = await mariadb.execute(ids_stmt)
-#         result_ids = [rid for (rid,) in ids_rows.all()]
-#         if not result_ids:
-#             return pd.DataFrame()
-
-#         # 상세
-#         name_col = getattr(Recipe, "cooking_name", None) or getattr(Recipe, "recipe_title")
-#         detail_stmt = (
-#             select(
-#                 Recipe.recipe_id.label("RECIPE_ID"),
-#                 name_col.label("RECIPE_TITLE"),
-#                 Recipe.scrap_count.label("SCRAP_COUNT"),
-#                 Recipe.cooking_case_name.label("COOKING_CASE_NAME"),
-#                 Recipe.cooking_category_name.label("COOKING_CATEGORY_NAME"),
-#                 Recipe.cooking_introduction.label("COOKING_INTRODUCTION"),
-#                 Recipe.number_of_serving.label("NUMBER_OF_SERVING"),
-#                 Recipe.thumbnail_url.label("THUMBNAIL_URL"),
-#             )
-#             .where(Recipe.recipe_id.in_(result_ids))
-#             .order_by(desc(Recipe.scrap_count))
-#         )
-#         detail_rows = (await mariadb.execute(detail_stmt)).all()
-#         final_df = pd.DataFrame(detail_rows, columns=[
-#             "RECIPE_ID","RECIPE_TITLE","SCRAP_COUNT","COOKING_CASE_NAME","COOKING_CATEGORY_NAME",
-#             "COOKING_INTRODUCTION","NUMBER_OF_SERVING","THUMBNAIL_URL"
-#         ])
-
-#         # 번호 컬럼
-#         final_df.insert(0, "No.", range(1, len(final_df) + 1))
-
-#         # 재료 붙이기
-#         m_stmt = select(
-#             Material.recipe_id, Material.material_name, Material.measure_amount, Material.measure_unit
-#         ).where(Material.recipe_id.in_(result_ids))
-#         m_rows = (await mariadb.execute(m_stmt)).all()
-#         if m_rows:
-#             m_df = pd.DataFrame(m_rows, columns=["RECIPE_ID","MATERIAL_NAME","MEASURE_AMOUNT","MEASURE_UNIT"])
-#             final_df = final_df.merge(m_df, on="RECIPE_ID", how="left")
-
-#         return final_df
-
-#     # ============================ method: recipe ============================
-#     # 1) 제목 부분/정확 일치(인기순)
-#     name_col = getattr(Recipe, "cooking_name", None) or getattr(Recipe, "recipe_title")
-#     base_stmt = (
-#         select(Recipe.recipe_id, name_col.label("RECIPE_TITLE"))
-#         .where(name_col.contains(query))
-#         .order_by(desc(Recipe.scrap_count))
-#         .limit(top_k)
-#     )
-#     base_rows = (await mariadb.execute(base_stmt)).all()
-#     exact_df = pd.DataFrame(base_rows, columns=["RECIPE_ID","RECIPE_TITLE"])
-#     exact_df["RANK_TYPE"] = 0
-
-#     exact_k = min(len(exact_df), top_k)
-#     exact_df = exact_df.head(exact_k)
-#     seen_ids = [int(x) for x in exact_df["RECIPE_ID"].tolist()]
-#     remaining_k = top_k - exact_k
-
-#     # 2) pgvector <-> 보완 — 포트 호출
-#     similar_df = pd.DataFrame(columns=["RECIPE_ID","SIMILARITY","RANK_TYPE"])
-#     if remaining_k > 0:
-#         pairs = await vector_searcher.find_similar_ids(
-#             pg_db=postgres,
-#             query=query,
-#             top_k=remaining_k,
-#             exclude_ids=seen_ids or None,
-#         )
-#         if pairs:
-#             tmp = pd.DataFrame(pairs, columns=["RECIPE_ID","DISTANCE"])
-#             tmp["SIMILARITY"] = -tmp["DISTANCE"]
-#             tmp["RANK_TYPE"] = 1
-#             similar_df = tmp[["RECIPE_ID","SIMILARITY","RANK_TYPE"]]
-
-#     # 3) 합치기
-#     final_base = pd.concat([exact_df[["RECIPE_ID","RANK_TYPE"]], similar_df[["RECIPE_ID","RANK_TYPE"]]], ignore_index=True)
-#     if final_base.empty:
-#         return pd.DataFrame()
-#     final_base = final_base.drop_duplicates(subset=["RECIPE_ID"]).sort_values(by="RANK_TYPE").reset_index(drop=True)
-
-#     # 4) 상세 조인
-#     ids = [int(x) for x in final_base["RECIPE_ID"].tolist()]
-#     detail_stmt = (
-#         select(
-#             Recipe.recipe_id.label("RECIPE_ID"),
-#             name_col.label("RECIPE_TITLE"),
-#             Recipe.scrap_count.label("SCRAP_COUNT"),
-#             Recipe.cooking_case_name.label("COOKING_CASE_NAME"),
-#             Recipe.cooking_category_name.label("COOKING_CATEGORY_NAME"),
-#             Recipe.cooking_introduction.label("COOKING_INTRODUCTION"),
-#             Recipe.number_of_serving.label("NUMBER_OF_SERVING"),
-#             Recipe.thumbnail_url.label("THUMBNAIL_URL"),
-#         )
-#         .where(Recipe.recipe_id.in_(ids))
-#     )
-#     detail_rows = (await mariadb.execute(detail_stmt)).all()
-#     detail_df = pd.DataFrame(detail_rows, columns=[
-#         "RECIPE_ID","RECIPE_TITLE","SCRAP_COUNT","COOKING_CASE_NAME","COOKING_CATEGORY_NAME",
-#         "COOKING_INTRODUCTION","NUMBER_OF_SERVING","THUMBNAIL_URL"
-#     ])
-
-#     final_df = final_base.merge(detail_df, on="RECIPE_ID", how="left")
-#     final_df.insert(0, "No.", range(1, len(final_df) + 1))
-
-#     # 5) 재료 붙이기 (필요시)
-#     if ids:
-#         m_stmt = select(Material.recipe_id, Material.material_name, Material.measure_amount, Material.measure_unit)\
-#                     .where(Material.recipe_id.in_(ids))
-#         m_rows = (await mariadb.execute(m_stmt)).all()
-#         if m_rows:
-#             m_df = pd.DataFrame(m_rows, columns=["RECIPE_ID","MATERIAL_NAME","MEASURE_AMOUNT","MEASURE_UNIT"])
-#             final_df = final_df.merge(m_df, on="RECIPE_ID", how="left")
-
-#     return final_df
 
 
 async def get_recipe_rating(db: AsyncSession, recipe_id: int) -> float:
@@ -1106,7 +958,7 @@ async def get_recipe_ingredients_status(
     recipe_id: int
 ) -> Optional[Dict]:
     """
-    레시피의 식재료별 사용자 보유/장바구니/미보유 상태 조회 (최적화: Raw SQL 사용)
+    레시피의 식재료별 사용자 보유/장바구니/미보유 상태 조회 (키워드 추출 방식)
     
     Args:
         db: 데이터베이스 세션
@@ -1117,117 +969,137 @@ async def get_recipe_ingredients_status(
         식재료 상태 정보 딕셔너리
     """
     from sqlalchemy import text
+    from common.keyword_extraction import extract_kok_keywords, extract_homeshopping_keywords, load_ing_vocab, parse_mariadb_url
+    from common.config import get_settings
     
     # logger.info(f"레시피 식재료 상태 조회 시작: user_id={user_id}, recipe_id={recipe_id}")
     
     try:
-        # 최적화된 쿼리: 레시피 재료와 주문/장바구니 정보를 한 번에 조회
-        sql_query = """
-        WITH recipe_materials AS (
-            SELECT material_name
-            FROM FCT_MTRL
-            WHERE recipe_id = :recipe_id
-        ),
-        recent_orders AS (
-            SELECT 
-                o.order_id,
-                o.order_time,
-                ko.kok_product_id,
-                kpi.kok_product_name,
-                ko.quantity,
-                'kok' as order_type
-            FROM ORDERS o
-            INNER JOIN KOK_ORDERS ko ON o.order_id = ko.order_id
-            INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
-            WHERE o.user_id = :user_id
-            AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-            AND o.cancel_time IS NULL
-            
-            UNION ALL
-            
-            SELECT 
-                o.order_id,
-                o.order_time,
-                ho.product_id as kok_product_id,
-                hl.product_name as kok_product_name,
-                ho.quantity,
-                'homeshopping' as order_type
-            FROM ORDERS o
-            INNER JOIN HOMESHOPPING_ORDERS ho ON o.order_id = ho.order_id
-            INNER JOIN FCT_HOMESHOPPING_LIST hl ON ho.product_id = hl.product_id
-            WHERE o.user_id = :user_id
-            AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-            AND o.cancel_time IS NULL
-        ),
-        cart_items AS (
-            SELECT 
-                kc.kok_cart_id,
-                kpi.kok_product_name,
-                kc.kok_quantity,
-                'kok' as cart_type
-            FROM KOK_CART kc
-            INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON kc.kok_product_id = kpi.kok_product_id
-            WHERE kc.user_id = :user_id
-        )
-        SELECT 
-            rm.material_name,
-            ro.order_id,
-            ro.order_time,
-            ro.kok_product_name,
-            ro.quantity as order_quantity,
-            ro.order_type,
-            ci.kok_cart_id,
-            ci.kok_quantity as cart_quantity,
-            ci.cart_type
-        FROM recipe_materials rm
-        LEFT JOIN recent_orders ro ON rm.material_name = ro.kok_product_name
-        LEFT JOIN cart_items ci ON rm.material_name = ci.kok_product_name
-        ORDER BY rm.material_name
+        # 1. 레시피 재료 조회
+        recipe_sql = """
+        SELECT material_name
+        FROM FCT_MTRL
+        WHERE recipe_id = :recipe_id
         """
+        recipe_result = await db.execute(text(recipe_sql), {"recipe_id": recipe_id})
+        recipe_rows = recipe_result.fetchall()
         
-        result = await db.execute(text(sql_query), {
-            "recipe_id": recipe_id,
-            "user_id": user_id
-        })
-        rows = result.fetchall()
-        
-        if not rows:
+        if not recipe_rows:
             logger.warning(f"레시피를 찾을 수 없음: recipe_id={recipe_id}")
-            return None
+            return {
+                "recipe_id": recipe_id,
+                "user_id": user_id,
+                "ingredients": [],
+                "summary": {"total_ingredients": 0, "owned_count": 0, "cart_count": 0, "not_owned_count": 0}
+            }
         
-        # 재료별로 상태 분류
+        # 2. 최근 7일 주문 내역 조회
+        orders_sql = """
+        SELECT 
+            o.order_id,
+            o.order_time,
+            ko.kok_product_id,
+            kpi.kok_product_name,
+            ko.quantity,
+            'kok' as order_type
+        FROM ORDERS o
+        INNER JOIN KOK_ORDERS ko ON o.order_id = ko.order_id
+        INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
+        WHERE o.user_id = :user_id
+        AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+        AND o.cancel_time IS NULL
+        
+        UNION ALL
+        
+        SELECT 
+            o.order_id,
+            o.order_time,
+            ho.product_id as kok_product_id,
+            hl.product_name as kok_product_name,
+            ho.quantity,
+            'homeshopping' as order_type
+        FROM ORDERS o
+        INNER JOIN HOMESHOPPING_ORDERS ho ON o.order_id = ho.order_id
+        INNER JOIN FCT_HOMESHOPPING_LIST hl ON ho.product_id = hl.product_id
+        WHERE o.user_id = :user_id
+        AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+        AND o.cancel_time IS NULL
+        """
+        orders_result = await db.execute(text(orders_sql), {"user_id": user_id})
+        orders_rows = orders_result.fetchall()
+        
+        # 3. 장바구니 조회
+        cart_sql = """
+        SELECT 
+            kc.kok_cart_id,
+            kpi.kok_product_name,
+            kc.kok_quantity,
+            'kok' as cart_type
+        FROM KOK_CART kc
+        INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON kc.kok_product_id = kpi.kok_product_id
+        WHERE kc.user_id = :user_id
+        """
+        cart_result = await db.execute(text(cart_sql), {"user_id": user_id})
+        cart_rows = cart_result.fetchall()
+        
+        # 4. 표준 재료 어휘 로드
+        ing_vocab = load_ing_vocab(parse_mariadb_url(get_settings().mariadb_service_url))
+        
+        # 5. 재료별 상태 매칭
         material_status = {}
-        for row in rows:
-            material_name = row.material_name
-            if material_name not in material_status:
-                material_status[material_name] = {
-                    "owned": [],
-                    "cart": [],
-                    "not_owned": []
-                }
-            
-            # 주문 정보가 있는 경우 (보유 상태)
-            if row.order_id:
-                material_status[material_name]["owned"].append({
-                    "order_id": row.order_id,
-                    "order_date": row.order_time,
-                    "order_type": row.order_type,
-                    "product_name": row.kok_product_name,
-                    "quantity": row.order_quantity,
-                    "match_score": 1.0  # 정확한 매치
-                })
-            
-            # 장바구니 정보가 있는 경우 (장바구니 상태)
-            if row.kok_cart_id:
-                material_status[material_name]["cart"].append({
-                    "cart_id": row.kok_cart_id,
-                    "cart_type": row.cart_type,
-                    "product_name": row.kok_product_name,
-                    "quantity": row.cart_quantity,
-                    "match_score": 1.0  # 정확한 매치
-                })
         
-        # 최종 상태 판별
+        for recipe_row in recipe_rows:
+            material_name = recipe_row.material_name
+            material_status[material_name] = {
+                "owned": [],
+                "cart": [],
+                "status": "not_owned"
+            }
+            
+            # 주문 내역에서 매칭
+            for order_row in orders_rows:
+                product_name = order_row.kok_product_name
+                order_type = order_row.order_type
+                
+                # 키워드 추출
+                if order_type == "kok":
+                    keywords_result = extract_kok_keywords(product_name, ing_vocab)
+                else:  # homeshopping
+                    keywords_result = extract_homeshopping_keywords(product_name, ing_vocab)
+                
+                keywords = keywords_result.get("keywords", [])
+                
+                # 재료명과 매칭 확인
+                if material_name in keywords:
+                    material_status[material_name]["owned"].append({
+                        "order_id": order_row.order_id,
+                        "order_date": order_row.order_time,
+                        "product_name": product_name,
+                        "quantity": order_row.quantity,
+                        "order_type": order_type
+                    })
+                    material_status[material_name]["status"] = "owned"
+            
+            # 장바구니에서 매칭 (보유가 아닌 경우에만)
+            if material_status[material_name]["status"] != "owned":
+                for cart_row in cart_rows:
+                    product_name = cart_row.kok_product_name
+                    
+                    # 키워드 추출
+                    keywords_result = extract_kok_keywords(product_name, ing_vocab)
+                    keywords = keywords_result.get("keywords", [])
+                    
+                    # 재료명과 매칭 확인
+                    if material_name in keywords:
+                        material_status[material_name]["cart"].append({
+                            "cart_id": cart_row.kok_cart_id,
+                            "product_name": product_name,
+                            "quantity": cart_row.kok_quantity,
+                            "cart_type": cart_row.cart_type
+                        })
+                        material_status[material_name]["status"] = "cart"
+        
+        # 6. 최종 결과 생성
         ingredients_status = []
         owned_count = 0
         cart_count = 0
@@ -1236,22 +1108,17 @@ async def get_recipe_ingredients_status(
         for material_name, status in material_status.items():
             order_info = None
             cart_info = None
-            status_type = "not_owned"
+            status_type = status["status"]
             
-            # 보유 상태 확인
-            if status["owned"]:
-                status_type = "owned"
-                order_info = status["owned"][0]  # 첫 번째 주문 정보 사용
+            if status_type == "owned":
+                order_info = status["owned"][0] if status["owned"] else None
                 owned_count += 1
-            # 장바구니 상태 확인 (보유가 아닌 경우에만)
-            elif status["cart"]:
-                status_type = "cart"
-                cart_info = status["cart"][0]  # 첫 번째 장바구니 정보 사용
+            elif status_type == "cart":
+                cart_info = status["cart"][0] if status["cart"] else None
                 cart_count += 1
             else:
                 not_owned_count += 1
             
-            # 재료 상태 정보 추가
             ingredients_status.append({
                 "material_name": material_name,
                 "status": status_type,
@@ -1283,4 +1150,152 @@ async def get_recipe_ingredients_status(
         return None
 
 
+# async def recommend_by_recipe_pgvector(
+#     *,
+#     mariadb: AsyncSession,
+#     postgres: AsyncSession,
+#     query: str,
+#     method: str = "recipe",
+#     top_k: int = 25,
+#     vector_searcher: VectorSearcherPort,   # ⬅️ 포트 주입
+# ) -> pd.DataFrame:
+#     """
+#     pgvector 컬럼(Vector(384))을 사용하는 레시피/식재료 추천(비동기).
+#     - method="recipe":
+#         1) MariaDB: 제목 부분/정확 일치 우선(RANK_TYPE=0, 인기순)
+#         2) PostgreSQL: pgvector <-> 연산으로 부족분 보완(RANK_TYPE=1, 거리 오름차순)
+#         3) MariaDB: 상세 정보 조인 + 재료 붙이기
+#     - method="ingredient":
+#         입력 재료(쉼표 구분)를 모두 포함하는 레시피를 MariaDB에서 조회 (유사도 없음)
+#     - 반환: 상세 정보가 포함된 DataFrame (No. 컬럼 포함)
+#     """
+#     if method not in {"recipe", "ingredient"}:
+#         raise ValueError("method must be 'recipe' or 'ingredient'")
 
+#     # ========================== method: ingredient ==========================
+#     if method == "ingredient":
+#         ingredients = [i.strip() for i in query.split(",") if i.strip()]
+#         if not ingredients:
+#             return pd.DataFrame()
+
+#         from sqlalchemy import func as sa_func
+#         ids_stmt = (
+#             select(Material.recipe_id)
+#             .where(Material.material_name.in_(ingredients))
+#             .group_by(Material.recipe_id)
+#             .having(sa_func.count(sa_func.distinct(Material.material_name)) == len(ingredients))
+#         )
+#         ids_rows = await mariadb.execute(ids_stmt)
+#         result_ids = [rid for (rid,) in ids_rows.all()]
+#         if not result_ids:
+#             return pd.DataFrame()
+
+#         # 상세
+#         name_col = getattr(Recipe, "cooking_name", None) or getattr(Recipe, "recipe_title")
+#         detail_stmt = (
+#             select(
+#                 Recipe.recipe_id.label("RECIPE_ID"),
+#                 name_col.label("RECIPE_TITLE"),
+#                 Recipe.scrap_count.label("SCRAP_COUNT"),
+#                 Recipe.cooking_case_name.label("COOKING_CASE_NAME"),
+#                 Recipe.cooking_category_name.label("COOKING_CATEGORY_NAME"),
+#                 Recipe.cooking_introduction.label("COOKING_INTRODUCTION"),
+#                 Recipe.number_of_serving.label("NUMBER_OF_SERVING"),
+#                 Recipe.thumbnail_url.label("THUMBNAIL_URL"),
+#             )
+#             .where(Recipe.recipe_id.in_(result_ids))
+#             .order_by(desc(Recipe.scrap_count))
+#         )
+#         detail_rows = (await mariadb.execute(detail_stmt)).all()
+#         final_df = pd.DataFrame(detail_rows, columns=[
+#             "RECIPE_ID","RECIPE_TITLE","SCRAP_COUNT","COOKING_CASE_NAME","COOKING_CATEGORY_NAME",
+#             "COOKING_INTRODUCTION","NUMBER_OF_SERVING","THUMBNAIL_URL"
+#         ])
+
+#         # 번호 컬럼
+#         final_df.insert(0, "No.", range(1, len(final_df) + 1))
+
+#         # 재료 붙이기
+#         m_stmt = select(
+#             Material.recipe_id, Material.material_name, Material.measure_amount, Material.measure_unit
+#         ).where(Material.recipe_id.in_(result_ids))
+#         m_rows = (await mariadb.execute(m_stmt)).all()
+#         if m_rows:
+#             m_df = pd.DataFrame(m_rows, columns=["RECIPE_ID","MATERIAL_NAME","MEASURE_AMOUNT","MEASURE_UNIT"])
+#             final_df = final_df.merge(m_df, on="RECIPE_ID", how="left")
+
+#         return final_df
+
+#     # ============================ method: recipe ============================
+#     # 1) 제목 부분/정확 일치(인기순)
+#     name_col = getattr(Recipe, "cooking_name", None) or getattr(Recipe, "recipe_title")
+#     base_stmt = (
+#         select(Recipe.recipe_id, name_col.label("RECIPE_TITLE"))
+#         .where(name_col.contains(query))
+#         .order_by(desc(Recipe.scrap_count))
+#         .limit(top_k)
+#     )
+#     base_rows = (await mariadb.execute(base_stmt)).all()
+#     exact_df = pd.DataFrame(base_rows, columns=["RECIPE_ID","RECIPE_TITLE"])
+#     exact_df["RANK_TYPE"] = 0
+
+#     exact_k = min(len(exact_df), top_k)
+#     exact_df = exact_df.head(exact_k)
+#     seen_ids = [int(x) for x in exact_df["RECIPE_ID"].tolist()]
+#     remaining_k = top_k - exact_k
+
+#     # 2) pgvector <-> 보완 — 포트 호출
+#     similar_df = pd.DataFrame(columns=["RECIPE_ID","SIMILARITY","RANK_TYPE"])
+#     if remaining_k > 0:
+#         pairs = await vector_searcher.find_similar_ids(
+#             pg_db=postgres,
+#             query=query,
+#             top_k=remaining_k,
+#             exclude_ids=seen_ids or None,
+#         )
+#         if pairs:
+#             tmp = pd.DataFrame(pairs, columns=["RECIPE_ID","DISTANCE"])
+#             tmp["SIMILARITY"] = -tmp["DISTANCE"]
+#             tmp["RANK_TYPE"] = 1
+#             similar_df = tmp[["RECIPE_ID","SIMILARITY","RANK_TYPE"]]
+
+#     # 3) 합치기
+#     final_base = pd.concat([exact_df[["RECIPE_ID","RANK_TYPE"]], similar_df[["RECIPE_ID","RANK_TYPE"]]], ignore_index=True)
+#     if final_base.empty:
+#         return pd.DataFrame()
+#     final_base = final_base.drop_duplicates(subset=["RECIPE_ID"]).sort_values(by="RANK_TYPE").reset_index(drop=True)
+
+#     # 4) 상세 조인
+#     ids = [int(x) for x in final_base["RECIPE_ID"].tolist()]
+#     detail_stmt = (
+#         select(
+#             Recipe.recipe_id.label("RECIPE_ID"),
+#             name_col.label("RECIPE_TITLE"),
+#             Recipe.scrap_count.label("SCRAP_COUNT"),
+#             Recipe.cooking_case_name.label("COOKING_CASE_NAME"),
+#             Recipe.cooking_category_name.label("COOKING_CATEGORY_NAME"),
+#             Recipe.cooking_introduction.label("COOKING_INTRODUCTION"),
+#             Recipe.number_of_serving.label("NUMBER_OF_SERVING"),
+#             Recipe.thumbnail_url.label("THUMBNAIL_URL"),
+#         )
+#         .where(Recipe.recipe_id.in_(ids))
+#     )
+#     detail_rows = (await mariadb.execute(detail_stmt)).all()
+#     detail_df = pd.DataFrame(detail_rows, columns=[
+#         "RECIPE_ID","RECIPE_TITLE","SCRAP_COUNT","COOKING_CASE_NAME","COOKING_CATEGORY_NAME",
+#         "COOKING_INTRODUCTION","NUMBER_OF_SERVING","THUMBNAIL_URL"
+#     ])
+
+#     final_df = final_base.merge(detail_df, on="RECIPE_ID", how="left")
+#     final_df.insert(0, "No.", range(1, len(final_df) + 1))
+
+#     # 5) 재료 붙이기 (필요시)
+#     if ids:
+#         m_stmt = select(Material.recipe_id, Material.material_name, Material.measure_amount, Material.measure_unit)\
+#                     .where(Material.recipe_id.in_(ids))
+#         m_rows = (await mariadb.execute(m_stmt)).all()
+#         if m_rows:
+#             m_df = pd.DataFrame(m_rows, columns=["RECIPE_ID","MATERIAL_NAME","MEASURE_AMOUNT","MEASURE_UNIT"])
+#             final_df = final_df.merge(m_df, on="RECIPE_ID", how="left")
+
+#     return final_df
