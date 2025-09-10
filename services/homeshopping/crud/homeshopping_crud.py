@@ -554,7 +554,7 @@ async def get_homeshopping_classify_cls_ing(
         cls_ing = result.scalar_one_or_none()
         
         if cls_ing is None:
-            logger.warning(f"HOMESHOPPING_CLASSIFY 테이블에서 homeshopping_product_id={homeshopping_product_id}를 찾을 수 없음")
+            logger.warning(f"HOMESHOPPING_CLASSIFY 테이블에서 상품 ID {homeshopping_product_id}를 완제품으로 분류")
             # 해당 상품이 분류 테이블에 없는 경우 기본값 0(완제품) 반환
             return 0
         
