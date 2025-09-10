@@ -1,89 +1,36 @@
 {
-    "user:9:ingredients:17030b6cd55a2c3b2d0ab534d7063973:combinations": {
-        "combo_1": [
-            7029442,
-            7041234
-        ],
-        "combo_1_timestamp": "2025-09-05T10:01:55.406109"
-    },
-    "user:9:ingredients:643b5c451e09166d4b474182c6d6b4c8:combinations": {
-        "combo_1": [
-            7029442,
-            7041234
-        ],
-        "combo_1_timestamp": "2025-09-05T10:04:08.081987"
-    },
-    "user:9:ingredients:40346ff8814aeca45af1035f78cf2d17:combinations": {
-        "combo_1": [
-            7020612,
-            7036003,
-            7024904,
-            7041234
-        ],
-        "combo_1_timestamp": "2025-09-05T11:10:27.258057"
-    },
-    "user:9:ingredients:93ff25f857f5d4bce4f90d393a1b916c:combinations": {
-        "combo_1": [
-            7036769,
-            7041234,
-            7018083,
-            7031028
-        ],
-        "combo_1_timestamp": "2025-09-05T11:21:34.121014"
-    },
-    "user:4:ingredients:6daed49a9684c240f702066c7072b762:combinations": {
-        "combo_1": [
-            7029189,
-            7033752,
-            7035476,
-            7023773,
-            7029126
-        ],
-        "combo_1_timestamp": "2025-09-05T15:35:48.405742"
-    },
-    "user:6:ingredients:79150b53624fc47510cc4473c3760742:combinations": {
-        "combo_1": [
-            7033948,
-            7034585,
-            7022304,
-            7027642,
-            7021060
-        ],
-        "combo_1_timestamp": "2025-09-09T17:01:21.754756"
-    },
-    "user:6:ingredients:2b7422b44eec35f4e572400a058078d5:combinations": {
-        "combo_1": [
-            7033948,
-            7034585,
-            7022304,
-            7027642,
-            7021060
-        ],
-        "combo_1_timestamp": "2025-09-09T17:01:39.105135"
-    },
-    "user:6:ingredients:1b7a12012ed26bcfd66d7546cf12479c:combinations": {
-        "combo_1": [
-            7027340,
-            7021060,
-            7017291,
-            7018188,
-            7034585
-        ],
-        "combo_1_timestamp": "2025-09-09T17:02:05.785917"
-    },
-    "user:6:ingredients:f5e11ba4da41cdaac96118e70bec18e0:combinations": {
-        "combo_1": [
-            7020508,
-            7028101,
-            7035971,
-            7027340
-        ],
-        "combo_1_timestamp": "2025-09-09T17:14:23.938622"
-    },
     "user:4:ingredients:23f23250457afd7b01af2bd987a96b4d:combinations": {
         "combo_1": [
             7041323
         ],
         "combo_1_timestamp": "2025-09-10T14:49:14.297130"
+    },
+    "user:4:ingredients:56ef86e1852c97a43adca9399dcf2ff1:combinations": {
+        "combo_1": [
+            7037736.0,
+            7027215.0
+        ],
+        "combo_1_timestamp": "2025-09-10T16:41:08.993547"
+    },
+    "user:4:ingredients:fcbae7f52cf6fe7c8d0ff56096b078cf:combinations": {
+        "combo_1": [
+            7022506,
+            7031532,
+            7028845
+        ],
+        "combo_1_timestamp": "2025-09-10T17:01:23.559437",
+        "combo_2": [
+            7035650,
+            7030473,
+            7030998
+        ],
+        "combo_2_timestamp": "2025-09-10T17:01:29.161115",
+        "combo_3": [
+            7040836,
+            7020251,
+            7029126,
+            7037820
+        ],
+        "combo_3_timestamp": "2025-09-10T17:01:32.766398"
     }
 }

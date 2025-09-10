@@ -21,6 +21,7 @@ from services.order.models.order_model import Order, KokOrder, HomeShoppingOrder
 from services.homeshopping.models.homeshopping_model import (
     HomeshoppingList, HomeshoppingProductInfo
 )
+from services.kok.models.kok_model import KokProductInfo
 from services.recipe.models.recipe_model import (
     Recipe, Material, RecipeRating
 )
@@ -159,15 +160,14 @@ async def recommend_recipes_combination_1(
     """
     # logger.info(f"1조합 레시피 추천 시작: 재료={ingredients}, 분량={amounts}, 단위={units}, user_id={user_id}")
     
-    # 캐시에서 결과 조회 시도 (로직 변경 없음)
-    if user_id:
-        cached_result = recipe_cache.get_cached_result(
-            user_id, ingredients, amounts or [], units or [], 1
-        )
-        if cached_result:
-            recipes, total = cached_result
-    # logger.info(f"1조합 캐시 히트: {len(recipes)}개 레시피")
-            return recipes, total
+    # 캐시 비활성화 - 항상 Streamlit 로직 사용
+    # if user_id:
+    #     cached_result = recipe_cache.get_cached_result(
+    #         user_id, ingredients, amounts or [], units or [], 1
+    #     )
+    #     if cached_result:
+    #         recipes, total = cached_result
+    #         return recipes, total
     
     # 기존 로직 그대로 유지
     # 사용자별로 다른 시드를 사용하여 다양한 결과 제공
@@ -177,9 +177,9 @@ async def recommend_recipes_combination_1(
         import time
         seed = int(time.time() // 60) % 3  # 시간 기반 시드 (fallback)
     
-    # 시드 기반으로 정렬 기준 변경 (쿼리 최적화)
+    # 시드 기반으로 정렬 기준 변경
     if seed == 0:
-        # 인기순 정렬 (가장 일반적)
+        # 인기순 정렬
         base_stmt = (
             select(Recipe)
             .join(Material, Recipe.recipe_id == Material.recipe_id)
@@ -187,6 +187,7 @@ async def recommend_recipes_combination_1(
             .group_by(Recipe.recipe_id)
             .order_by(desc(Recipe.scrap_count))
         )
+    # logger.info(f"1조합: 인기순 정렬 사용 (시드: {seed})")
     elif seed == 1:
         # 최신순 정렬 (recipe_id 기준)
         base_stmt = (
@@ -196,26 +197,28 @@ async def recommend_recipes_combination_1(
             .group_by(Recipe.recipe_id)
             .order_by(desc(Recipe.recipe_id))
         )
+    # logger.info(f"1조합: 최신순 정렬 사용 (시드: {seed})")
     else:
-        # 재료 매칭 개수 + 인기도 정렬
+        # 조합별 정렬 (재료 개수 + 인기도)
         base_stmt = (
-            select(Recipe)
+            select(Recipe, func.count(Material.material_name).label('material_count'))
             .join(Material, Recipe.recipe_id == Material.recipe_id)
             .where(Material.material_name.in_(ingredients))
             .group_by(Recipe.recipe_id)
             .order_by(desc(func.count(Material.material_name)), desc(Recipe.scrap_count))
         )
+    # logger.info(f"1조합: 재료 개수 + 인기도 정렬 사용 (시드: {seed})")
     
     # 기존 알고리즘 그대로 실행
     recipes, total = await execute_standard_inventory_algorithm(
         db, base_stmt, ingredients, amounts, units, page, size
     )
     
-    # 결과를 캐시에 저장 (로직 변경 없음)
-    if user_id and recipes:
-        recipe_cache.set_cached_result(
-            user_id, ingredients, amounts or [], units or [], 1, recipes, total
-        )
+    # 캐시 저장 비활성화 - 항상 Streamlit 로직 사용
+    # if user_id and recipes:
+    #     recipe_cache.set_cached_result(
+    #         user_id, ingredients, amounts or [], units or [], 1, recipes, total
+    #     )
     
     return recipes, total
 
@@ -235,17 +238,17 @@ async def recommend_recipes_combination_2(
     """
     # logger.info(f"2조합 레시피 추천 시작: 재료={ingredients}, 제외할 레시피={exclude_recipe_ids}")
     
-    # 캐시에서 결과 조회 시도 (제외할 레시피가 없는 경우만)
-    if user_id and not exclude_recipe_ids:
-        cached_result = recipe_cache.get_cached_result(
-            user_id, ingredients, amounts or [], units or [], 2
-        )
-        if cached_result:
-            recipes, total = cached_result
-    # logger.info(f"2조합 캐시 히트: {len(recipes)}개 레시피")
-            return recipes, total
+    # 캐시 비활성화 - 항상 Streamlit 로직 사용
+    # if user_id and not exclude_recipe_ids:
+    #     cached_result = recipe_cache.get_cached_result(
+    #         user_id, ingredients, amounts or [], units or [], 2
+    #     )
+    #     if cached_result:
+    #         recipes, total = cached_result
+    #         return recipes, total
     
-    # 1조합에서 사용된 레시피를 제외한 레시피 풀 (쿼리 최적화)
+    # 기존 로직 그대로 유지
+    # 1조합에서 사용된 레시피를 제외한 레시피 풀
     base_stmt = (
         select(Recipe)
         .join(Material, Recipe.recipe_id == Material.recipe_id)
@@ -254,20 +257,21 @@ async def recommend_recipes_combination_2(
         .order_by(desc(Recipe.scrap_count))  # 인기순 정렬
     )
     
-    # 제외할 레시피가 있으면 쿼리에 추가 (성능 최적화)
+    # 제외할 레시피가 있으면 쿼리에 추가
     if exclude_recipe_ids:
         base_stmt = base_stmt.where(Recipe.recipe_id.notin_(exclude_recipe_ids))
+    # logger.info(f"제외할 레시피 ID: {exclude_recipe_ids}")
     
     # 기존 알고리즘 그대로 실행
     recipes, total = await execute_standard_inventory_algorithm(
         db, base_stmt, ingredients, amounts, units, page, size
     )
     
-    # 결과를 캐시에 저장 (제외할 레시피가 없는 경우만)
-    if user_id and recipes and not exclude_recipe_ids:
-        recipe_cache.set_cached_result(
-            user_id, ingredients, amounts or [], units or [], 2, recipes, total
-        )
+    # 캐시 저장 비활성화 - 항상 Streamlit 로직 사용
+    # if user_id and recipes and not exclude_recipe_ids:
+    #     recipe_cache.set_cached_result(
+    #         user_id, ingredients, amounts or [], units or [], 2, recipes, total
+    #     )
     
     return recipes, total
 
@@ -287,17 +291,17 @@ async def recommend_recipes_combination_3(
     """
     # logger.info(f"3조합 레시피 추천 시작: 재료={ingredients}, 제외할 레시피={exclude_recipe_ids}")
     
-    # 캐시에서 결과 조회 시도 (제외할 레시피가 없는 경우만)
-    if user_id and not exclude_recipe_ids:
-        cached_result = recipe_cache.get_cached_result(
-            user_id, ingredients, amounts or [], units or [], 3
-        )
-        if cached_result:
-            recipes, total = cached_result
-    # logger.info(f"3조합 캐시 히트: {len(recipes)}개 레시피")
-            return recipes, total
+    # 캐시 비활성화 - 항상 Streamlit 로직 사용
+    # if user_id and not exclude_recipe_ids:
+    #     cached_result = recipe_cache.get_cached_result(
+    #         user_id, ingredients, amounts or [], units or [], 3
+    #     )
+    #     if cached_result:
+    #         recipes, total = cached_result
+    #         return recipes, total
     
-    # 1조합, 2조합에서 사용된 레시피를 제외한 레시피 풀 (쿼리 최적화)
+    # 기존 로직 그대로 유지
+    # 1조합, 2조합에서 사용된 레시피를 제외한 레시피 풀
     base_stmt = (
         select(Recipe)
         .join(Material, Recipe.recipe_id == Material.recipe_id)
@@ -306,20 +310,21 @@ async def recommend_recipes_combination_3(
         .order_by(desc(Recipe.scrap_count))  # 인기순 정렬
     )
     
-    # 제외할 레시피가 있으면 쿼리에 추가 (성능 최적화)
+    # 제외할 레시피가 있으면 쿼리에 추가
     if exclude_recipe_ids:
         base_stmt = base_stmt.where(Recipe.recipe_id.notin_(exclude_recipe_ids))
+    # logger.info(f"제외할 레시피 ID: {exclude_recipe_ids}")
     
     # 기존 알고리즘 그대로 실행
     recipes, total = await execute_standard_inventory_algorithm(
         db, base_stmt, ingredients, amounts, units, page, size
     )
     
-    # 결과를 캐시에 저장 (제외할 레시피가 없는 경우만)
-    if user_id and recipes and not exclude_recipe_ids:
-        recipe_cache.set_cached_result(
-            user_id, ingredients, amounts or [], units or [], 3, recipes, total
-        )
+    # 캐시 저장 비활성화 - 항상 Streamlit 로직 사용
+    # if user_id and recipes and not exclude_recipe_ids:
+    #     recipe_cache.set_cached_result(
+    #         user_id, ingredients, amounts or [], units or [], 3, recipes, total
+    #     )
     
     return recipes, total
 
@@ -360,82 +365,59 @@ async def execute_standard_inventory_algorithm(
             'unit': unit
         })
     
-    # 2-2. 페이지네이션을 고려한 제한적 후보 조회 (성능 최적화)
-    max_candidates = min(page * size * 5, 2000)  # 최대 2000개로 제한
-    limited_stmt = base_stmt.limit(max_candidates)
-    candidate_recipes = (await db.execute(limited_stmt)).scalars().unique().all()
+    # 2-2. 전체 후보 레시피를 한 번에 조회 (페이지네이션을 위해)
+    # logger.info("전체 후보 레시피 조회 시작")
+    candidate_recipes = (await db.execute(base_stmt)).scalars().unique().all()
+    # logger.info(f"전체 후보 레시피 개수: {len(candidate_recipes)}")
     
-    if not candidate_recipes:
-        return [], 0
-    
-    # 2-3. 단일 쿼리로 레시피와 재료 정보를 함께 조회 (N+1 문제 해결)
+    # 2-3. 레시피별 재료 정보를 효율적으로 조회
     recipe_ids = [r.recipe_id for r in candidate_recipes]
-    
-    # JOIN을 사용한 최적화된 쿼리 (필요한 재료만 필터링)
-    optimized_stmt = (
-        select(
-            Recipe.recipe_id,
-            Recipe.recipe_title,
-            Recipe.cooking_name,
-            Recipe.scrap_count,
-            Recipe.thumbnail_url,
-            Recipe.cooking_case_name,
-            Recipe.cooking_category_name,
-            Recipe.cooking_introduction,
-            Recipe.number_of_serving,
-            Material.material_name,
-            Material.measure_amount,
-            Material.measure_unit
-        )
-        .join(Material, Recipe.recipe_id == Material.recipe_id)
-        .where(Recipe.recipe_id.in_(recipe_ids))
-        .where(Material.material_name.in_(ingredients))  # 필요한 재료만 필터링
+    materials_stmt = (
+        select(Material)
+        .where(Material.recipe_id.in_(recipe_ids))
     )
+    all_materials = (await db.execute(materials_stmt)).scalars().all()
     
-    result = await db.execute(optimized_stmt)
-    rows = result.all()
-    
-    # 효율적인 데이터 구조로 변환
+    # 레시피별 재료 맵 구성
     recipe_material_map = {}
-    recipe_info_map = {}
-    
-    for row in rows:
-        recipe_id = row.recipe_id
-        
-        # 레시피 기본 정보 저장 (중복 방지)
-        if recipe_id not in recipe_info_map:
-            recipe_info_map[recipe_id] = {
-                'RECIPE_ID': row.recipe_id,
-                'RECIPE_TITLE': row.recipe_title,
-                'COOKING_NAME': row.cooking_name,
-                'SCRAP_COUNT': row.scrap_count,
-                'RECIPE_URL': get_recipe_url(row.recipe_id),
-                'THUMBNAIL_URL': row.thumbnail_url,
-                'COOKING_CASE_NAME': row.cooking_case_name,
-                'COOKING_CATEGORY_NAME': row.cooking_category_name,
-                'COOKING_INTRODUCTION': row.cooking_introduction,
-                'NUMBER_OF_SERVING': row.number_of_serving
-            }
-        
-        # 재료 정보 저장
-        if recipe_id not in recipe_material_map:
-            recipe_material_map[recipe_id] = []
+    for mat in all_materials:
+        if mat.recipe_id not in recipe_material_map:
+            recipe_material_map[mat.recipe_id] = []
         
         try:
-            amt = float(row.measure_amount) if row.measure_amount is not None else 0
+            amt = float(mat.measure_amount) if mat.measure_amount is not None else 0
         except (ValueError, TypeError):
             amt = 0
         
-        recipe_material_map[recipe_id].append({
-            'mat': row.material_name,
+        recipe_material_map[mat.recipe_id].append({
+            'mat': mat.material_name,
             'amt': amt,
-            'unit': row.measure_unit if row.measure_unit else ''
+            'unit': mat.measure_unit if mat.measure_unit else ''
         })
     
-    # 2-4. DataFrame 생성 최적화 (기존 recipe_info_map 사용)
-    recipe_df = pd.DataFrame(list(recipe_info_map.values()))
+    # 2-4. 레시피 정보를 DataFrame 형태로 변환
+    recipe_df = []
+    for recipe in candidate_recipes:
+        recipe_dict = {
+            'RECIPE_ID': recipe.recipe_id,
+            'RECIPE_TITLE': recipe.recipe_title,
+            'COOKING_NAME': recipe.cooking_name,
+            'SCRAP_COUNT': recipe.scrap_count,
+            'RECIPE_URL': get_recipe_url(recipe.recipe_id),
+            'THUMBNAIL_URL': recipe.thumbnail_url,
+            'COOKING_CASE_NAME': recipe.cooking_case_name,
+            'COOKING_CATEGORY_NAME': recipe.cooking_category_name,
+            'COOKING_INTRODUCTION': recipe.cooking_introduction,
+            'NUMBER_OF_SERVING': recipe.number_of_serving
+        }
+        recipe_df.append(recipe_dict)
     
-    if recipe_df.empty:
+    # DataFrame으로 변환 (measure_amount가 None인 경우 처리)
+    try:
+        recipe_df = pd.DataFrame(recipe_df)
+    # logger.info(f"DataFrame 생성 완료: {len(recipe_df)}행")
+    except Exception as e:
+        logger.error(f"DataFrame 생성 실패: {e}")
         return [], 0
     
     # 2-5. mat2recipes 역인덱스 생성 (Streamlit 코드와 동일)
@@ -942,6 +924,17 @@ async def fetch_recipe_ingredients_status(
         FROM KOK_CART kc
         INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON kc.kok_product_id = kpi.kok_product_id
         WHERE kc.user_id = :user_id
+        
+        UNION ALL
+        
+        SELECT 
+            hc.cart_id as kok_cart_id,
+            hl.product_name as kok_product_name,
+            hc.quantity as kok_quantity,
+            'homeshopping' as cart_type
+        FROM HOMESHOPPING_CART hc
+        INNER JOIN FCT_HOMESHOPPING_LIST hl ON hc.product_id = hl.product_id
+        WHERE hc.user_id = :user_id
     )
     SELECT 
         rm.material_name,
@@ -952,9 +945,9 @@ async def fetch_recipe_ingredients_status(
         ci.kok_cart_id,
         ci.kok_quantity,
         ci.cart_type
-        FROM recipe_materials rm
-        LEFT JOIN recent_orders ro ON ro.kok_product_name LIKE CONCAT('%', rm.material_name, '%')
-        LEFT JOIN cart_items ci ON ci.kok_product_name LIKE CONCAT('%', rm.material_name, '%')
+    FROM recipe_materials rm
+    LEFT JOIN recent_orders ro ON rm.material_name = ro.kok_product_name
+    LEFT JOIN cart_items ci ON rm.material_name = ci.kok_product_name
     ORDER BY rm.material_name
     """
     
@@ -1113,7 +1106,7 @@ async def get_recipe_ingredients_status(
     recipe_id: int
 ) -> Optional[Dict]:
     """
-    레시피의 식재료별 사용자 보유/장바구니/미보유 상태 조회 (키워드 추출 방식)
+    레시피의 식재료별 사용자 보유/장바구니/미보유 상태 조회 (최적화: Raw SQL 사용)
     
     Args:
         db: 데이터베이스 세션
@@ -1124,137 +1117,117 @@ async def get_recipe_ingredients_status(
         식재료 상태 정보 딕셔너리
     """
     from sqlalchemy import text
-    from common.keyword_extraction import extract_kok_keywords, extract_homeshopping_keywords, load_ing_vocab, parse_mariadb_url
-    from common.config import get_settings
     
     # logger.info(f"레시피 식재료 상태 조회 시작: user_id={user_id}, recipe_id={recipe_id}")
     
     try:
-        # 1. 레시피 재료 조회
-        recipe_sql = """
-        SELECT material_name
-        FROM FCT_MTRL
-        WHERE recipe_id = :recipe_id
+        # 최적화된 쿼리: 레시피 재료와 주문/장바구니 정보를 한 번에 조회
+        sql_query = """
+        WITH recipe_materials AS (
+            SELECT material_name
+            FROM FCT_MTRL
+            WHERE recipe_id = :recipe_id
+        ),
+        recent_orders AS (
+            SELECT 
+                o.order_id,
+                o.order_time,
+                ko.kok_product_id,
+                kpi.kok_product_name,
+                ko.quantity,
+                'kok' as order_type
+            FROM ORDERS o
+            INNER JOIN KOK_ORDERS ko ON o.order_id = ko.order_id
+            INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
+            WHERE o.user_id = :user_id
+            AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+            AND o.cancel_time IS NULL
+            
+            UNION ALL
+            
+            SELECT 
+                o.order_id,
+                o.order_time,
+                ho.product_id as kok_product_id,
+                hl.product_name as kok_product_name,
+                ho.quantity,
+                'homeshopping' as order_type
+            FROM ORDERS o
+            INNER JOIN HOMESHOPPING_ORDERS ho ON o.order_id = ho.order_id
+            INNER JOIN FCT_HOMESHOPPING_LIST hl ON ho.product_id = hl.product_id
+            WHERE o.user_id = :user_id
+            AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+            AND o.cancel_time IS NULL
+        ),
+        cart_items AS (
+            SELECT 
+                kc.kok_cart_id,
+                kpi.kok_product_name,
+                kc.kok_quantity,
+                'kok' as cart_type
+            FROM KOK_CART kc
+            INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON kc.kok_product_id = kpi.kok_product_id
+            WHERE kc.user_id = :user_id
+        )
+        SELECT 
+            rm.material_name,
+            ro.order_id,
+            ro.order_time,
+            ro.kok_product_name,
+            ro.quantity as order_quantity,
+            ro.order_type,
+            ci.kok_cart_id,
+            ci.kok_quantity as cart_quantity,
+            ci.cart_type
+        FROM recipe_materials rm
+        LEFT JOIN recent_orders ro ON rm.material_name = ro.kok_product_name
+        LEFT JOIN cart_items ci ON rm.material_name = ci.kok_product_name
+        ORDER BY rm.material_name
         """
-        recipe_result = await db.execute(text(recipe_sql), {"recipe_id": recipe_id})
-        recipe_rows = recipe_result.fetchall()
         
-        if not recipe_rows:
+        result = await db.execute(text(sql_query), {
+            "recipe_id": recipe_id,
+            "user_id": user_id
+        })
+        rows = result.fetchall()
+        
+        if not rows:
             logger.warning(f"레시피를 찾을 수 없음: recipe_id={recipe_id}")
-            return {
-                "recipe_id": recipe_id,
-                "user_id": user_id,
-                "ingredients": [],
-                "summary": {"total_ingredients": 0, "owned_count": 0, "cart_count": 0, "not_owned_count": 0}
-            }
+            return None
         
-        # 2. 최근 7일 주문 내역 조회
-        orders_sql = """
-        SELECT 
-            o.order_id,
-            o.order_time,
-            ko.kok_product_id,
-            kpi.kok_product_name,
-            ko.quantity,
-            'kok' as order_type
-        FROM ORDERS o
-        INNER JOIN KOK_ORDERS ko ON o.order_id = ko.order_id
-        INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON ko.kok_product_id = kpi.kok_product_id
-        WHERE o.user_id = :user_id
-        AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-        AND o.cancel_time IS NULL
-        
-        UNION ALL
-        
-        SELECT 
-            o.order_id,
-            o.order_time,
-            ho.product_id as kok_product_id,
-            hl.product_name as kok_product_name,
-            ho.quantity,
-            'homeshopping' as order_type
-        FROM ORDERS o
-        INNER JOIN HOMESHOPPING_ORDERS ho ON o.order_id = ho.order_id
-        INNER JOIN FCT_HOMESHOPPING_LIST hl ON ho.product_id = hl.product_id
-        WHERE o.user_id = :user_id
-        AND o.order_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-        AND o.cancel_time IS NULL
-        """
-        orders_result = await db.execute(text(orders_sql), {"user_id": user_id})
-        orders_rows = orders_result.fetchall()
-        
-        # 3. 장바구니 조회
-        cart_sql = """
-        SELECT 
-            kc.kok_cart_id,
-            kpi.kok_product_name,
-            kc.kok_quantity,
-            'kok' as cart_type
-        FROM KOK_CART kc
-        INNER JOIN FCT_KOK_PRODUCT_INFO kpi ON kc.kok_product_id = kpi.kok_product_id
-        WHERE kc.user_id = :user_id
-        """
-        cart_result = await db.execute(text(cart_sql), {"user_id": user_id})
-        cart_rows = cart_result.fetchall()
-        
-        # 4. 표준 재료 어휘 로드
-        ing_vocab = load_ing_vocab(parse_mariadb_url(get_settings().mariadb_service_url))
-        
-        # 5. 재료별 상태 매칭
+        # 재료별로 상태 분류
         material_status = {}
-        
-        for recipe_row in recipe_rows:
-            material_name = recipe_row.material_name
-            material_status[material_name] = {
-                "owned": [],
-                "cart": [],
-                "status": "not_owned"
-            }
+        for row in rows:
+            material_name = row.material_name
+            if material_name not in material_status:
+                material_status[material_name] = {
+                    "owned": [],
+                    "cart": [],
+                    "not_owned": []
+                }
             
-            # 주문 내역에서 매칭
-            for order_row in orders_rows:
-                product_name = order_row.kok_product_name
-                order_type = order_row.order_type
-                
-                # 키워드 추출
-                if order_type == "kok":
-                    keywords_result = extract_kok_keywords(product_name, ing_vocab)
-                else:  # homeshopping
-                    keywords_result = extract_homeshopping_keywords(product_name, ing_vocab)
-                
-                keywords = keywords_result.get("keywords", [])
-                
-                # 재료명과 매칭 확인
-                if material_name in keywords:
-                    material_status[material_name]["owned"].append({
-                        "order_id": order_row.order_id,
-                        "order_date": order_row.order_time,
-                        "product_name": product_name,
-                        "quantity": order_row.quantity,
-                        "order_type": order_type
-                    })
-                    material_status[material_name]["status"] = "owned"
+            # 주문 정보가 있는 경우 (보유 상태)
+            if row.order_id:
+                material_status[material_name]["owned"].append({
+                    "order_id": row.order_id,
+                    "order_date": row.order_time,
+                    "order_type": row.order_type,
+                    "product_name": row.kok_product_name,
+                    "quantity": row.order_quantity,
+                    "match_score": 1.0  # 정확한 매치
+                })
             
-            # 장바구니에서 매칭 (보유가 아닌 경우에만)
-            if material_status[material_name]["status"] != "owned":
-                for cart_row in cart_rows:
-                    product_name = cart_row.kok_product_name
-                    
-                    # 키워드 추출
-                    keywords_result = extract_kok_keywords(product_name, ing_vocab)
-                    keywords = keywords_result.get("keywords", [])
-                    
-                    # 재료명과 매칭 확인
-                    if material_name in keywords:
-                        material_status[material_name]["cart"].append({
-                            "cart_id": cart_row.kok_cart_id,
-                            "product_name": product_name,
-                            "quantity": cart_row.kok_quantity,
-                            "cart_type": cart_row.cart_type
-                        })
-                        material_status[material_name]["status"] = "cart"
+            # 장바구니 정보가 있는 경우 (장바구니 상태)
+            if row.kok_cart_id:
+                material_status[material_name]["cart"].append({
+                    "cart_id": row.kok_cart_id,
+                    "cart_type": row.cart_type,
+                    "product_name": row.kok_product_name,
+                    "quantity": row.cart_quantity,
+                    "match_score": 1.0  # 정확한 매치
+                })
         
-        # 6. 최종 결과 생성
+        # 최종 상태 판별
         ingredients_status = []
         owned_count = 0
         cart_count = 0
@@ -1263,17 +1236,22 @@ async def get_recipe_ingredients_status(
         for material_name, status in material_status.items():
             order_info = None
             cart_info = None
-            status_type = status["status"]
+            status_type = "not_owned"
             
-            if status_type == "owned":
-                order_info = status["owned"][0] if status["owned"] else None
+            # 보유 상태 확인
+            if status["owned"]:
+                status_type = "owned"
+                order_info = status["owned"][0]  # 첫 번째 주문 정보 사용
                 owned_count += 1
-            elif status_type == "cart":
-                cart_info = status["cart"][0] if status["cart"] else None
+            # 장바구니 상태 확인 (보유가 아닌 경우에만)
+            elif status["cart"]:
+                status_type = "cart"
+                cart_info = status["cart"][0]  # 첫 번째 장바구니 정보 사용
                 cart_count += 1
             else:
                 not_owned_count += 1
             
+            # 재료 상태 정보 추가
             ingredients_status.append({
                 "material_name": material_name,
                 "status": status_type,
