@@ -133,6 +133,7 @@ app.include_router(recipe_router)
 logger.info("레시피 라우터 포함 완료")
 
 logger.info("모든 서비스 라우터 등록 완료")
+logger.info("API Gateway 시작 완료")    
 
 # 헬스체크 엔드포인트
 @app.get("/api/health")
@@ -149,8 +150,6 @@ async def health_check():
         "timestamp": "2024-01-01T00:00:00Z"
     }
 
-logger.info("API Gateway 시작 완료")    
-
 
 @app.get("/healthz")
 async def healthz():
@@ -160,6 +159,34 @@ async def healthz():
     - DB 연결까지 점검하려면 간단 쿼리를 추가해서 True/False 반환하도록 확장 가능
     """
     return {"status": "ok"}
+
+
+@app.get("/api/health/ml")
+async def ml_health_check():
+    """
+    ML 서비스 헬스체크 엔드포인트
+    - ML Inference 서비스 상태 확인
+    - 모델 로딩 상태 및 버전 정보 포함
+    """
+    from services.recipe.utils.remote_ml_adapter import MLServiceHealthChecker
+    
+    try:
+        ml_status = await MLServiceHealthChecker.check_health()
+        return {
+            "status": "healthy",
+            "service": "uhok-backend-gateway",
+            "ml_service": ml_status,
+            "timestamp": "2024-01-01T00:00:00Z"
+        }
+    except Exception as e:
+        logger.error(f"ML 서비스 헬스체크 실패: {str(e)}")
+        return {
+            "status": "unhealthy",
+            "service": "uhok-backend-gateway",
+            "ml_service": {"status": "error", "error": str(e)},
+            "timestamp": "2024-01-01T00:00:00Z"
+        }
+
 
 # TODO: 다른 서비스 라우터도 아래와 같이 추가
 # from services.recommend.routers.recommend_router import router as recommend_router
