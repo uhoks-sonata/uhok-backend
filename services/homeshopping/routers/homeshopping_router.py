@@ -92,7 +92,7 @@ from common.log_utils import send_user_log
 from common.http_dependencies import extract_http_info
 
 from common.logger import get_logger
-logger = get_logger("homeshopping_router")
+logger = get_logger("homeshopping_router", level="DEBUG")
 
 router = APIRouter(prefix="/api/homeshopping", tags=["HomeShopping"])
 

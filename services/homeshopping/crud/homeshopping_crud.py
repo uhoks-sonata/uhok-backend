@@ -66,60 +66,35 @@ async def get_homeshopping_schedule(
     logger.info("DB에서 스케줄 조회 (캐시 미스)")
     
     # 극한 최적화: 더 간단한 Raw SQL 사용
+    # 특정 날짜 조회 - 가격 정보 포함
+    sql_query = """
+    SELECT 
+        hl.live_id,
+        hl.homeshopping_id,
+        hl.live_date,
+        hl.live_start_time,
+        hl.live_end_time,
+        hl.promotion_type,
+        hl.product_id,
+        hl.product_name,
+        hl.thumb_img_url,
+        hi.homeshopping_name,
+        hi.homeshopping_channel,
+        COALESCE(hpi.sale_price, 0) as sale_price,
+        COALESCE(hpi.dc_price, 0) as dc_price,
+        COALESCE(hpi.dc_rate, 0) as dc_rate
+    FROM FCT_HOMESHOPPING_LIST hl
+    INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
+    INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
+    LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
+    WHERE hl.live_date = :live_date
+    AND hc.cls_food = 1
+    ORDER BY hl.live_date ASC, hl.live_start_time ASC, hl.live_id ASC
+    """
+
     if live_date:
-        # 특정 날짜 조회 - 가격 정보 포함
-        sql_query = """
-        SELECT 
-            hl.live_id,
-            hl.homeshopping_id,
-            hl.live_date,
-            hl.live_start_time,
-            hl.live_end_time,
-            hl.promotion_type,
-            hl.product_id,
-            hl.product_name,
-            hl.thumb_img_url,
-            hi.homeshopping_name,
-            hi.homeshopping_channel,
-            COALESCE(hpi.sale_price, 0) as sale_price,
-            COALESCE(hpi.dc_price, 0) as dc_price,
-            COALESCE(hpi.dc_rate, 0) as dc_rate
-        FROM FCT_HOMESHOPPING_LIST hl
-        INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
-        INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
-        LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
-        WHERE hl.live_date = :live_date
-        AND hc.cls_food = 1
-        ORDER BY hl.live_date ASC, hl.live_start_time ASC, hl.live_id ASC
-        """
-        
         params = {"live_date": live_date}
     else:
-        # 전체 조회 - 가격 정보 포함
-        sql_query = """
-        SELECT 
-            hl.live_id,
-            hl.homeshopping_id,
-            hl.live_date,
-            hl.live_start_time,
-            hl.live_end_time,
-            hl.promotion_type,
-            hl.product_id,
-            hl.product_name,
-            hl.thumb_img_url,
-            hi.homeshopping_name,
-            hi.homeshopping_channel,
-            COALESCE(hpi.sale_price, 0) as sale_price,
-            COALESCE(hpi.dc_price, 0) as dc_price,
-            COALESCE(hpi.dc_rate, 0) as dc_rate
-        FROM FCT_HOMESHOPPING_LIST hl
-        INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
-        INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
-        LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
-        WHERE hc.cls_food = 1
-        ORDER BY hl.live_date ASC, hl.live_start_time ASC, hl.live_id ASC
-        """
-        
         params = {}
     
     # Raw SQL 실행
@@ -174,9 +149,6 @@ async def get_homeshopping_schedule(
 # -----------------------------
 # 스트리밍 관련 CRUD 함수 (기본 구조)
 # -----------------------------
-
-
-
 
 async def get_homeshopping_live_url(
     db: AsyncSession,
@@ -696,7 +668,7 @@ async def toggle_homeshopping_likes(
                 live_info_result = await db.execute(
                     select(HomeshoppingList).where(
                         HomeshoppingList.product_id == homeshopping_product_id
-                    ).order_by(HomeshoppingList.live_date.asc(), HomeshoppingList.live_start_time.asc(), HomeshoppingList.live_id.asc())
+                    ).order_by(HomeshoppingList.live_date.asc(), HomeshoppingList.live_start_time.asc(), HomeshoppingList.live_id.asc()).limit(1)
                 )
                 live_info = live_info_result.scalar_one_or_none()
                 # logger.info(f"방송 정보 조회 결과: {live_info is not None}")
@@ -852,7 +824,7 @@ async def create_broadcast_notification(
             logger.error(f"방송 알림 생성 SQL 실행 실패: user_id={user_id}, homeshopping_like_id={homeshopping_like_id}, error={str(e)}")
             raise
         
-        # logger.info(f"방송 찜 알림 생성 완료: notification_id={notification_id}")
+        logger.info(f"방송 찜 알림 생성 완료: notification_id={notification_id}")
         
         return {
             "notification_id": notification_id,
