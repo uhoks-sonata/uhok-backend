@@ -522,11 +522,11 @@ async def start_auto_status_update_api(
         
         # 디버깅: 직접 상태 이력 조회
         
-        # 1단계: 상태 이력만 조회 (같은 시간일 때 history_id로도 정렬)
+        # 1단계: 상태 이력만 조회
         history_result = await db.execute(
             select(KokOrderStatusHistory)
             .where(KokOrderStatusHistory.kok_order_id == kok_order_id)
-            .order_by(desc(KokOrderStatusHistory.changed_at), desc(KokOrderStatusHistory.history_id))
+            .order_by(desc(KokOrderStatusHistory.changed_at))
             .limit(1)
         )
         
@@ -538,7 +538,7 @@ async def start_auto_status_update_api(
                 detail="주문이 생성되었지만 아직 상태 이력이 없습니다."
             )
         
-        logger.debug(f"상태 이력 조회 성공: history_id={current_history.history_id}, status_id={current_history.status_id}, changed_at={current_history.changed_at}")
+        logger.debug(f"상태 이력 조회 성공: history_id={current_history.history_id}, status_id={current_history.status_id}")
         
         # 2단계: 상태 정보 조회
         status_result = await db.execute(
@@ -553,25 +553,11 @@ async def start_auto_status_update_api(
                 detail=f"상태 ID {current_history.status_id}에 해당하는 상태 정보를 찾을 수 없습니다."
             )
         
-        logger.info(f"상태 정보 조회 성공: status_id={current_status.status_id}, status_code={current_status.status_code}, status_name={current_status.status_name}")
-        logger.info(f"현재 상태 확인: kok_order_id={kok_order_id}, current_status={current_status.status_code}, changed_at={current_history.changed_at}")
+        logger.debug(f"상태 정보 조회 성공: status_id={current_status.status_id}, status_code={current_status.status_code}, status_name={current_status.status_name}")
         
         # 결제 완료 상태가 아니면 에러 반환
         if current_status.status_code != "PAYMENT_COMPLETED":
             logger.warning(f"결제 완료 상태가 아님: kok_order_id={kok_order_id}, current_status={current_status.status_code}")
-            logger.warning(f"상태 변경 시간: {current_history.changed_at}")
-            
-            # 최근 상태 이력들을 모두 조회해서 디버깅
-            all_history_result = await db.execute(
-                select(KokOrderStatusHistory, StatusMaster)
-                .join(StatusMaster, KokOrderStatusHistory.status_id == StatusMaster.status_id)
-                .where(KokOrderStatusHistory.kok_order_id == kok_order_id)
-                .order_by(desc(KokOrderStatusHistory.changed_at))
-                .limit(5)
-            )
-            all_histories = all_history_result.all()
-            logger.warning(f"최근 상태 이력들: {[(h[0].changed_at, h[1].status_code) for h in all_histories]}")
-            
             raise HTTPException(
                 status_code=400, 
                 detail=f"결제 완료 상태가 아닙니다. 현재 상태: {current_status.status_name} ({current_status.status_code})"

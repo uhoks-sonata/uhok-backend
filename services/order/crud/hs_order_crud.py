@@ -174,7 +174,7 @@ async def get_hs_current_status(
     FROM HOMESHOPPING_ORDER_STATUS_HISTORY hosh
     INNER JOIN STATUS_MASTER sm ON hosh.status_id = sm.status_id
     WHERE hosh.homeshopping_order_id = :homeshopping_order_id
-    ORDER BY hosh.changed_at DESC, hosh.history_id DESC
+    ORDER BY hosh.changed_at DESC
     LIMIT 1
     """
     
@@ -408,7 +408,7 @@ async def get_hs_order_status_history(
     FROM HOMESHOPPING_ORDER_STATUS_HISTORY hosh
     INNER JOIN STATUS_MASTER sm ON hosh.status_id = sm.status_id
     WHERE hosh.homeshopping_order_id = :homeshopping_order_id
-    ORDER BY hosh.changed_at DESC, hosh.history_id DESC
+    ORDER BY hosh.changed_at DESC
     """
     
     try:
@@ -484,7 +484,7 @@ async def get_hs_order_with_status(
             sm.status_name,
             ROW_NUMBER() OVER (
                 PARTITION BY hosh.homeshopping_order_id 
-                ORDER BY hosh.changed_at DESC, hosh.history_id DESC, hosh.history_id DESC
+                ORDER BY hosh.changed_at DESC
             ) as rn
         FROM HOMESHOPPING_ORDER_STATUS_HISTORY hosh
         INNER JOIN STATUS_MASTER sm ON hosh.status_id = sm.status_id
@@ -533,7 +533,7 @@ async def get_hs_order_with_status(
     FROM HOMESHOPPING_ORDER_STATUS_HISTORY hosh
     INNER JOIN STATUS_MASTER sm ON hosh.status_id = sm.status_id
     WHERE hosh.homeshopping_order_id = :homeshopping_order_id
-    ORDER BY hosh.changed_at DESC, hosh.history_id DESC
+    ORDER BY hosh.changed_at DESC
     """
     
     try:
