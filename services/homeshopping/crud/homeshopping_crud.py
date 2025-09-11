@@ -66,35 +66,59 @@ async def get_homeshopping_schedule(
     logger.info("DB에서 스케줄 조회 (캐시 미스)")
     
     # 극한 최적화: 더 간단한 Raw SQL 사용
-    # 특정 날짜 조회 - 가격 정보 포함
-    sql_query = """
-    SELECT 
-        hl.live_id,
-        hl.homeshopping_id,
-        hl.live_date,
-        hl.live_start_time,
-        hl.live_end_time,
-        hl.promotion_type,
-        hl.product_id,
-        hl.product_name,
-        hl.thumb_img_url,
-        hi.homeshopping_name,
-        hi.homeshopping_channel,
-        COALESCE(hpi.sale_price, 0) as sale_price,
-        COALESCE(hpi.dc_price, 0) as dc_price,
-        COALESCE(hpi.dc_rate, 0) as dc_rate
-    FROM FCT_HOMESHOPPING_LIST hl
-    INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
-    INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
-    LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
-    WHERE hl.live_date = :live_date
-    AND hc.cls_food = 1
-    ORDER BY hl.live_date ASC, hl.live_start_time ASC, hl.live_id ASC
-    """
-
+    # live_date에 따라 다른 쿼리 사용
     if live_date:
+        # 특정 날짜 조회 - 가격 정보 포함
+        sql_query = """
+        SELECT 
+            hl.live_id,
+            hl.homeshopping_id,
+            hl.live_date,
+            hl.live_start_time,
+            hl.live_end_time,
+            hl.promotion_type,
+            hl.product_id,
+            hl.product_name,
+            hl.thumb_img_url,
+            hi.homeshopping_name,
+            hi.homeshopping_channel,
+            COALESCE(hpi.sale_price, 0) as sale_price,
+            COALESCE(hpi.dc_price, 0) as dc_price,
+            COALESCE(hpi.dc_rate, 0) as dc_rate
+        FROM FCT_HOMESHOPPING_LIST hl
+        INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
+        INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
+        LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
+        WHERE hl.live_date = :live_date
+        AND hc.cls_food = 1
+        ORDER BY hl.live_date ASC, hl.live_start_time ASC, hl.live_id ASC
+        """
         params = {"live_date": live_date}
     else:
+        # 전체 스케줄 조회 - 가격 정보 포함
+        sql_query = """
+        SELECT 
+            hl.live_id,
+            hl.homeshopping_id,
+            hl.live_date,
+            hl.live_start_time,
+            hl.live_end_time,
+            hl.promotion_type,
+            hl.product_id,
+            hl.product_name,
+            hl.thumb_img_url,
+            hi.homeshopping_name,
+            hi.homeshopping_channel,
+            COALESCE(hpi.sale_price, 0) as sale_price,
+            COALESCE(hpi.dc_price, 0) as dc_price,
+            COALESCE(hpi.dc_rate, 0) as dc_rate
+        FROM FCT_HOMESHOPPING_LIST hl
+        INNER JOIN HOMESHOPPING_INFO hi ON hl.homeshopping_id = hi.homeshopping_id
+        INNER JOIN HOMESHOPPING_CLASSIFY hc ON hl.product_id = hc.product_id
+        LEFT JOIN FCT_HOMESHOPPING_PRODUCT_INFO hpi ON hl.product_id = hpi.product_id
+        WHERE hc.cls_food = 1
+        ORDER BY hl.live_date ASC, hl.live_start_time ASC, hl.live_id ASC
+        """
         params = {}
     
     # Raw SQL 실행
