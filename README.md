@@ -1,6 +1,6 @@
 # UHOK Backend
 
-UHOK 레시피 추천 플랫폼의 백엔드 서비스입니다. FastAPI 기반의 마이크로서비스 아키텍처로 구성되어 있으며, 사용자 관리, 주문 처리, 레시피 추천, 로깅 등의 핵심 기능을 제공합니다.
+U+콕&홈쇼핑 기반 사용자 맞춤 식재료 및 레시피 추천 서비스입니다. FastAPI 기반의 마이크로서비스 아키텍처로 구성되어 있으며, 사용자 관리, 주문 처리, 레시피 추천, 로깅 등의 핵심 기능을 제공합니다.
 
 ## 🚀 주요 기능
 
@@ -9,31 +9,56 @@ UHOK 레시피 추천 플랫폼의 백엔드 서비스입니다. FastAPI 기반�
 - **보안 기능**: JWT 블랙리스트, 토큰 검증
 - **사용자 정보 관리**: 프로필 조회 및 관리
 
+### 🏪 홈쇼핑 (HomeShopping Service)
+- **상품 관리**: 홈쇼핑 상품 정보 및 이미지 관리
+- **편성표 조회**: 방송 스케줄 및 채널별 편성표
+- **상품 검색**: 키워드 기반 상품 검색 및 필터링
+- **검색 이력**: 사용자별 검색 기록 관리
+- **상품 상세**: 상품 상세 정보, 이미지, 리뷰 조회
+- **찜 기능**: 상품 찜하기/해제 및 찜 목록 관리
+- **라이브 스트리밍**: 실시간 방송 플레이어 및 URL 관리
+- **상품 분류**: 식재료 기반 상품 분류 시스템
+- **KOK 연동**: 콕 상품 기반 홈쇼핑 상품 추천
+
+### 🛍️ 콕 (KOK Service)
+- **상품 관리**: 콕 상품 정보, 가격, 이미지, 상세 정보 관리
+- **할인 상품**: 특가 상품 조회 및 성능 최적화된 리스트 제공
+- **상품 상세**: 상품 상세 정보, 리뷰, 가격 이력 조회
+- **리뷰 시스템**: 상품 리뷰 조회 및 통계 제공
+- **장바구니**: 상품 장바구니 추가/삭제/수량 변경
+- **찜 기능**: 상품 찜하기/해제 및 찜 목록 관리
+- **검색 기능**: 상품명 기반 검색 및 검색 이력 관리
+- **캐시 최적화**: Redis 기반 캐싱으로 성능 향상
+- **홈쇼핑 연동**: 홈쇼핑 상품 기반 콕 상품 추천
+- **알림 관리**: 상품 관련 알림 및 통지 관리
+
 ### 🛒 주문 관리 (Order Service)
 - **통합 주문 시스템**: 콕(KOK) 및 홈쇼핑 주문 통합 관리
-- **결제 처리**: 외부 결제 API 연동
+- **결제 처리**: 외부 결제 API 연동 및 결제 확인
 - **주문 조회**: 주문 내역, 배송 정보 조회
 - **통계 기능**: 주문 통계 및 분석
+- **폴링 방식**: V1 결제 확인 API (외부 결제 API 응답 대기)
+- **주문 생성**: 콕 및 홈쇼핑 주문 생성 및 관리
+- **결제 상태 관리**: 결제 진행 상태 추적 및 업데이트
 
 ### 🍳 레시피 추천 (Recipe Service)
 - **하이브리드 추천**: 레시피명 기반 + 벡터 유사도 기반 추천
 - **식재료 기반 추천**: 보유 재료 기반 레시피 추천
 - **ML 서비스 연동**: 별도 ML 서비스와 연동하여 임베딩 생성
-
-### 🏪 홈쇼핑 (HomeShopping Service)
-- **상품 관리**: 홈쇼핑 상품 정보 관리
-- **방송 알림**: 방송 스케줄 알림 기능
-- **주문 처리**: 홈쇼핑 전용 주문 처리
-
-### 🛍️ 콕 (KOK Service)
-- **상품 관리**: 콕 상품 정보 및 할인 관리
-- **주문 처리**: 콕 전용 주문 처리
-- **상품 추천**: 상품 기반 추천 시스템
+- **벡터 유사도**: PostgreSQL pgvector를 활용한 고성능 벡터 검색
+- **다국어 지원**: paraphrase-multilingual-MiniLM-L12-v2 모델 사용
+- **재료 매칭**: 식재료 기반 레시피 필터링 및 매칭 알고리즘
+- **성능 최적화**: N+1 쿼리 해결, 캐싱, 비동기 처리
+- **원격 ML 어댑터**: ML 서비스와의 HTTP 통신 관리
 
 ### 📊 로깅 (Log Service)
 - **사용자 행동 로그**: 사용자 활동 추적 및 분석
-- **이벤트 로그**: 시스템 이벤트 기록
-- **성능 모니터링**: API 성능 및 에러 추적
+- **이벤트 로그**: 시스템 이벤트 기록 (회원가입, 로그인, 주문, 결제 등)
+- **구조화된 로깅**: JSON 형식의 일관된 로그 구조
+- **이벤트 타입 관리**: 표준화된 이벤트 타입 체계
+- **사용자별 로그 조회**: 특정 사용자의 로그 이력 조회
+- **실시간 로그 적재**: BackgroundTasks를 통한 비동기 로그 처리
+- **분석 지원**: 사용자 분석, 추천, 마케팅, 통계 활용
 
 ## 🏗️ 아키텍처
 
@@ -54,12 +79,12 @@ uhok-backend/
 │   ├── dependencies.py     # 의존성 주입
 │   └── config.py          # 설정 관리
 ├── services/               # 비즈니스 서비스
-│   ├── user/              # 사용자 관리
-│   ├── order/             # 주문 관리
-│   ├── recipe/            # 레시피 추천
-│   ├── homeshopping/      # 홈쇼핑
-│   ├── kok/               # 콕
-│   └── log/               # 로그
+│   ├── user/              # 사용자 관리 (JWT 인증, 블랙리스트)
+│   ├── order/             # 주문 관리 (콕/홈쇼핑 통합, 결제 처리)
+│   ├── recipe/            # 레시피 추천 (ML 연동, 벡터 검색)
+│   ├── homeshopping/      # 홈쇼핑 (편성표, 검색, 찜, 라이브)
+│   ├── kok/               # 콕 (상품, 장바구니, 리뷰, 캐시)
+│   └── log/               # 로그 (사용자 행동, 이벤트 추적)
 └── docs/                  # 문서
 ```
 
@@ -149,12 +174,36 @@ docker run -p 9000:9000 uhok-backend
 - `POST /api/recommend/ingredient` - 식재료 기반 추천
 
 #### 홈쇼핑
-- `GET /api/homeshopping/products` - 상품 목록
-- `GET /api/homeshopping/schedule` - 방송 스케줄
+- `GET /api/homeshopping/schedule` - 방송 편성표 조회
+- `GET /api/homeshopping/search` - 상품 검색
+- `POST /api/homeshopping/search/history` - 검색 이력 저장
+- `GET /api/homeshopping/search/history` - 검색 이력 조회
+- `DELETE /api/homeshopping/search/history` - 검색 이력 삭제
+- `GET /api/homeshopping/products/{live_id}` - 상품 상세 정보
+- `POST /api/homeshopping/likes/toggle` - 상품 찜하기/해제
+- `GET /api/homeshopping/likes` - 찜한 상품 목록
+- `GET /api/homeshopping/live/{live_id}` - 라이브 스트리밍 URL
+- `GET /api/homeshopping/notifications` - 알림 목록 조회
+- `POST /api/homeshopping/notifications/{notification_id}/read` - 알림 읽음 처리
+- `GET /api/homeshopping/recommend/kok/{kok_product_id}` - 콕 상품 기반 홈쇼핑 추천
 
 #### 콕
-- `GET /api/kok/products` - 콕 상품 목록
-- `GET /api/kok/products/discounted` - 할인 상품
+- `GET /api/kok/discounted` - 할인 상품 목록
+- `GET /api/kok/products/{product_id}` - 상품 상세 정보
+- `GET /api/kok/products/{product_id}/tabs` - 상품 탭 정보
+- `GET /api/kok/products/{product_id}/reviews` - 상품 리뷰 조회
+- `POST /api/kok/cart` - 장바구니 추가
+- `GET /api/kok/cart` - 장바구니 조회
+- `PUT /api/kok/cart/{cart_id}` - 장바구니 수량 변경
+- `DELETE /api/kok/cart/{cart_id}` - 장바구니 삭제
+- `POST /api/kok/likes/toggle` - 상품 찜하기/해제
+- `GET /api/kok/likes` - 찜한 상품 목록
+- `GET /api/kok/search` - 상품 검색
+- `POST /api/kok/search/history` - 검색 이력 저장
+- `GET /api/kok/search/history` - 검색 이력 조회
+- `GET /api/kok/notifications` - 알림 목록 조회
+- `POST /api/kok/notifications/{notification_id}/read` - 알림 읽음 처리
+- `GET /api/kok/recommend/homeshopping/{homeshopping_product_id}` - 홈쇼핑 상품 기반 콕 추천
 
 #### 로깅
 - `POST /log/` - 로그 적재
