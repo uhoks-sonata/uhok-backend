@@ -13,42 +13,41 @@ U+콕&홈쇼핑 기반 사용자 맞춤 식재료 및 레시피 추천 서비스
 - **상품 관리**: 홈쇼핑 상품 정보 및 이미지 관리
 - **편성표 조회**: 방송 스케줄 및 채널별 편성표
 - **상품 검색**: 키워드 기반 상품 검색 및 필터링
-- **검색 이력**: 사용자별 검색 기록 관리
 - **상품 상세**: 상품 상세 정보, 이미지, 리뷰 조회
+- **검색 이력**: 사용자별 검색 기록 관리
 - **찜 기능**: 상품 찜하기/해제 및 찜 목록 관리
 - **라이브 스트리밍**: 실시간 방송 플레이어 및 URL 관리
 - **상품 분류**: 식재료 기반 상품 분류 시스템
 - **KOK 연동**: 콕 상품 기반 홈쇼핑 상품 추천
+- **알림 관리**: 방송송 관련 알림 및 통지 관리
 
 ### 🛍️ 콕 (KOK Service)
 - **상품 관리**: 콕 상품 정보, 가격, 이미지, 상세 정보 관리
 - **할인 상품**: 특가 상품 조회 및 성능 최적화된 리스트 제공
 - **상품 상세**: 상품 상세 정보, 리뷰, 가격 이력 조회
-- **리뷰 시스템**: 상품 리뷰 조회 및 통계 제공
 - **장바구니**: 상품 장바구니 추가/삭제/수량 변경
 - **찜 기능**: 상품 찜하기/해제 및 찜 목록 관리
 - **검색 기능**: 상품명 기반 검색 및 검색 이력 관리
-- **캐시 최적화**: Redis 기반 캐싱으로 성능 향상
 - **홈쇼핑 연동**: 홈쇼핑 상품 기반 콕 상품 추천
 - **알림 관리**: 상품 관련 알림 및 통지 관리
 
 ### 🛒 주문 관리 (Order Service)
 - **통합 주문 시스템**: 콕(KOK) 및 홈쇼핑 주문 통합 관리
-- **결제 처리**: 외부 결제 API 연동 및 결제 확인
-- **주문 조회**: 주문 내역, 배송 정보 조회
-- **통계 기능**: 주문 통계 및 분석
-- **폴링 방식**: V1 결제 확인 API (외부 결제 API 응답 대기)
 - **주문 생성**: 콕 및 홈쇼핑 주문 생성 및 관리
+- **주문 조회**: 주문 내역, 배송 정보 조회
+- **결제 처리**: 외부 결제 API 연동 및 결제 확인
+- ~~**폴링 방식**: V1 결제 확인 API (외부 결제 API 응답 대기)~~
+- **웹훅 방식**: v2 결제 확인 API (외부 결제 API 응답)
 - **결제 상태 관리**: 결제 진행 상태 추적 및 업데이트
+- **주문 조회**: 주문 및및 배송 정보 조회
 
 ### 🍳 레시피 추천 (Recipe Service)
-- **하이브리드 추천**: 레시피명 기반 + 벡터 유사도 기반 추천
-- **식재료 기반 추천**: 보유 재료 기반 레시피 추천
-- **ML 서비스 연동**: 별도 ML 서비스와 연동하여 임베딩 생성
+- **재고 소진 레시피 추천**: 보유 재료 기반 레시피 추천
+- **하이브리드 추천**: MariaDB + PostgreSQL 하이브리드 추천
 - **벡터 유사도**: PostgreSQL pgvector를 활용한 고성능 벡터 검색
-- **다국어 지원**: paraphrase-multilingual-MiniLM-L12-v2 모델 사용
 - **재료 매칭**: 식재료 기반 레시피 필터링 및 매칭 알고리즘
 - **성능 최적화**: N+1 쿼리 해결, 캐싱, 비동기 처리
+- **ML 서비스 연동**: 별도 ML 서비스(BERT 모델)와 연동하여 임베딩 생성
 - **원격 ML 어댑터**: ML 서비스와의 HTTP 통신 관리
 
 ### 📊 로깅 (Log Service)
@@ -56,141 +55,289 @@ U+콕&홈쇼핑 기반 사용자 맞춤 식재료 및 레시피 추천 서비스
 - **이벤트 로그**: 시스템 이벤트 기록 (회원가입, 로그인, 주문, 결제 등)
 - **구조화된 로깅**: JSON 형식의 일관된 로그 구조
 - **이벤트 타입 관리**: 표준화된 이벤트 타입 체계
-- **사용자별 로그 조회**: 특정 사용자의 로그 이력 조회
 - **실시간 로그 적재**: BackgroundTasks를 통한 비동기 로그 처리
-- **분석 지원**: 사용자 분석, 추천, 마케팅, 통계 활용
+- ~~**분석 지원**: 사용자 분석, 추천, 마케팅, 통계 활용~~
 
 ## 🏗️ 아키텍처
 
 ### 기술 스택
 - **웹 프레임워크**: FastAPI 0.116.1 (비동기 처리, 자동 API 문서 생성)
 - **데이터베이스**: 
-  - MariaDB (인증/서비스 데이터) - asyncmy 드라이버
-  - PostgreSQL (로그/추천 데이터) - asyncpg 드라이버, pgvector 확장
+  - MariaDB (사용자자/서비스 데이터) - asyncmy 드라이버(비동기)
+  - PostgreSQL (로그/추천 데이터) - asyncpg 드라이버(비동기기), pgvector 확장
 - **캐시**: Redis 5.2.1 (상품 데이터, 세션 관리)
 - **ML 서비스**: 별도 컨테이너 (uhok-ml-inference) - SentenceTransformer 모델
-- **컨테이너**: Docker, Docker Compose (마이크로서비스 아키텍처)
+- **컨테이너**: Docker (마이크로서비스 아키텍처)
 - **인증**: JWT (HS256), OAuth2PasswordBearer
 - **로깅**: 구조화된 JSON 로깅, BackgroundTasks
 
 ### 마이크로서비스 아키텍처
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    API Gateway (FastAPI)                    │
-│  - CORS 설정, 라우터 통합, 공통 미들웨어                    │
-│  - JWT 인증, 요청/응답 로깅, 헬스체크                       │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-    ┌─────────────────┼─────────────────┐
-    │                 │                 │
-┌───▼───┐    ┌───────▼───────┐    ┌────▼────┐
-│ User  │    │   Order       │    │ Recipe  │
-│ Service│    │   Service     │    │ Service │
-│       │    │               │    │         │
-│ - JWT │    │ - 통합 주문   │    │ - ML    │
-│ - 인증│    │ - 결제 처리   │    │ - 벡터  │
-│ - 회원│    │ - 상태 관리   │    │ - 추천  │
-└───────┘    └───────────────┘    └─────────┘
-    │                 │                 │
-    │    ┌────────────▼────────────┐    │
-    │    │    HomeShopping         │    │
-    │    │    Service              │    │
-    │    │                         │    │
-    │    │ - 편성표 관리           │    │
-    │    │ - 상품 검색             │    │
-    │    │ - 라이브 스트리밍       │    │
-    │    │ - 찜 기능               │    │
-    │    └─────────────────────────┘    │
-    │                 │                 │
-    │    ┌────────────▼────────────┐    │
-    │    │       KOK Service       │    │
-    │    │                         │    │
-    │    │ - 상품 관리             │    │
-    │    │ - 장바구니              │    │
-    │    │ - 리뷰 시스템           │    │
-    │    │ - 캐싱 최적화           │    │
-    │    └─────────────────────────┘    │
-    │                 │                 │
-    │    ┌────────────▼────────────┐    │
-    │    │      Log Service        │    │
-    │    │                         │    │
-    │    │ - 사용자 행동 로그      │    │
-    │    │ - 이벤트 추적           │    │
-    │    │ - 분석 지원             │    │
-    │    └─────────────────────────┘    │
-    │                                   │
-    └───────────────────────────────────┘
-                      │
-    ┌─────────────────┼─────────────────┐
-    │                 │                 │
-┌───▼───┐    ┌───────▼───────┐    ┌────▼────┐
-│MariaDB│    │  PostgreSQL   │    │  Redis   │
-│       │    │  + pgvector   │    │          │
-│ - 인증│    │               │    │ - 캐시   │
-│ - 서비스│  │ - 로그 데이터 │    │ - 세션   │
-│ - 주문│    │ - 벡터 임베딩 │    │ - 상품   │
-└───────┘    └───────────────┘    └─────────┘
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                API Gateway (FastAPI)                                         │
+│  ┌─────────────────────────────────────────────────────────────────────────────────────────┐ │
+│  │ • CORS 설정 (허용된 도메인 관리)                                                          │ │
+│  │ • 라우터 통합 (모든 서비스 엔드포인트 통합 관리)                                            │ │
+│  │ • 공통 미들웨어 (요청/응답 로깅, 헤더 처리)                                                │ │
+│  │ • JWT 인증 (토큰 검증, 권한 확인, 블랙리스트 관리)                                         │ │
+│  │ • 헬스체크 (/api/health, /healthz)                                                      │ │
+│  │ • 에러 핸들링 (표준화된 에러 응답)                                                         │ │
+│  └─────────────────────────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────┬───────────────────────────────────────────────────────────────┘
+                              │ HTTP/HTTPS 요청
+                              ▼
+    ┌─────────────────────────┼─────────────────────────┐
+    │                         │                         │
+┌───▼─────┐    ┌─────────────▼─────────────┐    ┌──────▼──────┐
+│  User   │    │      Order Service        │    │   Recipe    │
+│ Service │    │     (통합 주문 관리)        │    │  Service    │
+│         │    │                           │    │             │
+│ ┌─────┐ │    │ ┌─────────┐ ┌───────────┐ │    │ ┌─────────┐ │
+│ │ JWT │ │    │ │ 콕 주문  │ │홈쇼핑 주문 │ │    │ │ ML 연동  │ │
+│ │인증 │ │    │ │ 처리     │ │ 처리      │ │    │ │ (BERT)  │ │
+│ └─────┘ │    │ └─────────┘ └───────────┘ │    │ └─────────┘ │
+│ ┌─────┐ │    │ ┌─────────┐ ┌───────────┐ │    │ ┌─────────┐ │
+│ │회원가입│ │    │ │ 결제 처리 │ │ 상태 관리  │ │    │ │ 벡터 검색│ │
+│ │로그인 │ │    │ │ (웹훅)  │ │ (자동화)  │ │    │ │ (pgvector)│ │
+│ └─────┘ │    │ └─────────┘ └───────────┘ │    │ └─────────┘ │
+│ ┌─────┐ │    │ ┌─────────┐               │    │ ┌─────────┐ │
+│ │사용자 │ │    │ │ 주문 조회 │               │    │ │ 재료 기반│ │
+│ │정보  │ │    │ │ 배송정보 │               │    │ │ 추천    │ │
+│ └─────┘ │    │ └─────────┘               │    │ └─────────┘ │
+└─────────┘    └───────────────────────────┘    └─────────────┘
+    │                         │                         │
+    │    ┌────────────────────▼────────────────────┐    │
+    │    │         HomeShopping Service            │    │
+    │    │         (홈쇼핑 통합 관리)                │    │
+    │    │                                         │    │
+    │    │ ┌─────────┐ ┌─────────┐ ┌─────────────┐ │    │
+    │    │ │ 편성표   │ │ 상품    │ │ 라이브      │ │    │
+    │    │ │ 관리     │ │ 검색    │ │ 스트리밍    │ │    │
+    │    │ │ (스케줄)│ │ (키워드)│ │ (URL 관리)  │ │    │
+    │    │ └─────────┘ └─────────┘ └─────────────┘ │    │
+    │    │ ┌─────────┐ ┌─────────┐ ┌─────────────┐ │    │
+    │    │ │ 상품    │ │ 찜 기능  │ │ 검색 이력   │ │    │
+    │    │ │ 분류    │ │ 관리     │ │ 관리        │ │    │
+    │    │ │ (식재료)│ │ (좋아요) │ │ (개인화)    │ │    │
+    │    │ └─────────┘ └─────────┘ └─────────────┘ │    │
+    │    │ ┌─────────┐ ┌─────────┐ ┌─────────────┐ │    │
+    │    │ │ KOK     │ │ 레시피   │ │ 알림        │ │    │
+    │    │ │ 연동    │ │ 추천     │ │ 관리        │ │    │
+    │    │ │ (상품)  │ │ (연관)   │ │ (방송/주문) │ │    │
+    │    │ └─────────┘ └─────────┘ └─────────────┘ │    │
+    │    └─────────────────────────────────────────┘    │
+    │                         │                         │
+    │    ┌────────────────────▼────────────────────┐    │
+    │    │            KOK Service                  │    │
+    │    │         (콕 쇼핑몰 관리)                 │    │
+    │    │                                         │    │
+    │    │ ┌─────────┐ ┌─────────┐ ┌─────────────┐ │    │
+    │    │ │ 상품    │ │ 할인    │ │ 상품        │ │    │
+    │    │ │ 관리     │ │ 상품     │ │ 상세        │ │    │
+    │    │ │ (CRUD)  │ │ (특가)  │ │ (리뷰/가격) │ │    │
+    │    │ └─────────┘ └─────────┘ └─────────────┘ │    │
+    │    │ ┌─────────┐ ┌─────────┐ ┌─────────────┐ │    │
+    │    │ │ 장바구니 │ │ 찜 기능  │ │ 검색        │ │    │
+    │    │ │ 관리     │ │ 관리     │ │ 기능        │ │    │
+    │    │ │ (CRUD)  │ │ (좋아요) │ │ (이력)      │ │    │
+    │    │ └─────────┘ └─────────┘ └─────────────┘ │    │
+    │    │ ┌─────────┐ ┌─────────┐ ┌─────────────┐ │    │
+    │    │ │ 홈쇼핑   │ │ 레시피   │ │ 알림        │ │    │
+    │    │ │ 연동     │ │ 추천     │ │ 관리        │ │    │
+    │    │ │ (추천)   │ │ (장바구니)│ │ (상품)      │ │    │
+    │    │ └─────────┘ └─────────┘ └─────────────┘ │    │
+    │    └─────────────────────────────────────────┘    │
+    │                         │                         │
+    │    ┌────────────────────▼────────────────────┐    │
+    │    │             Log Service                 │    │
+    │    │           (통합 로깅 시스템)              │    │
+    │    │                                         │    │
+    │    │ ┌─────────┐ ┌─────────┐ ┌─────────────┐ │    │
+    │    │ │ 사용자   │ │ 이벤트   │ │ 시스템      │ │    │
+    │    │ │ 행동 로그│ │ 로그     │ │ 로그        │ │    │
+    │    │ │ (클릭)  │ │ (주문)   │ │ (에러)      │ │    │
+    │    │ └─────────┘ └─────────┘ └─────────────┘ │    │
+    │    └─────────────────────────────────────────┘    │
+    │                                                   │
+    └───────────────────────────────────────────────────┘
+                              │
+    ┌─────────────────────────┼─────────────────────────┐
+    │                         │                         │
+┌───▼─────┐    ┌─────────────▼─────────────┐    ┌──────▼──────┐
+│MariaDB  │    │      PostgreSQL           │    │   Redis     │
+│(AUTH_DB)│    │    + pgvector 확장        │    │   캐시      │
+│         │    │                           │    │             │
+│ ┌─────┐ │    │ ┌─────────┐ ┌───────────┐ │    │ ┌─────────┐ │
+│ │ 사용자│ │    │ │ 로그    │ │ 벡터      │ │    │ │ 상품     │ │
+│ │ 인증 │ │    │ │ 데이터   │ │ 임베딩    │ │    │ │ 캐시     │ │
+│ │ 정보 │ │    │ │ (LOG_DB)│ │ (REC_DB)  │ │    │ │ (5분TTL)│ │
+│ └─────┘ │    │ └─────────┘ └───────────┘ │    │ └─────────┘ │
+│ ┌─────┐ │    │ ┌─────────┐ ┌───────────┐ │    │ ┌─────────┐ │
+│ │ 서비스│ │    │ │ 사용자   │ │ 레시피     │ │    │ │ 세션     │ │
+│ │ 데이터│ │    │ │ 행동     │ │ 메타데이터 │ │    │ │ 관리     │ │
+│ │(SERVICE│ │  │ │ 로그     │ │ (HNSW     │ │    │ │ (JWT     │ │
+│ │ _DB)  │ │  │ │ (구조화)  │ │ 인덱스)   │ │    │ │ 블랙리스트)│ │
+│ └─────┘ │    │ └─────────┘ └───────────┘ │    │ └─────────┘ │
+│         │    │                           │    │ ┌─────────┐ │
+│         │    │                           │    │ │ 검색     │ │
+│         │    │                           │    │ │ 결과     │ │
+│         │    │                           │    │ │ 캐시     │ │
+│         │    │                           │    │ │         │ │
+│         │    │                           │    │ └─────────┘ │
+└─────────┘    └───────────────────────────┘    └─────────────┘
+    │                         │                         │
+    │ ┌─────────────────────────────────────────────────▼─┐
+    │ │              External Services                    │
+    │ │                                                   │
+    │ │ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐  │
+    │ │ │ ML Inference│ │ Payment     │ │ ETL         │  │
+    │ │ │ Service     │ │ Server      │ │ Pipeline    │  │
+    │ │ │             │ │             │ │ (Airflow)   │  │
+    │ │ │ • BERT      │ │ • 결제 처리  │ │ • 데이터 수집│  │
+    │ │ │ • 임베딩     │ │ • 웹훅       │ │ • 전처리     │  │
+    │ │ │ • 벡터화     │ │             │ │ • 적재      │  │
+    │ │ └─────────────┘ └─────────────┘ └─────────────┘  │
+    │ └─────────────────────────────────────────────────┘
+    │
+┌───▼─────────────────────────────────────────────────────┐
+│                  데이터 흐름 및 통신                      │
+│                                                         │
+│ • HTTP ~~/HTTPS~~ API 호출 (비동기)                      │
+│ • Redis Pub/Sub (비동기 이벤트)                           │
+│ • BackgroundTasks (로깅)                                 │
+│ • Docker 네트워크 (서비스 간 통신)                         │
+│ • 웹훅 (결제 서버 → 백엔드)                                │
+│ • ~~WebSocket (실시간 스트리밍, 향후)  ~~                  │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ### 서비스 구조
 ```
 uhok-backend/
-├── gateway/                 # API Gateway (진입점)
-│   └── main.py             # FastAPI 앱, 라우터 통합, CORS 설정
-├── common/                  # 공통 모듈
-│   ├── auth/               # JWT 인증 및 보안
-│   │   └── jwt_handler.py  # 토큰 생성/검증, 블랙리스트 관리
-│   ├── database/           # DB 연결 관리
-│   │   ├── base_mariadb.py # MariaDB 기본 설정
-│   │   ├── base_postgres.py# PostgreSQL 기본 설정
-│   │   ├── mariadb_auth.py # 인증 DB 연결
-│   │   ├── mariadb_service.py # 서비스 DB 연결
-│   │   ├── postgres_log.py # 로그 DB 연결
-│   │   └── postgres_recommend.py # 추천 DB 연결
-│   ├── dependencies.py     # FastAPI 의존성 주입
-│   ├── config.py          # 환경 변수 및 설정 관리
-│   ├── log_utils.py       # 로깅 유틸리티
-│   └── keyword_extraction.py # 키워드 추출 로직
-├── services/               # 비즈니스 서비스
-│   ├── user/              # 사용자 관리
-│   │   ├── models/        # SQLAlchemy 모델
-│   │   ├── schemas/       # Pydantic 스키마
-│   │   ├── crud/          # 데이터베이스 CRUD
-│   │   └── routers/       # FastAPI 라우터
-│   ├── order/             # 주문 관리 (통합)
-│   │   ├── models/        # 주문, 결제 모델
-│   │   ├── schemas/       # 주문, 결제 스키마
-│   │   ├── crud/          # 주문 CRUD, 결제 로직
-│   │   └── routers/       # 주문, 결제, 웹훅 라우터
-│   ├── recipe/            # 레시피 추천
-│   │   ├── models/        # 레시피 모델
-│   │   ├── schemas/       # 추천 스키마
-│   │   ├── crud/          # 추천 CRUD
-│   │   ├── utils/         # ML 연동, 벡터 검색
-│   │   └── routers/       # 추천 라우터
-│   ├── homeshopping/      # 홈쇼핑
-│   │   ├── models/        # 홈쇼핑 모델
-│   │   ├── schemas/       # 홈쇼핑 스키마
-│   │   ├── crud/          # 홈쇼핑 CRUD
-│   │   ├── utils/         # 키워드 추출, 추천
-│   │   ├── static/        # 정적 파일 (JS, CSS)
-│   │   ├── templates/     # HTML 템플릿
-│   │   └── routers/       # 홈쇼핑 라우터
-│   ├── kok/               # 콕 쇼핑몰
-│   │   ├── models/        # 콕 모델
-│   │   ├── schemas/       # 콕 스키마
-│   │   ├── crud/          # 콕 CRUD
-│   │   ├── utils/         # 캐시 관리, 추천
-│   │   └── routers/       # 콕 라우터
-│   └── log/               # 로깅
-│       ├── models/        # 로그 모델
-│       ├── schemas/       # 로그 스키마
-│       ├── crud/          # 로그 CRUD
-│       └── routers/       # 로그 라우터
-└── docs/                  # 문서
-    ├── backend_structure_v_0.4.md
-    ├── logging_guide.md
-    └── query_optimization_summary.md
+├── cache/                                      # 캐시 파일
+│   └── combination_cache.json                  # 조합 추천 캐시
+├── common/                                     # 공통 모듈
+│   ├── auth/                                   # JWT 인증 및 보안
+│   │   └── jwt_handler.py                      # 토큰 생성/검증, 블랙리스트 관리
+│   ├── database/                               # DB 연결 관리
+│   │   ├── base_mariadb.py                     # MariaDB 기본 설정
+│   │   ├── base_postgres.py                    # PostgreSQL 기본 설정
+│   │   ├── mariadb_auth.py                     # 인증 DB 연결
+│   │   ├── mariadb_service.py                  # 서비스 DB 연결
+│   │   ├── postgres_log.py                     # 로그 DB 연결
+│   │   └── postgres_recommend.py               # 추천 DB 연결
+│   ├── dependencies.py                         # FastAPI 의존성 주입
+│   ├── errors.py                               # 커스텀 예외 정의
+│   ├── http_dependencies.py                    # HTTP 관련 의존성
+│   ├── http_log_middleware.py                  # HTTP 로깅 미들웨어
+│   ├── config.py                               # 환경 변수 및 설정 관리
+│   ├── log_utils.py                            # 로깅 유틸리티
+│   ├── logger.py                               # 로거 설정
+│   ├── logging_config.py                       # 로깅 설정
+│   ├── keyword_extraction.py                   # 키워드 추출 로직
+│   └── utils.py                                # 공통 유틸리티
+├── gateway/                                    # API Gateway (진입점)
+│   └── main.py                                 # FastAPI 앱, 라우터 통합, CORS 설정
+├── services/                                   # 비즈니스 서비스
+│   ├── homeshopping/                           # 홈쇼핑
+│   │   ├── models/                             # 홈쇼핑 모델
+│   │   │   └── homeshopping_model.py           # 홈쇼핑 모델
+│   │   ├── schemas/                            # 홈쇼핑 스키마
+│   │   │   └── homeshopping_schema.py          # 홈쇼핑 스키마
+│   │   ├── crud/                               # 홈쇼핑 CRUD
+│   │   │   └── homeshopping_crud.py            # 홈쇼핑 CRUD
+│   │   ├── utils/                              # 키워드 추출, 추천
+│   │   │   ├── cache_manager.py                # 캐시 관리
+│   │   │   ├── memory_cache_manager.py         # 메모리 캐시 관리
+│   │   │   ├── homeshopping_kok.py             # 홈쇼핑-콕 연동
+│   │   │   └── cleanup_duplicate_likes.py      # 중복 찜 정리
+│   │   ├── static/                             # 정적 파일 (JS, CSS)
+│   │   │   └── js/
+│   │   │       └── live_player.js              # 라이브 플레이어 JS
+│   │   ├── templates/                          # HTML 템플릿
+│   │   │   └── live_stream.html                # 라이브 스트림 템플릿
+│   │   ├── routers/                            # 홈쇼핑 라우터
+│   │   │   └── homeshopping_router.py          # 홈쇼핑 라우터
+│   │   └── broadcast_notification_scheduler.py # 방송 알림 스케줄러
+│   ├── kok/                                    # 콕 쇼핑몰
+│   │   ├── models/                             # 콕 모델
+│   │   │   └── kok_model.py                    # 콕 모델
+│   │   ├── schemas/                            # 콕 스키마
+│   │   │   └── kok_schema.py                   # 콕 스키마
+│   │   ├── crud/                               # 콕 CRUD
+│   │   │   └── kok_crud.py                     # 콕 CRUD
+│   │   ├── utils/                              # 캐시 관리, 추천
+│   │   │   ├── cache_utils.py                  # 캐시 유틸리티
+│   │   │   └── kok_homeshopping.py             # 콕-홈쇼핑 연동
+│   │   └── routers/                            # 콕 라우터
+│   │       └── kok_router.py                   # 콕 라우터
+│   ├── log/                                    # 로깅
+│   │   ├── models/                             # 로그 모델
+│   │   │   └── log_model.py                    # 로그 통합 모델
+│   │   ├── schemas/                            # 로그 스키마
+│   │   │   ├── user_activity_schema.py         # 사용자 활동 스키마
+│   │   │   └── user_event_log_schema.py        # 사용자 이벤트 스키마
+│   │   ├── crud/                               # 로그 CRUD
+│   │   │   ├── user_activity_log_crud.py       # 사용자 활동 로그 CRUD
+│   │   │   └── user_event_log_crud.py          # 사용자 이벤트 로그 CRUD
+│   │   └── routers/                            # 로그 라우터
+│   │       ├── user_activity_log_routers.py    # 사용자 활동 로그 라우터
+│   │       └── user_event_log_router.py        # 사용자 이벤트 로그 라우터
+│   ├── order/                                  # 주문 관리 (통합)
+│   │   ├── models/                             # 주문, 결제 모델
+│   │   │   └── order_model.py                  # 주문 통합 모델
+│   │   ├── schemas/                            # 주문, 결제 스키마
+│   │   │   ├── order_schema.py                 # 주문 스키마
+│   │   │   ├── hs_order_schema.py              # 홈쇼핑 주문 스키마
+│   │   │   ├── kok_order_schema.py             # 콕 주문 스키마
+│   │   │   ├── payment_schema.py               # 결제 스키마
+│   │   │   └── common_schema.py                # 공통 스키마
+│   │   ├── crud/                               # 주문 CRUD, 결제 로직
+│   │   │   ├── order_crud.py                   # 주문 공통 CRUD
+│   │   │   ├── order_common.py                 # 주문 공통 로직
+│   │   │   ├── hs_order_crud.py                # 홈쇼핑 주문 CRUD
+│   │   │   ├── kok_order_crud.py               # 콕 주문 CRUD
+│   │   │   └── payment_crud.py                 # 결제 CRUD
+│   │   └── routers/                            # 주문, 결제, 웹훅 라우터
+│   │       ├── order_router.py                 # 주문 통합 라우터
+│   │       ├── hs_order_router.py              # 홈쇼핑 주문 라우터
+│   │       ├── kok_order_router.py             # 콕 주문 라우터
+│   │       └── payment_router.py               # 결제 라우터
+│   ├── recipe/                                 # 레시피 추천
+│   │   ├── models/                             # 레시피 모델
+│   │   │   └── recipe_model.py                 # 레시피 모델
+│   │   ├── schemas/                            # 추천 스키마
+│   │   │   └── recipe_schema.py                # 레시피 스키마
+│   │   ├── crud/                               # 추천 CRUD
+│   │   │   └── recipe_crud.py                  # 레시피 CRUD
+│   │   ├── utils/                              # ML 연동, 벡터 검색
+│   │   │   ├── remote_ml_adapter.py            # ML 서비스 연동
+│   │   │   ├── recommend_service.py            # 추천 서비스
+│   │   │   ├── ingredient_matcher.py           # 재료 매칭
+│   │   │   ├── inventory_recipe.py             # 재고 기반 레시피
+│   │   │   ├── combination_tracker.py          # 조합 추적
+│   │   │   ├── product_recommend.py            # 상품 추천
+│   │   │   ├── core.py                         # 핵심 추천 로직
+│   │   │   ├── ports.py                        # 포트 인터페이스
+│   │   │   └── simple_cache.py                 # 간단 캐시
+│   │   └── routers/                            # 추천 라우터
+│   │       └── recipe_router.py                # 레시피 라우터
+│   └── user/                                   # 사용자 관리
+│       ├── models/                             # SQLAlchemy 모델
+│       │   ├── user_model.py                   # 사용자 모델
+│       │   └── jwt_blacklist_model.py          # JWT 블랙리스트 모델
+│       ├── schemas/                            # Pydantic 스키마
+│       │   └── user_schema.py                  # 사용자 스키마
+│       ├── crud/                               # 데이터베이스 CRUD
+│       │   ├── user_crud.py                    # 사용자 CRUD
+│       │   └── jwt_blacklist_crud.py           # JWT 블랙리스트 CRUD
+│       └── routers/                            # FastAPI 라우터
+│           └── user_router.py                  # 사용자 라우터
+├── alembic_mariadb_auth.ini                    # MariaDB 마이그레이션 설정
+├── alembic_postgres_log.ini                    # PostgreSQL 마이그레이션 설정
+├── logging_config_example.env                  # 로깅 설정 예시
+├── Dockerfile                                  # Docker 설정
+└── requirements.txt                            # Python 의존성
 ```
 
 ### 데이터 흐름
@@ -212,16 +359,10 @@ uhok-backend/
 
 ### 환경 설정
 
-1. **저장소 클론**
-```bash
-git clone <repository-url>
-cd uhok-backend
-```
-
-2. **환경 변수 설정**
+1. **환경 변수 설정**
 ```bash
 # .env 파일 생성
-cp .env.example .env
+touch .env
 
 # 환경 변수 설정 (예시)
 APP_NAME=uhok-backend
@@ -264,12 +405,13 @@ PAYMENT_WEBHOOK_SECRET=your_webhook_secret_key
 SERVICE_AUTH_TOKEN=your_auth_token
 ```
 
-3. **의존성 설치**
+2. **의존성 설치**
 ```bash
 pip install -r requirements.txt
 ```
 
-4. **데이터베이스 마이그레이션**
+~~
+3. **데이터베이스 마이그레이션**
 ```bash
 # MariaDB 마이그레이션
 alembic -c alembic_mariadb_auth.ini upgrade head
@@ -277,8 +419,9 @@ alembic -c alembic_mariadb_auth.ini upgrade head
 # PostgreSQL 마이그레이션
 alembic -c alembic_postgres_log.ini upgrade head
 ```
+~~
 
-5. **서비스 실행**
+4. **서비스 실행**
 ```bash
 # 개발 모드
 uvicorn gateway.main:app --host 0.0.0.0 --port 9000 --reload
@@ -296,48 +439,16 @@ docker run -p 9000:9000 uhok-backend
 - `POST /api/user/signup` - 회원가입
 - `POST /api/user/login` - 로그인 (OAuth2PasswordRequestForm)
 - `POST /api/user/logout` - 로그아웃
-- `GET /api/user/check-email` - 이메일 중복 확인
+- `GET /api/user/signup/email/check` - 이메일 중복 확인
 - `GET /api/user/info` - 사용자 정보 조회 (JWT 인증 필요)
-
-#### 🛒 주문 관리 (Order Service)
-**통합 주문 조회**
-- `GET /api/orders` - 주문 목록 조회 (페이징 지원)
-- `GET /api/orders/{order_id}` - 주문 상세 조회
-- `GET /api/orders/{order_id}/delivery` - 배송 정보 조회
-
-**콕 주문**
-- `POST /api/orders/kok/carts/order` - 장바구니에서 주문 생성
-- `GET /api/orders/kok/{kok_order_id}` - 콕 주문 상세 조회
-- `PATCH /api/orders/kok/{kok_order_id}/status` - 콕 주문 상태 업데이트
-- `GET /api/orders/kok/{kok_order_id}/status-history` - 주문 상태 이력 조회
-- `POST /api/orders/kok/{kok_order_id}/auto-update` - 자동 상태 업데이트 시작
-- `GET /api/orders/kok/notifications` - 콕 주문 알림 조회
-
-**홈쇼핑 주문**
-- `POST /api/orders/homeshopping/order` - 홈쇼핑 주문 생성
-- `GET /api/orders/homeshopping/{hs_order_id}` - 홈쇼핑 주문 상세 조회
-- `GET /api/orders/homeshopping/{hs_order_id}/status-history` - 주문 상태 이력 조회
-- `POST /api/orders/homeshopping/{hs_order_id}/auto-update` - 자동 상태 업데이트 시작
-
-#### 💳 결제 관리 (Payment Service)
-- `POST /api/orders/payment/{order_id}/confirm/v1` - V1 결제 확인 (폴링 방식)
-- `POST /api/orders/payment/{order_id}/confirm/v2` - V2 결제 확인 (웹훅 방식)
-- `POST /api/orders/payment/webhook/v2/{tx_id}` - 결제 웹훅 수신
-
-#### 🍳 레시피 추천 (Recipe Service)
-- `GET /api/recipe/by-ingredients` - 식재료 기반 레시피 추천 (페이지별 조합)
-- `GET /api/recipe/search` - 레시피명/식재료 키워드 검색
-- `GET /api/recipe/{recipe_id}/rating` - 레시피 별점 조회
-- `POST /api/recipe/{recipe_id}/rating` - 레시피 별점 등록
-- `GET /api/recipe/{recipe_id}/status` - 레시피 식재료 상태 조회
-- `GET /api/recipe/cache/stats` - 레시피 캐시 통계 조회
 
 #### 🏪 홈쇼핑 (HomeShopping Service)
 **편성표 및 상품**
 - `GET /api/homeshopping/schedule` - 방송 편성표 조회 (날짜별 필터링)
+- `GET /api/homeshopping/schedule/live-stream` - 라이브 스트림 HTML 페이지
 - `GET /api/homeshopping/search` - 상품 검색 (키워드 기반)
 - `GET /api/homeshopping/product/{live_id}` - 상품 상세 정보
-- `GET /api/homeshopping/live/{live_id}` - 라이브 스트리밍 URL
+- `GET /api/homeshopping/product/{product_id}/check` - 상품 식재료 확인
 
 **검색 이력 관리**
 - `POST /api/homeshopping/search/history` - 검색 이력 저장
@@ -355,23 +466,22 @@ docker run -p 9000:9000 uhok-backend
 **알림 관리**
 - `GET /api/homeshopping/notifications/orders` - 주문 알림 조회
 - `GET /api/homeshopping/notifications/broadcasts` - 방송 알림 조회
-- `POST /api/homeshopping/notifications/{notification_id}/read` - 알림 읽음 처리
 
 #### 🛍️ 콕 (KOK Service)
 **상품 정보**
 - `GET /api/kok/discounted` - 할인 상품 목록 (캐싱 적용)
 - `GET /api/kok/top-selling` - 인기 상품 목록
-- `GET /api/kok/store-best` - 스토어 베스트 상품
-- `GET /api/kok/product/{product_id}` - 상품 상세 정보
+- `GET /api/kok/store-best-items` - 스토어 베스트 상품
+- `GET /api/kok/product/{product_id}/info` - 상품 상세 정보
 - `GET /api/kok/product/{product_id}/tabs` - 상품 탭 정보 (이미지)
 - `GET /api/kok/product/{product_id}/reviews` - 상품 리뷰 조회
 - `GET /api/kok/product/{product_id}/seller-details` - 판매자 상세 정보
 
 **장바구니 관리**
-- `POST /api/kok/cart` - 장바구니 추가
-- `GET /api/kok/cart` - 장바구니 조회
-- `PUT /api/kok/cart/{cart_id}` - 장바구니 수량 변경
-- `DELETE /api/kok/cart/{cart_id}` - 장바구니 삭제
+- `POST /api/kok/carts` - 장바구니 추가
+- `GET /api/kok/carts` - 장바구니 조회
+- `PATCH /api/kok/carts/{cart_id}` - 장바구니 수량 변경
+- `DELETE /api/kok/carts/{cart_id}` - 장바구니 삭제
 - `GET /api/kok/carts/recipe-recommend` - 장바구니 상품 기반 레시피 추천
 
 **찜 기능**
@@ -382,18 +492,58 @@ docker run -p 9000:9000 uhok-backend
 - `GET /api/kok/search` - 상품 검색
 - `POST /api/kok/search/history` - 검색 이력 저장
 - `GET /api/kok/search/history` - 검색 이력 조회
-- `DELETE /api/kok/search/history` - 검색 이력 삭제
+- `DELETE /api/kok/search/history/{history_id}` - 검색 이력 삭제
 
 **추천 기능**
-- `GET /api/kok/recommend/homeshopping/{homeshopping_product_id}` - 홈쇼핑 상품 기반 콕 추천
+- `GET /api/kok/product/homeshopping-recommend` - 홈쇼핑 상품 기반 콕 추천
 
-**알림 관리**
-- `GET /api/kok/notifications` - 알림 목록 조회
-- `POST /api/kok/notifications/{notification_id}/read` - 알림 읽음 처리
+**캐시 관리**
+- `POST /api/kok/cache/invalidate/discounted` - 할인 상품 캐시 무효화
+- `POST /api/kok/cache/invalidate/top-selling` - 인기 상품 캐시 무효화
+- `POST /api/kok/cache/invalidate/store-best` - 스토어 베스트 캐시 무효화
+- `POST /api/kok/cache/invalidate/all` - 전체 캐시 무효화
+
+#### 🛒 주문 관리 (Order Service)
+**통합 주문 조회**
+- `GET /api/orders` - 주문 목록 조회 (페이징 지원)
+- `GET /api/orders/count` - 주문 개수 조회
+- `GET /api/orders/recent` - 최근 주문 조회 (기간별 필터링)
+- `GET /api/orders/{order_id}` - 주문 상세 조회
+
+**콕 주문**
+- `POST /api/orders/kok/carts/order` - 장바구니에서 주문 생성
+- `PATCH /api/orders/kok/{kok_order_id}/status` - 콕 주문 상태 업데이트
+- `GET /api/orders/kok/{kok_order_id}/status` - 콕 주문 상태 조회
+- `GET /api/orders/kok/{kok_order_id}/with-status` - 콕 주문 상세 조회 (상태 포함)
+- `POST /api/orders/kok/{kok_order_id}/auto-update` - 자동 상태 업데이트 시작
+- `GET /api/orders/kok/notifications/history` - 콕 주문 알림 이력 조회
+
+**홈쇼핑 주문**
+- `POST /api/orders/homeshopping/order` - 홈쇼핑 주문 생성
+- `GET /api/orders/homeshopping/{hs_order_id}/status` - 홈쇼핑 주문 상태 조회
+- `GET /api/orders/homeshopping/{hs_order_id}/with-status` - 홈쇼핑 주문 상세 조회 (상태 포함)
+- `POST /api/orders/homeshopping/{hs_order_id}/auto-update` - 자동 상태 업데이트 시작
+
+#### 💳 결제 관리 (Payment Service)
+- `POST /api/orders/payment/{order_id}/confirm/v1` - V1 결제 확인 (폴링 방식)
+- `POST /api/orders/payment/{order_id}/confirm/v2` - V2 결제 확인 (웹훅 방식)
+- `POST /api/orders/payment/webhook/v2/{tx_id}` - 결제 웹훅 수신
+
+#### 🍳 레시피 추천 (Recipe Service)
+- `GET /api/recipes/by-ingredients` - 식재료 기반 레시피 추천 (페이지별 조합)
+- `GET /api/recipes/search` - 레시피명/식재료 키워드 검색
+- `GET /api/recipes/{recipe_id}` - 레시피 상세 조회
+- `GET /api/recipes/{recipe_id}/url` - 레시피 URL 조회
+- `GET /api/recipes/{recipe_id}/rating` - 레시피 별점 조회
+- `POST /api/recipes/{recipe_id}/rating` - 레시피 별점 등록
+- `GET /api/recipes/{recipe_id}/status` - 레시피 식재료 상태 조회
+- `GET /api/recipes/{ingredient}/product-recommend` - 식재료 기반 상품 추천
+- `GET /api/recipes/cache/stats` - 레시피 캐시 통계 조회
 
 #### 📊 로깅 (Log Service)
 **사용자 이벤트 로그**
 - `POST /api/log/user/event` - 사용자 이벤트 로그 기록
+- `GET /api/log/user/event` - 로그 서비스 루트
 - `GET /api/log/user/event/{user_id}` - 사용자별 이벤트 로그 조회
 - `GET /api/log/user/event/health` - 로그 서비스 헬스체크
 
@@ -480,35 +630,6 @@ async def get_product(product_id: int):
     return product
 ```
 
-### 새로운 서비스 추가
-
-1. **서비스 디렉토리 생성**
-```bash
-mkdir -p services/new_service/{models,schemas,crud,routers,utils}
-touch services/new_service/__init__.py
-```
-
-2. **기본 파일 생성**
-- `models/new_service_model.py`: SQLAlchemy 모델
-- `schemas/new_service_schema.py`: Pydantic 스키마
-- `crud/new_service_crud.py`: 데이터베이스 CRUD 함수
-- `routers/new_service_router.py`: FastAPI 라우터
-- `utils/new_service_utils.py`: 유틸리티 함수
-
-3. **Gateway에 라우터 등록**
-```python
-# gateway/main.py
-from services.new_service.routers.new_service_router import router as new_service_router
-app.include_router(new_service_router)
-```
-
-4. **데이터베이스 마이그레이션**
-```bash
-# Alembic 마이그레이션 파일 생성
-alembic revision --autogenerate -m "Add new service tables"
-alembic upgrade head
-```
-
 ### 코딩 컨벤션
 
 #### 1. 타입 힌트
@@ -549,6 +670,20 @@ logger.info(f"주문 생성 시작: user_id={user_id}, order_data={order_data}")
 logger.error(f"주문 생성 실패: user_id={user_id}, error={str(e)}")
 ```
 
+### 성능 최적화 가이드
+
+#### 1. 데이터베이스 쿼리 최적화
+- N+1 쿼리 문제 해결을 위한 JOIN 사용
+- 인덱스 최적화 및 쿼리 실행 계획 분석
+- 비동기 드라이버 사용으로 동시성 향상
+
+#### 2. 캐싱 전략
+- Redis를 활용한 자주 조회되는 데이터 캐싱
+- 메모리 캐싱을 통한 계산 결과 재사용
+- CDN을 활용한 정적 파일 최적화
+
+## 🧪 테스트
+
 ### 테스트 가이드
 
 #### 1. 단위 테스트
@@ -570,21 +705,6 @@ def test_get_products(client):
     assert response.status_code == 200
     assert "products" in response.json()
 ```
-
-### 성능 최적화 가이드
-
-#### 1. 데이터베이스 쿼리 최적화
-- N+1 쿼리 문제 해결을 위한 JOIN 사용
-- 인덱스 최적화 및 쿼리 실행 계획 분석
-- 비동기 드라이버 사용으로 동시성 향상
-
-#### 2. 캐싱 전략
-- Redis를 활용한 자주 조회되는 데이터 캐싱
-- 메모리 캐싱을 통한 계산 결과 재사용
-- CDN을 활용한 정적 파일 최적화
-
-
-## 🧪 테스트
 
 ### 단위 테스트 실행
 ```bash
