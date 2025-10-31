@@ -1,14 +1,11 @@
 # -*- coding: utf-8 -*-
 # utils.py — 공통 유틸 + DB 연결 + 필터/정규화
-
-import os
 import re
 import pandas as pd
 import numpy as np
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
-from common.database.mariadb_service import get_maria_service_db
 
 # 환경변수 로드
 load_dotenv()

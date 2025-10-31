@@ -3,7 +3,7 @@
 - 변수는 소문자, DB 컬럼명은 대문자로 명시적 매핑
 """
 
-from sqlalchemy import Column, Integer, String, ForeignKey, BigInteger, Text
+from sqlalchemy import Column, Integer, String, ForeignKey, BigInteger
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 

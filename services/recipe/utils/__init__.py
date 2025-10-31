@@ -18,16 +18,7 @@ from .ports import (
     VectorSearcherPort
 )
 
-from .core import (
-    recommend_by_recipe_name_core
-)
 
-from .recommend_service import (
-    DBVectorRecommender,
-    LocalRecommender,
-    get_db_vector_searcher,
-    get_recommender
-)
 
 __all__ = [
     # 기존 recommendation_utils
@@ -41,13 +32,4 @@ __all__ = [
     # ports
     "RecommenderPort",
     "VectorSearcherPort",
-    
-    # core
-    "recommend_by_recipe_name_core",
-    
-    # recommend_service
-    "DBVectorRecommender",
-    "LocalRecommender",
-    "get_db_vector_searcher",
-    "get_recommender"
 ]

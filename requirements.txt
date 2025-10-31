@@ -9,9 +9,9 @@ typing-inspection==0.4.1       # 타입 힌트 내부 구조 해석에 사용 (�
 annotated-types==0.7.0         # Pydantic에서 타입 힌트 주석(Annotated) 지원을 위해 사용
 python-jose==3.5.0             # JWT 토큰 생성 및 검증 (서버 인증/인가에 사용)
 python-multipart==0.0.20       # 파일 업로드/멀티파트 폼 파싱 지원 (FastAPI에서 Form, UploadFile 지원)
-pyyaml==6.0.2                  # YAML 포맷 파싱용 (설정 파일 등 사용 가능)
-click==8.2.1                   # CLI(Command Line Interface) 구현용 라이브러리
-schedule==1.2.2                # 작업 스케줄링 라이브러리 (주기적 작업 실행)
+# pyyaml==6.0.2                  # YAML 포맷 파싱용 (설정 파일 등 사용 가능)
+# click==8.2.1                   # CLI(Command Line Interface) 구현용 라이브러리
+# schedule==1.2.2                # 작업 스케줄링 라이브러리 (주기적 작업 실행)
 
 # ==================== [비동기/웹 프레임워크/실행환경] ====================
 fastapi==0.116.1               # Python 비동기 웹 프레임워크 (API 서버 핵심)
@@ -23,7 +23,7 @@ watchfiles==1.1.0              # 코드 변경 시 자동 재시작 기능 (Fast
 websockets==15.0.1             # WebSocket 구현 (FastAPI 실시간 통신 기능 지원)
 requests==2.32.4              # 외부 API 호출(로그 적재 등)용, BackgroundTasks에서 사용
 httpx==0.28.1                  # 비동기 HTTP 클라이언트 (FastAPI와 함께 사용 시 권장, 테스트 등에 유용)
-jinja2==3.1.2                  # 템플릿 엔진 (FastAPI Jinja2Templates 사용)
+# jinja2==3.1.2                  # 템플릿 엔진 (FastAPI Jinja2Templates 사용)
 
 # ==================== [DB/ORM/마이그레이션] ====================
 sqlalchemy==2.0.42             # ORM 및 데이터베이스 연결/쿼리용 라이브러리
@@ -49,4 +49,4 @@ pandas==2.3.1                  # 데이터프레임/분석 라이브러리
 numpy==2.3.2                   # 수치계산/배열 처리 핵심 라이브러리
 
 # ==================== [캐싱/성능 최적화] ====================
-redis==5.2.1                   # Redis 클라이언트 (캐싱 및 성능 최적화용)
+# redis==5.2.1                   # Redis 클라이언트 (캐싱 및 성능 최적화용)

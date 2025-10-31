@@ -4,9 +4,6 @@ Recipe 추천 시스템 유틸리티
 - 순차적 재고 소진 알고리즘
 - 레시피 추천 관련 유틸리티 함수들
 """
-
-import copy
-import pandas as pd
 from typing import List, Dict, Optional, Tuple, Set
 from common.logger import get_logger
 

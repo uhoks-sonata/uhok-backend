@@ -1,143 +1,67 @@
-# Recommend Service
+# Recipe Service: 아키텍처 및 유틸리티
 
-레시피 추천 서비스 (하이브리드 추천 시스템)
+> **문서 요약**: `recipe` 서비스의 핵심 아키텍처, 데이터 흐름, 주요 유틸리티 모듈에 대해 설명합니다.
 
-## 주요 기능
+## 1. 아키텍처 (Microservice)
 
-### 1. 레시피명 기반 추천
-- 정확한 레시피명 일치 우선 추천
-- 벡터 유사도 기반 하이브리드 추천
-- MariaDB와 PostgreSQL 연동
+레시피 추천 기능은 **`uhok-backend`**와 **`uhok-ml-inference`** 두 개의 마이크로서비스로 분리되어 있습니다.
 
-### 2. 식재료 기반 추천
-- 사용자가 보유한 식재료 기반 레시피 추천
-- 재료 매칭 알고리즘
-- MariaDB 기반 처리
-
-### 3. 임베딩 벡터 유사도
-- **ML 서비스 분리**: SentenceTransformer 모델은 `uhok-ml-inference` 서비스로 분리
-- 다국어 지원 (paraphrase-multilingual-MiniLM-L12-v2)
-- pgvector를 활용한 벡터 유사도 계산
-
-## 아키텍처
+- **`uhok-backend`**:
+    - 주 역할: 사용자 요청 처리, 비즈니스 로직 수행, 데이터베이스(MariaDB) 접근
+    - 레시피 검색 요청 시, `uhok-ml-inference` 서비스에 API를 호출하여 결과를 받아옵니다.
+- **`uhok-ml-inference`**:
+    - 주 역할: ML 모델(Sentence Transformer)을 이용한 자연어 처리 및 벡터 검색
+    - 텍스트를 벡터로 변환(Embedding)하고, PostgreSQL(pgvector)에서 유사한 레시피를 검색하여 ID 목록을 반환합니다.
 
 ### 데이터베이스 구조
-- **MariaDB**: 레시피 기본 정보, 재료 정보, 사용자 데이터
-- **PostgreSQL**: 벡터 임베딩 데이터 (pgvector 확장)
+- **MariaDB**: `uhok-backend`가 사용. 레시피, 재료, 사용자 등 핵심 정보 저장.
+- **PostgreSQL**:
+    - `uhok-ml-inference`: 벡터 임베딩 데이터 저장 및 검색 (`pgvector` 확장 기능 사용).
+    - `uhok-backend`: 사용자 이벤트 및 행동 로그 적재.
 
-### 추천 알고리즘
-1. **1차 필터링**: 레시피명 정확 일치 (RANK_TYPE: 0)
-2. **2차 필터링**: 벡터 유사도 기반 추천 (RANK_TYPE: 1)
-3. **결과 병합**: 중복 제거 및 순위 정렬
+## 2. 데이터 흐름 (레시피명 기반 검색)
 
-## API 엔드포인트
+1.  **API 요청**: 사용자가 `uhok-backend`의 `/api/recipes/search` 엔드포인트로 검색어를 보냅니다.
+2.  **ML 서비스 호출**: `uhok-backend`는 `remote_ml_adapter`를 통해 `uhok-ml-inference`의 `/api/v1/search` API를 HTTP로 호출합니다.
+3.  **벡터 검색**: `uhok-ml-inference`는 검색어를 임베딩 벡터로 변환하고, PostgreSQL에서 유사도가 높은 레시피 ID 목록을 찾습니다.
+4.  **ID 목록 반환**: `uhok-ml-inference`가 검색된 레시피 ID 목록을 `uhok-backend`에 반환합니다.
+5.  **상세 정보 조회**: `uhok-backend`는 전달받은 ID 목록을 사용하여 MariaDB에서 각 레시피의 상세 정보를 조회합니다.
+6.  **최종 응답**: `uhok-backend`가 모든 정보를 취합하여 사용자에게 최종 응답을 보냅니다.
 
-### 추천 관련
-- `POST /api/recommend/recipe` - 레시피명 기반 추천
-- `POST /api/recommend/ingredient` - 식재료 기반 추천
+## 3. 핵심 컴포넌트 (`utils` 폴더)
 
-## 핵심 컴포넌트
+- **`remote_ml_adapter.py`**: `uhok-ml-inference` 서비스와의 HTTP 통신을 담당하는 어댑터.
+- **`ports.py`**: 서비스 간의 의존성을 낮추기 위한 추상 인터페이스(Protocol) 정의.
+- **`inventory_recipe.py`**: 재료 소진 알고리즘 등 식재료 기반 추천 관련 유틸리티.
+- **`product_recommend.py`**: 식재료에 대한 콕/홈쇼핑 상품 추천 로직.
+- **`combination_tracker.py`**: 재료 기반 추천 시, 조합별로 사용된 레시피를 추적하는 모듈.
+- **`simple_cache.py`**: 추천 결과를 메모리에 캐싱하여 성능을 향상시키는 모듈.
+- **`unused_*.py`**: 현재 사용되지 않는 레거시 코드 백업 파일.
 
-### 1. ML 서비스 연동
+## 4. 사용 예시 (ML 서비스 연동)
+
+`recipe_router.py`에서는 아래와 같이 `_call_ml_search_service` 헬퍼 함수를 통해 간단하게 ML 서비스를 호출합니다.
+
 ```python
-# ML 서비스는 uhok-ml-inference로 분리됨
-# 백엔드에서는 원격 ML 서비스를 호출하여 임베딩 생성
-from .remote_ml_adapter import RemoteMLAdapter
+# /services/recipe/routers/recipe_router.py
 
-adapter = RemoteMLAdapter()
-embedding = await adapter._get_embedding_from_ml_service("갈비탕")
-```
+from ..utils.remote_ml_adapter import _call_ml_search_service
 
-### 2. 레시피 추천 로직
-```python
-async def _get_recipe_recommendations(df: pd.DataFrame, query: str, top_k: int = 25) -> pd.DataFrame:
-    """
-    레시피명 기반 추천 로직 (내부용)
-    - 레시피명 일치 우선 + 벡터 유사도 기반 하이브리드 추천
-    """
-```
-
-## 데이터 흐름
-
-### 레시피명 기반 추천
-1. **MariaDB 쿼리**: `FCT_RECIPE` 테이블에서 레시피명 일치 검색
-2. **벡터 인코딩**: 검색어를 임베딩 벡터로 변환
-3. **PostgreSQL 쿼리**: `RECIPE_VECTOR_TABLE`에서 벡터 유사도 계산
-4. **결과 병합**: 정확 일치 + 유사도 기반 결과 통합
-5. **상세 정보 조회**: MariaDB에서 레시피 상세 정보 및 재료 정보 조회
-
-### 식재료 기반 추천
-1. **재료 매칭**: `FCT_MTRL` 테이블에서 식재료 기반 레시피 검색
-2. **레시피 정보**: `FCT_RECIPE` 테이블에서 상세 정보 조회
-3. **재료 정보**: `FCT_MTRL` 테이블에서 재료 상세 정보 조회
-
-## 성능 최적화
-
-### 1. ML 서비스 분리
-- SentenceTransformer 모델은 별도 ML 서비스로 분리
-- 백엔드 메모리 사용량 대폭 감소
-- 독립적인 스케일링 가능
-
-### 2. 벡터 유사도 계산
-- PostgreSQL pgvector 확장 활용
-- 효율적인 벡터 연산 및 인덱싱
-
-### 3. 데이터베이스 연결 관리
-- 공통 DB 서비스 활용 (`get_maria_service_db`, `get_postgres_log_db`)
-- 연결 풀링 및 자동 관리
-
-## 환경 설정
-
-### 필요한 환경 변수
-- `MARIADB_SERVICE_URL`: MariaDB 연결 정보
-- `POSTGRES_URL`: PostgreSQL 연결 정보
-- `ML_MODE`: ML 서비스 모드 (기본값: remote_embed)
-- `ML_INFERENCE_URL`: ML 서비스 URL (기본값: http://ml-inference:8001)
-
-### 의존성 패키지
-```txt
-# ML 관련 패키지는 uhok-ml-inference 서비스로 분리됨
-pandas
-numpy
-httpx  # ML 서비스 호출용
-```
-
-## 사용 예시
-
-### 레시피명 기반 추천
-```python
-from services.recommend.recommend_service import _get_recipe_recommendations
-
-# 데이터프레임에서 레시피 추천
-recommendations = await _get_recipe_recommendations(
-    df=recipe_dataframe,
-    query="김치찌개",
-    top_k=25
+# ... router 로직 내에서 ...
+# 'recipe' 메소드일 경우 ML 서비스 호출
+search_results = await _call_ml_search_service(
+    query=recipe,
+    top_k=page * size + 1
 )
+# 결과로 받은 ID 목록 추출
+result_ids = [item['recipe_id'] for item in search_results]
 ```
 
-### ML 서비스 연동
-```python
-from services.recipe.utils.remote_ml_adapter import RemoteMLAdapter
+## 5. 향후 개선 계획
 
-# 원격 ML 서비스 어댑터 생성
-adapter = RemoteMLAdapter()
-
-# 임베딩 생성 (ML 서비스 호출)
-embedding = await adapter._get_embedding_from_ml_service("갈비탕")
-```
-
-## 주의사항
-
-1. **ML 서비스 의존성**: ML 서비스가 실행 중이어야 함
-2. **네트워크 연결**: 백엔드와 ML 서비스 간 네트워크 연결 필요
-3. **벡터 차원**: 현재 384차원 벡터 사용
-4. **데이터베이스 연결**: MariaDB와 PostgreSQL 모두 필요
-5. **비동기 처리**: 모든 추천 함수는 비동기로 구현
-
-## 향후 개선 계획
-
-1. **벡터 인덱싱**: FAISS나 Annoy 등 벡터 인덱스 도입
-2. **캐싱 레이어**: Redis를 활용한 추천 결과 캐싱
-3. **개인화 추천**: 사용자 행동 데이터 기반 협업 필터링
-4. **실시간 학습**: 사용자 피드백 기반 모델 업데이트
+1.  **로그 파이프라인 개선**:
+    - 현재 `uhok-backend`가 직접 PostgreSQL에 쓰는 로그를 **Kafka**로 발행하고, **Spark Streaming**으로 처리하여 최종적으로 OLAP 저장소(e.g., BigQuery)에 적재하는 방식으로 변경하는 것을 고려 중입니다.
+    - **기대 효과**: 이 변경을 통해 `uhok-backend`의 PostgreSQL 직접 접근이 완전히 제거되어, 서비스 간 결합도를 더욱 낮추고 확장성을 높일 수 있습니다.
+2.  **벡터 인덱싱 고도화**: `uhok-ml-inference` 서비스에서 pgvector 대신 FAISS, HNSW 등 고성능 벡터 인덱스를 도입하여 검색 속도 향상.
+3.  **캐싱 레이어 도입**: 추천 결과를 Redis 같은 외부 캐시 저장소에 저장하여 응답 속도 개선.
+4.  **개인화 추천**: 사용자 행동 데이터를 기반으로 한 협업 필터링 모델 도입.
