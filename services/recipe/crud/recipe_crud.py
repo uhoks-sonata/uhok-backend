@@ -8,11 +8,13 @@
 """
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, func
+from sqlalchemy import select, desc, func, text
 from typing import List, Optional, Dict, Tuple
 import pandas as pd
 
 from common.logger import get_logger
+from common.keyword_extraction import extract_kok_keywords, extract_homeshopping_keywords, load_ing_vocab, parse_mariadb_url
+from common.config import get_settings
 # from services.recipe.utils.simple_cache import recipe_cache
 
 from services.homeshopping.models.homeshopping_model import (
@@ -36,9 +38,7 @@ logger = get_logger("recipe_crud")
 async def get_recipe_detail(db: AsyncSession, recipe_id: int) -> Optional[Dict]:
     """
     레시피 상세정보(+재료 리스트, recipe_url 포함) 반환 (최적화: Raw SQL 사용)
-    """
-    from sqlalchemy import text
-    
+    """    
     # logger.info(f"레시피 상세정보 조회 시작: recipe_id={recipe_id}")
     
     # 최적화된 쿼리: 레시피와 재료 정보를 한 번에 조회
@@ -483,9 +483,7 @@ async def fetch_recipe_ingredients_status(
     - 보유: 최근 7일 내 주문한 상품 / 재고 소진에 입력한 식재료
     - 장바구니: 현재 장바구니에 담긴 상품
     - 미보유: 레시피 식재료 중 보유/장바구니 상태를 제외한 식재료
-    """
-    from sqlalchemy import text
-    
+    """    
     # logger.info(f"레시피 식재료 상태 조회 시작: recipe_id={recipe_id}, user_id={user_id}")
     
     # 최적화된 쿼리: 레시피 재료와 주문/장바구니 정보를 한 번에 조회
@@ -725,10 +723,7 @@ async def get_recipe_ingredients_status(
     Returns:
         식재료 상태 정보 딕셔너리
     """
-    from sqlalchemy import text
-    from common.keyword_extraction import extract_kok_keywords, extract_homeshopping_keywords, load_ing_vocab, parse_mariadb_url
-    from common.config import get_settings
-    
+   
     # logger.info(f"레시피 식재료 상태 조회 시작: user_id={user_id}, recipe_id={recipe_id}")
     
     try:
