@@ -3,18 +3,22 @@ import os
 import asyncio
 import httpx
 import json
-from fastapi import HTTPException, BackgroundTasks
-from typing import Dict, Any, Optional, Tuple
+import time
+import hmac, hashlib, base64, secrets
+
+from fastapi import HTTPException, BackgroundTasks, Request
+from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
 from dotenv import load_dotenv
-from sqlalchemy import select, func, text
+from sqlalchemy import select, desc, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.log_utils import send_user_log
 from common.logger import get_logger
+from common.config import get_settings
 
-from services.order.models.order_model import KokOrderStatusHistory, HomeShoppingOrderStatusHistory
-from services.order.schemas.payment_schema import PaymentConfirmV1Request, PaymentConfirmV1Response
+from services.order.models.order_model import StatusMaster, KokOrderStatusHistory, HomeShoppingOrderStatusHistory
+from services.order.schemas.payment_schema import PaymentConfirmV1Request, PaymentConfirmV1Response, PaymentConfirmV2Response
 from services.order.crud.order_crud import (
     _ensure_order_access, 
     calculate_order_total_price, 
@@ -37,10 +41,7 @@ async def _verify_order_status_for_payment(
     결제 생성 전 주문 상태 확인
     - kok_order와 hs_order의 상태가 ORDER_RECEIVED인지 확인
     - ORDER_RECEIVED가 아닌 경우 결제 생성 불가
-    """
-    from services.order.models.order_model import StatusMaster, KokOrderStatusHistory, HomeShoppingOrderStatusHistory
-    from sqlalchemy import select, desc
-    
+    """   
     logger.info(f"결제 생성 전 주문 상태 확인 시작")
     
     # ORDER_RECEIVED 상태 ID 조회
@@ -309,12 +310,6 @@ async def confirm_payment_and_update_status_v1(
 # ===========================================================================
 
 # === [v2: Webhook-based payment flow] =======================================
-import hmac, hashlib, base64, secrets
-from typing import Literal, Optional, Any, Dict, List, Tuple
-from fastapi import Request
-import asyncio
-import time
-
 SERVICE_AUTH_TOKEN = os.getenv("SERVICE_AUTH_TOKEN")
 PAYMENT_SERVER_URL2 = os.getenv("PAYMENT_SERVER_URL2")
 PAYMENT_WEBHOOK_SECRET = os.getenv("PAYMENT_WEBHOOK_SECRET")
@@ -439,7 +434,6 @@ async def confirm_payment_and_update_status_v2(
     cb_token = secrets.token_urlsafe(16)
     
     # 절대 URL 생성 (payment-server에서 접근 가능하도록)
-    from common.config import get_settings
     settings = get_settings()
     base_url = settings.webhook_base_url.rstrip('/')
     callback_url = f"{base_url}/api/orders/payment/webhook/v2/{tx_id}?t={cb_token}"
@@ -560,8 +554,6 @@ async def confirm_payment_and_update_status_v2(
         hs_order_id = order_data["homeshopping_orders"][0].homeshopping_order_id  # 홈쇼핑 주문은 단개
     
     # PaymentConfirmV2Response 스키마에 맞는 응답 구성
-    from services.order.schemas.payment_schema import PaymentConfirmV2Response
-    
     response = PaymentConfirmV2Response(
         payment_id=payment_id,
         order_id=order_id,
