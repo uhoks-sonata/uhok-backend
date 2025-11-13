@@ -51,7 +51,7 @@ async def confirm_payment_v1(
         - 실패/타임아웃 시: 적절한 HTTPException 반환
     """
     logger.debug(f"결제 확인 v1 시작: user_id={current_user.user_id}, order_id={order_id}")
-    logger.info(f"결제 확인 v1 요청: user_id={current_user.user_id}, order_id={order_id}, payment_method={payment_data.payment_method}, amount={payment_data.amount}")
+    logger.info(f"결제 확인 v1 요청: user_id={current_user.user_id}, order_id={order_id}, payment_method={payment_data.method}")
     
     # CRUD 계층에 결제 확인 및 상태 업데이트 위임
     try:
@@ -76,8 +76,7 @@ async def confirm_payment_v1(
             event_type="payment_confirm_v1",
             event_data={
                 "order_id": order_id,
-                "payment_method": payment_data.payment_method,
-                "amount": payment_data.amount
+                "payment_method": payment_data.method
             },
             **http_info  # HTTP 정보를 키워드 인자로 전달
         )
