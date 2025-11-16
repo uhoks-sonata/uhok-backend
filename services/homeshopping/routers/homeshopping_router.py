@@ -85,7 +85,8 @@ from services.homeshopping.crud.homeshopping_crud import (
 )
 from common.keyword_extraction import extract_homeshopping_keywords
 
-from services.recipe.crud.recipe_crud import recommend_by_recipe_pgvector
+from services.recipe.crud.recipe_crud import recommend_by_recipe_pgvector_v2
+from services.recipe.utils.remote_ml_adapter import get_remote_ml_searcher
 
 from common.database.mariadb_service import get_maria_service_db
 from common.log_utils import send_user_log
@@ -484,22 +485,14 @@ async def get_recipe_recommendations_for_product(
         logger.debug(f"레시피 추천 쿼리 생성: keywords_query={keywords_query}")
         logger.info(f"레시피 추천 요청: keywords={keywords_query}")
         
-        # 8. recommend_by_recipe_pgvector를 method == "ingredient" 방식으로 호출
-        # PostgreSQL DB 연결을 위한 import 추가
-        logger.debug("PostgreSQL DB 연결 및 VectorSearcher 초기화")
-        from common.database.postgres_log import get_postgres_log_db
-        from services.recipe.utils.recommend_service import get_db_vector_searcher
-        
-        # PostgreSQL DB 연결
-        postgres_db = get_postgres_log_db()
-        
-        # VectorSearcher 인스턴스 생성
-        vector_searcher = await get_db_vector_searcher()
+        # 8. recommend_by_recipe_pgvector_v2를 원격 ML 벡터 검색 어댑터와 함께 호출
+        logger.debug("원격 ML 벡터 검색 어댑터 초기화")
+        vector_searcher = await get_remote_ml_searcher()
         
         logger.debug(f"레시피 추천 실행: method=ingredient, query={keywords_query}")
-        recipes_df = await recommend_by_recipe_pgvector(
+        recipes_df = await recommend_by_recipe_pgvector_v2(
             mariadb=db,
-            postgres=postgres_db,
+            postgres=None,
             vector_searcher=vector_searcher,
             query=keywords_query,
             method="ingredient",
