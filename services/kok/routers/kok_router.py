@@ -108,7 +108,7 @@ from services.kok.utils.kok_homeshopping import (
     get_recommendation_strategy
 )
 from services.kok.utils.cache_utils import cache_manager
-from services.recipe.crud.recipe_crud import recommend_by_recipe_pgvector
+from services.recipe.crud.recipe_crud import recommend_by_recipe_pgvector_v2
 
 logger = get_logger("kok_router")
 router = APIRouter(prefix="/api/kok", tags=["Kok"])
@@ -989,7 +989,7 @@ async def recommend_recipes_from_cart_items(
         # ingredient 모드에서는 vector_searcher가 필요하지 않지만 함수 시그니처상 필수
         # None을 전달하여 실제 사용하지 않음을 표시
         logger.debug("레시피 추천 실행 시작")
-        recipes_df = await recommend_by_recipe_pgvector(
+        recipes_df = await recommend_by_recipe_pgvector_v2(
             mariadb=db,
             postgres=db,  # MariaDB를 postgres로도 사용 (ingredient 모드에서는 pgvector 사용 안함)
             query=ingredients_query,
