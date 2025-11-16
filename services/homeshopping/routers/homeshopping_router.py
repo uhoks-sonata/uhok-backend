@@ -12,7 +12,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request, status
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from pathlib import Path
 from typing import Optional
