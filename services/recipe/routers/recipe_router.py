@@ -8,7 +8,7 @@
 
 from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, Path, Body, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, desc
 from typing import List, Optional
 import pandas as pd
 import time
