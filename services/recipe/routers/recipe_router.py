@@ -8,9 +8,7 @@
 
 from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, Path, Body, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc
 from typing import List, Optional
-import pandas as pd
 import time
 from datetime import datetime
 from dotenv import load_dotenv
@@ -38,6 +36,7 @@ from services.recipe.schemas.recipe_schema import (
 from services.recipe.crud.recipe_crud import (
     get_recipe_detail,
     get_recipe_url,
+    search_recipes_with_pagination,
     recommend_recipes_combination_1,
     recommend_recipes_combination_2,
     recommend_recipes_combination_3,
@@ -244,33 +243,14 @@ async def search_recipe(
 
             # ID 리스트 추출
             result_ids = [item['recipe_id'] for item in search_results]
-            
-            # MariaDB에서 상세 정보 조회
-            from services.recipe.models.recipe_model import Recipe
-            detail_stmt = (
-                select(
-                    Recipe.recipe_id.label("RECIPE_ID"),
-                    Recipe.recipe_title.label("RECIPE_TITLE"),
-                    Recipe.cooking_name.label("COOKING_NAME"),
-                    Recipe.scrap_count.label("SCRAP_COUNT"),
-                    Recipe.cooking_case_name.label("COOKING_CASE_NAME"),
-                    Recipe.cooking_category_name.label("COOKING_CATEGORY_NAME"),
-                    Recipe.cooking_introduction.label("COOKING_INTRODUCTION"),
-                    Recipe.number_of_serving.label("NUMBER_OF_SERVING"),
-                    Recipe.thumbnail_url.label("THUMBNAIL_URL"),
-                )
-                .where(Recipe.recipe_id.in_(result_ids))
+            df, total_approx, has_more = await search_recipes_with_pagination(
+                mariadb=mariadb,
+                method=method,
+                recipe=recipe,
+                page=page,
+                size=size,
+                result_ids=result_ids,
             )
-            detail_rows = (await mariadb.execute(detail_stmt)).all()
-            df = pd.DataFrame(detail_rows, columns=[
-                "RECIPE_ID","RECIPE_TITLE","COOKING_NAME","SCRAP_COUNT","COOKING_CASE_NAME","COOKING_CATEGORY_NAME",
-                "COOKING_INTRODUCTION","NUMBER_OF_SERVING","THUMBNAIL_URL"
-            ])
-
-            # ML 서비스 결과의 순서대로 정렬
-            order_map = {rid: i for i, rid in enumerate(result_ids)}
-            df["__order__"] = df["RECIPE_ID"].map(order_map)
-            df = df.sort_values("__order__").drop(columns="__order__").reset_index(drop=True)
 
         except Exception as e:
             logger.error(f"ML 서비스 기반 레시피 검색 실패: user_id={current_user.user_id}, keyword={recipe}, error={str(e)}")
@@ -278,37 +258,21 @@ async def search_recipe(
 
     else: # method == "ingredient"
         # 기존 재료 검색 로직 유지
-        from services.recipe.models.recipe_model import Material
-        ingredients = [i.strip() for i in (recipe or "").split(",") if i.strip()]
-        if not ingredients:
-            return {"recipes": [], "page": page, "total": 0}
-
-        total_stmt = select(func.count(func.distinct(Material.recipe_id)))\
-            .where(Material.material_name.in_(ingredients))\
-            .having(func.count(func.distinct(Material.material_name)) == len(ingredients))
-        total_count = (await mariadb.execute(total_stmt)).scalar_one_or_none() or 0
-
-        start_offset = (page - 1) * size
-        ids_stmt = select(Material.recipe_id)\
-            .where(Material.material_name.in_(ingredients))\
-            .group_by(Material.recipe_id)\
-            .having(func.count(func.distinct(Material.material_name)) == len(ingredients))\
-            .order_by(desc(func.count(func.distinct(Material.material_name))))\
-            .offset(start_offset).limit(size)
-        page_ids = (await mariadb.execute(ids_stmt)).scalars().all()
-
-        if not page_ids:
-            return {"recipes": [], "page": page, "total": total_count}
-        
-        detail_stmt = select(Recipe).where(Recipe.recipe_id.in_(page_ids))
-        detail_rows = (await mariadb.execute(detail_stmt)).scalars().all()
-        df = pd.DataFrame([r.__dict__ for r in detail_rows])
+        df, total_approx, has_more = await search_recipes_with_pagination(
+            mariadb=mariadb,
+            method=method,
+            recipe=recipe,
+            page=page,
+            size=size,
+            result_ids=None,
+        )
+        if df.empty:
+            return {"recipes": [], "page": page, "total": total_approx}
 
     # 페이지네이션 및 결과 포맷팅
-    start_index, end_index = (page - 1) * size, page * size
-    has_more = len(df) > size
+    start_index = (page - 1) * size
     page_df = df.iloc[:size] if not df.empty else df
-    total_approx = start_index + len(page_df) + (1 if has_more else 0)
+    # total_approx와 has_more는 crud 함수에서 계산된 값을 사용
 
     execution_time = time.time() - start_time
     logger.info(f"레시피 검색 완료: uid={current_user.user_id}, kw={recipe}, method={method}, 실행시간={execution_time:.3f}초, 결과수={len(page_df)}")

@@ -454,6 +454,90 @@ async def execute_standard_inventory_algorithm(
     # logger.info(f"정확한 total: {total}")
         return paginated_recommended, total
 
+
+async def search_recipes_with_pagination(
+    *,
+    mariadb: AsyncSession,
+    method: str,
+    recipe: str,
+    page: int,
+    size: int,
+    result_ids: Optional[List[int]] = None,
+) -> Tuple[pd.DataFrame, int, bool]:
+    """
+    레시피 검색(키워드/재료) 결과를 DataFrame으로 반환하고 페이지 정보도 함께 제공.
+    - method="recipe": ML 검색 결과로 받은 result_ids 순서를 유지해 상세 조회
+    - method="ingredient": 입력 재료를 모두 포함하는 레시피를 DB에서 조회
+    반환: (page_df, total_approx, has_more)
+    """
+    if method == "recipe":
+        if not result_ids:
+            return pd.DataFrame(), 0, False
+
+        name_col = getattr(Recipe, "cooking_name", None) or getattr(Recipe, "recipe_title")
+        detail_stmt = (
+            select(
+                Recipe.recipe_id.label("RECIPE_ID"),
+                name_col.label("RECIPE_TITLE"),
+                Recipe.scrap_count.label("SCRAP_COUNT"),
+                Recipe.cooking_case_name.label("COOKING_CASE_NAME"),
+                Recipe.cooking_category_name.label("COOKING_CATEGORY_NAME"),
+                Recipe.cooking_introduction.label("COOKING_INTRODUCTION"),
+                Recipe.number_of_serving.label("NUMBER_OF_SERVING"),
+                Recipe.thumbnail_url.label("THUMBNAIL_URL"),
+            )
+            .where(Recipe.recipe_id.in_(result_ids))
+        )
+        detail_rows = (await mariadb.execute(detail_stmt)).all()
+        df = pd.DataFrame(detail_rows, columns=[
+            "RECIPE_ID","RECIPE_TITLE","SCRAP_COUNT","COOKING_CASE_NAME","COOKING_CATEGORY_NAME",
+            "COOKING_INTRODUCTION","NUMBER_OF_SERVING","THUMBNAIL_URL"
+        ])
+
+        order_map = {rid: i for i, rid in enumerate(result_ids)}
+        df["__order__"] = df["RECIPE_ID"].map(order_map)
+        df = df.sort_values("__order__").drop(columns="__order__").reset_index(drop=True)
+
+        has_more = len(df) > size
+        start_index = (page - 1) * size
+        page_df = df.iloc[:size] if not df.empty else df
+        total_approx = start_index + len(page_df) + (1 if has_more else 0)
+        return page_df, total_approx, has_more
+
+    # method == "ingredient"
+    ingredients = [i.strip() for i in (recipe or "").split(",") if i.strip()]
+    if not ingredients:
+        return pd.DataFrame(), 0, False
+
+    total_stmt = (
+        select(func.count(func.distinct(Material.recipe_id)))
+        .where(Material.material_name.in_(ingredients))
+        .having(func.count(func.distinct(Material.material_name)) == len(ingredients))
+    )
+    total_count = (await mariadb.execute(total_stmt)).scalar_one_or_none() or 0
+
+    start_offset = (page - 1) * size
+    ids_stmt = (
+        select(Material.recipe_id)
+        .where(Material.material_name.in_(ingredients))
+        .group_by(Material.recipe_id)
+        .having(func.count(func.distinct(Material.material_name)) == len(ingredients))
+        .order_by(desc(func.count(func.distinct(Material.material_name))))
+        .offset(start_offset).limit(size)
+    )
+    page_ids = (await mariadb.execute(ids_stmt)).scalars().all()
+
+    if not page_ids:
+        return pd.DataFrame(), total_count, total_count > page * size
+    
+    detail_stmt = select(Recipe).where(Recipe.recipe_id.in_(page_ids))
+    detail_rows = (await mariadb.execute(detail_stmt)).scalars().all()
+    df = pd.DataFrame([r.__dict__ for r in detail_rows])
+
+    has_more = total_count > page * size
+    return df, total_count, has_more
+
+
 async def get_recipe_rating(db: AsyncSession, recipe_id: int) -> float:
     """
     해당 레시피의 별점 평균값을 반환
