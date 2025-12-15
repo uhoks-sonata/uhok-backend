@@ -267,7 +267,7 @@ async def get_kok_current_status(db: AsyncSession, kok_order_id: int) -> KokOrde
     FROM KOK_ORDER_STATUS_HISTORY kosh
     INNER JOIN STATUS_MASTER sm ON kosh.status_id = sm.status_id
     WHERE kosh.kok_order_id = :kok_order_id
-    ORDER BY kosh.changed_at DESC, kosh.history_id DESC, kosh.history_id DESC
+    ORDER BY kosh.changed_at DESC, kosh.history_id DESC
     LIMIT 1
     """
     
@@ -559,7 +559,7 @@ async def get_kok_order_status_history(db: AsyncSession, kok_order_id: int):
     FROM KOK_ORDER_STATUS_HISTORY kosh
     INNER JOIN STATUS_MASTER sm ON kosh.status_id = sm.status_id
     WHERE kosh.kok_order_id = :kok_order_id
-    ORDER BY kosh.changed_at DESC, kosh.history_id DESC, kosh.history_id DESC
+    ORDER BY kosh.changed_at DESC, kosh.history_id DESC
     """
     
     try:
