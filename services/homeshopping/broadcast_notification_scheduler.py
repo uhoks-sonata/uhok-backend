@@ -9,7 +9,7 @@ import time
 from datetime import datetime
 from typing import Dict, Any
 
-from services.homeshopping.crud.homeshopping_crud import get_pending_broadcast_notifications
+from services.homeshopping.crud.notification_crud import get_pending_broadcast_notifications
 from common.logger import get_logger
 logger = get_logger("broadcast_notification_scheduler")
 

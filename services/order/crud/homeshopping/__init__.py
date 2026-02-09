@@ -1,0 +1,1 @@
+"""HomeShopping order CRUD subpackage."""

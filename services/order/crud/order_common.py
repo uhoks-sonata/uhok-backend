@@ -11,8 +11,8 @@ from datetime import datetime, timedelta
 
 from common.database.mariadb_auth import get_maria_auth_db
 
-from services.user.models.user_model import User
-from services.order.models.order_model import StatusMaster
+from services.user.models.account_model import User
+from services.order.models.order_base_model import StatusMaster
 
 # 상태 정보 캐시 (메모리 캐시)
 _status_cache: Dict[str, StatusMaster] = {}

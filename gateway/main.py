@@ -13,16 +13,12 @@ from pathlib import Path
 from common.config import get_settings
 from common.logger import get_logger
 # from common.http_log_middleware import HttpLogMiddleware  # 미들웨어 비활성화
-from services.user.routers.user_router import router as user_router
-from services.log.routers.user_event_log_router import router as user_event_log_router
-from services.log.routers.user_activity_log_routers import router as user_activity_log_router
-from services.order.routers.order_router import router as order_router
-from services.order.routers.payment_router import router as payment_router
-from services.homeshopping.routers.homeshopping_router import router as homeshopping_router
-from services.order.routers.hs_order_router import router as hs_order_router
-from services.kok.routers.kok_router import router as kok_router
-from services.order.routers.kok_order_router import router as kok_order_router
-from services.recipe.routers.recipe_router import router as recipe_router
+from services.user.routers.api_router import router as user_router
+from services.log.routers.api_router import router as log_router
+from services.order.routers.api_router import router as order_router
+from services.homeshopping.routers.api_router import router as homeshopping_router
+from services.kok.routers.api_router import router as kok_router
+from services.recipe.routers.api_router import router as recipe_router
 
 logger = get_logger("gateway", sqlalchemy_logging={'enable': False})
 logger.info("API Gateway 초기화 시작...")
@@ -91,20 +87,12 @@ app.include_router(user_router)
 logger.info("사용자 라우터 포함 완료")
 
 logger.debug("로그 라우터 포함 중...")
-app.include_router(user_event_log_router)
+app.include_router(log_router)
 logger.info("로그 라우터 포함 완료")
-
-logger.debug("활동 로그 라우터 포함 중...")
-app.include_router(user_activity_log_router)
-logger.info("활동 로그 라우터 포함 완료")
 
 logger.debug("주문 라우터 포함 중...")
 app.include_router(order_router)
 logger.info("주문 라우터 포함 완료")
-
-logger.debug("결제 라우터 포함 중...")
-app.include_router(payment_router)
-logger.info("결제 라우터 포함 완료")
 
 # """홈쇼핑 정적파일 서빙
 # - /homeshopping/static 경로로 JS/CSS/이미지 제공
@@ -116,17 +104,9 @@ logger.debug("홈쇼핑 라우터 포함 중...")
 app.include_router(homeshopping_router)
 logger.info("홈쇼핑 라우터 포함 완료")
 
-logger.debug("홈쇼핑 주문 라우터 포함 중...")
-app.include_router(hs_order_router)
-logger.info("홈쇼핑 주문 라우터 포함 완료")
-
 logger.debug("콕 라우터 포함 중...")
 app.include_router(kok_router)
 logger.info("콕 라우터 포함 완료")
-
-logger.debug("콕 주문 라우터 포함 중...")
-app.include_router(kok_order_router)
-logger.info("콕 주문 라우터 포함 완료")
 
 logger.debug("레시피 라우터 포함 중...")
 app.include_router(recipe_router)

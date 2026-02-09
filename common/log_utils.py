@@ -2,12 +2,9 @@
 from __future__ import annotations
 
 import json
-import random
 import asyncio
 from typing import Any, Dict, Iterable, Optional
 from datetime import datetime, timezone
-
-import anyio
 import httpx
 
 from common.logger import get_logger
@@ -150,7 +147,7 @@ async def send_user_log(
     for attempt in range(max_retries):
         try:
             from common.database.postgres_log import SessionLocal
-            from services.log.crud.user_event_log_crud import create_user_log
+            from services.log.crud.event_crud import create_user_log
             
             # 로그 데이터 구성 (datetime 직렬화 적용)
             log_data = {

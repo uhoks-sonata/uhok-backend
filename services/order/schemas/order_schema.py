@@ -5,8 +5,8 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 
-from services.order.schemas.kok_order_schema import KokOrderSchema
-from services.order.schemas.hs_order_schema import HomeshoppingOrderSchema
+from services.order.schemas.homeshopping.order_schema import HomeshoppingOrderSchema
+from services.order.schemas.kok.status_schema import KokOrderSchema
 
 class OrderRead(BaseModel):
     order_id: int

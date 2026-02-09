@@ -10,9 +10,9 @@ from common.errors import InvalidTokenException, NotFoundException
 from common.logger import get_logger
 from common.config import get_settings
 
-from services.user.crud.user_crud import get_user_by_id
-from services.user.crud.jwt_blacklist_crud import is_token_blacklisted
-from services.user.schemas.user_schema import UserOut
+from services.user.crud.user_read_crud import get_user_by_id
+from services.user.crud.jwt_blacklist_query_crud import is_token_blacklisted
+from services.user.schemas.profile_schema import UserOut
 
 settings = get_settings()
 
