@@ -4,10 +4,9 @@
 - 개발/테스트 환경용
 """
 
-import json
-import asyncio
-from typing import Optional, Dict, Any, List
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional
+
 from common.logger import get_logger
 
 logger = get_logger("homeshopping_memory_cache")

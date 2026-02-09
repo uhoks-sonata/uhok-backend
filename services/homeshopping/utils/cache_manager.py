@@ -5,10 +5,11 @@
 """
 
 import json
-import asyncio
-from typing import Optional, Dict, Any, List
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
+from typing import Dict, List, Optional
+
 import redis.asyncio as redis
+
 from common.logger import get_logger
 
 logger = get_logger("homeshopping_cache")

@@ -3,15 +3,13 @@
 CRUD 계층: 모든 DB 트랜잭션 처리 담당
 순환 import 방지를 위해 별도 파일로 분리
 """
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Dict, Optional
-import asyncio
 from datetime import datetime, timedelta
+from typing import Dict, Optional
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.database.mariadb_auth import get_maria_auth_db
 
-from services.user.models.account_model import User
 from services.order.models.order_base_model import StatusMaster
 
 # 상태 정보 캐시 (메모리 캐시)

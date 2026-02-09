@@ -8,8 +8,10 @@ Redis를 활용한 캐싱 전략을 구현합니다.
 """
 
 import json
+from typing import Any, Optional
+
 import redis
-from typing import Optional, Any, Dict, List
+
 from common.logger import get_logger
 from common.config import get_settings
 

@@ -6,7 +6,6 @@ PostgreSQL 데이터베이스 테스트 스크립트
 
 import asyncio
 import sys
-import os
 from pathlib import Path
 
 # 프로젝트 루트를 Python 경로에 추가

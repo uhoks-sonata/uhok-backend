@@ -1,13 +1,15 @@
 # backend/services/recipe/utils/recommend_service.py
-from typing import List, Tuple, Optional
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
-from .ports import VectorSearcherPort, RecommenderPort
-# get_model은 ML 서비스로 분리됨
-import pandas as pd
-from .core import recommend_by_recipe_name_core  # 로컬 코사인용
-from common.logger import get_logger
 import time
+from typing import List, Optional, Tuple
+
+import pandas as pd
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from common.logger import get_logger
+from .core import recommend_by_recipe_name_core  # 로컬 코사인용
+from .ports import RecommenderPort, VectorSearcherPort
+
+# get_model은 ML 서비스로 분리됨
 # (import 보강)
 # pgvector와 numpy는 ML 서비스로 분리됨
 

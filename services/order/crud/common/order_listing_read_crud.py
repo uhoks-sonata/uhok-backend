@@ -1,7 +1,5 @@
 """Order listing read CRUD functions."""
 
-from typing import List
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.logger import get_logger
@@ -12,7 +10,6 @@ from services.order.crud.common.order_image_support_crud import (
     _batch_fetch_hs_images,
 )
 from services.order.crud.common.order_ingredient_support_crud import _batch_fetch_recipe_ingredients_status
-from services.order.crud.common.order_recent_keyword_support_crud import get_recent_orders_with_ingredients
 
 logger = get_logger("order_crud")
 

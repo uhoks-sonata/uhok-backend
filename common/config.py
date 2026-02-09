@@ -19,11 +19,11 @@
 """
 
 import os
-from pydantic_settings import BaseSettings
-from pydantic import Field
 from functools import lru_cache
+from pydantic import Field
+from pydantic_settings import BaseSettings
+
 from common.logger import get_logger
-from typing import Optional
 
 # 로거 초기화 (SQLAlchemy 로깅 비활성화)
 logger = get_logger("config", sqlalchemy_logging={'enable': False})

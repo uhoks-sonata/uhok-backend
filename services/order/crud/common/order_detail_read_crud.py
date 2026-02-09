@@ -4,7 +4,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.logger import get_logger
-from services.order.models.order_base_model import Order
 from services.order.models.kok.kok_order_model import KokOrder
 from services.order.models.homeshopping.hs_order_model import HomeShoppingOrder
 

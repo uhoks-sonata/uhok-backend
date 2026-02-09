@@ -7,9 +7,8 @@
 3. 보유/장바구니/미보유 상태 판별
 """
 
-import re
-from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
+from typing import Dict, List, Tuple
 
 from common.logger import get_logger
 

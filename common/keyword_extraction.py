@@ -19,9 +19,11 @@
 
 from __future__ import annotations
 import re
-from typing import Dict, List, Optional, Set, Any
-from urllib.parse import urlparse, unquote
+from typing import Any, Dict, List, Set
+from urllib.parse import unquote, urlparse
+
 import pymysql
+
 from common.config import get_settings
 
 # (선택) 퍼지매칭 : RapidFuzz가 설치되어 있으면 오타 교정/근사 매칭에 사용

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import httpx
 from dotenv import load_dotenv

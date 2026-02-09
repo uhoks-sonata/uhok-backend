@@ -6,11 +6,10 @@
 """
 
 import asyncio
-import sys
 import os
-from datetime import datetime
+import sys
+
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 # 프로젝트 루트를 Python 경로에 추가
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
