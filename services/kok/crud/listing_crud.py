@@ -259,6 +259,7 @@ async def get_kok_discounted_products(
         )
         .select_from(subquery)
         .where(subquery.c.rn == 1)
+        .order_by(subquery.c.kok_discount_rate.desc())
         .offset(offset)
         .limit(size)
     )
