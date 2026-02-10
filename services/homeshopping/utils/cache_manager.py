@@ -25,6 +25,7 @@ class HomeshoppingCacheManager:
             "schedule_count": 14400,  # 4시간
             "product_detail": 14400,  # 4시간
             "food_product_ids": 28800,  # 8시간 (식품 ID 목록)
+            "kok_recommendation": 3600,  # 1시간 (KOK 추천 결과)
         }
     
     async def get_redis_client(self) -> redis.Redis:
@@ -138,6 +139,96 @@ class HomeshoppingCacheManager:
         except Exception as e:
             logger.error(f"스케줄 캐시 무효화 실패: {e}")
             return False
+
+    async def get_kok_recommendation_cache(
+        self,
+        product_id: int,
+        k: int = 5
+    ) -> Optional[List[Dict]]:
+        """KOK 추천 결과 캐시 조회"""
+        try:
+            redis_client = await self.get_redis_client()
+            if not redis_client:
+                return None
+
+            cache_key = self._generate_cache_key(
+                "kok_recommendation",
+                product_id=product_id,
+                k=k
+            )
+
+            cached_data = await redis_client.get(cache_key)
+            if cached_data:
+                data = json.loads(cached_data)
+                logger.info(f"KOK 추천 캐시 히트: {cache_key}")
+                return data["recommendations"]
+
+            logger.info(f"KOK 추천 캐시 미스: {cache_key}")
+            return None
+
+        except Exception as e:
+            logger.error(f"KOK 추천 캐시 조회 실패: {e}")
+            return None
+
+    async def set_kok_recommendation_cache(
+        self,
+        product_id: int,
+        recommendations: List[Dict],
+        k: int = 5
+    ) -> bool:
+        """KOK 추천 결과 캐시 저장"""
+        try:
+            redis_client = await self.get_redis_client()
+            if not redis_client:
+                return False
+
+            cache_key = self._generate_cache_key(
+                "kok_recommendation",
+                product_id=product_id,
+                k=k
+            )
+
+            cache_data = {
+                "recommendations": recommendations,
+                "cached_at": datetime.now().isoformat()
+            }
+
+            await redis_client.setex(
+                cache_key,
+                self.cache_ttl["kok_recommendation"],
+                json.dumps(cache_data, default=str)
+            )
+
+            logger.info(f"KOK 추천 캐시 저장: {cache_key}")
+            return True
+
+        except Exception as e:
+            logger.error(f"KOK 추천 캐시 저장 실패: {e}")
+            return False
+
+    async def invalidate_kok_recommendation_cache(self, product_id: Optional[int] = None) -> int:
+        """KOK 추천 캐시 무효화"""
+        try:
+            redis_client = await self.get_redis_client()
+            if not redis_client:
+                return 0
+
+            if product_id is None:
+                pattern = "homeshopping:kok_recommendation:*"
+            else:
+                pattern = f"homeshopping:kok_recommendation:*:product_id:{product_id}"
+
+            keys = await redis_client.keys(pattern)
+            if not keys:
+                return 0
+
+            deleted_count = await redis_client.delete(*keys)
+            logger.info(f"KOK 추천 캐시 무효화: pattern={pattern}, 삭제된 키 수={deleted_count}")
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"KOK 추천 캐시 무효화 실패: {e}")
+            return 0
 
     async def close(self):
         """Redis 연결 종료"""

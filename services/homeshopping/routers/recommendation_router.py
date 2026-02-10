@@ -1,4 +1,6 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from typing import Optional
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.database.mariadb_service import get_maria_service_db
@@ -14,11 +16,33 @@ from services.homeshopping.crud.recommendation_crud import (
     simple_recommend_homeshopping_to_kok,
 )
 from services.homeshopping.schemas.recipe_schema import RecipeRecommendationsResponse
+from services.homeshopping.utils.cache_manager import cache_manager
 from services.recipe.crud.recipe_search_crud import recommend_by_recipe_pgvector_v2
 from services.recipe.utils.remote_ml_adapter import get_remote_ml_searcher
 
 logger = get_logger("homeshopping_router", level="DEBUG")
 router = APIRouter()
+
+
+@router.post("/cache/invalidate/kok-recommend")
+async def invalidate_kok_recommend_cache(
+        product_id: Optional[int] = Query(None, description="특정 상품 캐시만 무효화할 경우 상품 ID")
+):
+    """
+    홈쇼핑 KOK 추천 캐시 무효화
+    - product_id 미입력: 전체 KOK 추천 캐시 삭제
+    - product_id 입력: 해당 상품 KOK 추천 캐시만 삭제
+    """
+    logger.debug(f"KOK 추천 캐시 무효화 시작: product_id={product_id}")
+
+    try:
+        deleted_count = await cache_manager.invalidate_kok_recommendation_cache(product_id=product_id)
+        logger.info(f"KOK 추천 캐시 무효화 완료: product_id={product_id}, 삭제된 키 수={deleted_count}")
+        return {"message": "KOK 추천 캐시가 무효화되었습니다.", "deleted_count": deleted_count}
+    except Exception as e:
+        logger.error(f"KOK 추천 캐시 무효화 실패: product_id={product_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail=f"캐시 무효화 중 오류가 발생했습니다: {str(e)}")
+
 
 @router.get("/product/{product_id}/kok-recommend")
 async def get_kok_recommendations(
@@ -44,9 +68,8 @@ async def get_kok_recommendations(
     logger.info(f"홈쇼핑 콕 유사 상품 추천 조회 요청: user_id={user_id}, product_id={product_id}")
     
     try:
-        # 1. 캐시에서 먼저 조회
-        from services.homeshopping.utils.memory_cache_manager import memory_cache_manager
-        cached_recommendations = await memory_cache_manager.get_kok_recommendation_cache(
+        # 1. 캐시에서 먼저 조회 (Redis)
+        cached_recommendations = await cache_manager.get_kok_recommendation_cache(
             product_id=product_id,
             k=5
         )
@@ -66,10 +89,10 @@ async def get_kok_recommendations(
             use_rerank=False
         )
         
-        # 3. 결과를 캐시에 저장
+        # 3. 결과를 캐시에 저장 (Redis)
         if recommendations:
             logger.debug(f"추천 결과를 캐시에 저장: product_id={product_id}, 결과 수={len(recommendations)}")
-            await memory_cache_manager.set_kok_recommendation_cache(
+            await cache_manager.set_kok_recommendation_cache(
                 product_id=product_id,
                 recommendations=recommendations,
                 k=5
