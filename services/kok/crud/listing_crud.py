@@ -131,8 +131,8 @@ async def get_kok_discounted_products_baseline(
     """
     offset = (page - 1) * size
 
-    # 기준선(Baseline): 상품 목록 조회(1) + 상품별 최신 가격/상세 조회(N)
-    # 최신 가격 row를 먼저 확정한 뒤, 현재 할인중인 상품만 대상으로 정렬/페이징
+    # 기준선(Baseline): 메인 1회 조회 후 상품별 추가 조회를 유지하는 N+1 경로.
+    # 단, 결과 의미 일치를 위해 "최신 가격 row"를 먼저 확정하고 현재 할인중인 상품만 조회.
     latest_price_subquery = (
         select(
             KokPriceInfo.kok_product_id,
@@ -166,6 +166,7 @@ async def get_kok_discounted_products_baseline(
 
     discounted_products: List[dict] = []
     for product, _current_discount_rate in results:
+        # 기준선 재현 목적: 최신 가격 ID/상세를 상품마다 추가 조회(N+1)
         latest_price_id = await get_latest_kok_price_id(db, product.kok_product_id)
         if not latest_price_id:
             continue
@@ -183,6 +184,7 @@ async def get_kok_discounted_products_baseline(
 
         if not price_info:
             continue
+        # 최신 가격이 비할인 상태면 응답에서 제외
         if price_info.kok_discount_rate <= 0:
             continue
 
@@ -214,7 +216,8 @@ async def get_kok_discounted_products(
     
     # logger.info(f"할인 상품 조회 시작: page={page}, size={size}, use_cache={use_cache}")
     
-    # 페이지 단위 캐시 조회
+    # 페이지 단위 캐시 조회.
+    # 주의: TTL 또는 명시적 무효화 전까지 이전 결과가 반환될 수 있음.
     if use_cache:
         cached_data = cache_manager.get('discounted_products', page=page, size=size)
         if cached_data:
@@ -247,7 +250,8 @@ async def get_kok_discounted_products(
         )
     )
     
-    # 2. rn = 1인 row만 선택 후 페이징 적용
+    # 2. rn=1(최신 row) 확정 후 할인 필터 적용.
+    #    필터를 윈도우 계산 전에 두면 과거 할인 row가 최신으로 오인될 수 있음.
     subquery = windowed_query.subquery()
     stmt = (
         select(
@@ -323,6 +327,7 @@ async def get_kok_discounted_products_max_join(
 
     offset = (page - 1) * size
 
+    # 상품별 최신 price_id를 먼저 계산하고, 이후 할인 조건을 적용해 "현재 할인중" 의미를 보장.
     latest_price_subquery = (
         select(
             KokPriceInfo.kok_product_id,
