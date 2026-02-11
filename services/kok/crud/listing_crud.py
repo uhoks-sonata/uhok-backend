@@ -132,24 +132,28 @@ async def get_kok_discounted_products_baseline(
     offset = (page - 1) * size
 
     # 기준선(Baseline): 상품 목록 조회(1) + 상품별 최신 가격/상세 조회(N)
-    # 주의: ONLY_FULL_GROUP_BY 환경에서도 동작하도록, 집계는 가격 테이블에서만 수행 후 상품 테이블과 조인함.
-    max_discount_subquery = (
+    # 최신 가격 row를 먼저 확정한 뒤, 현재 할인중인 상품만 대상으로 정렬/페이징
+    latest_price_subquery = (
         select(
             KokPriceInfo.kok_product_id,
-            func.max(KokPriceInfo.kok_discount_rate).label("max_discount_rate"),
+            func.max(KokPriceInfo.kok_price_id).label("latest_price_id"),
         )
-        .where(KokPriceInfo.kok_discount_rate > 0)
         .group_by(KokPriceInfo.kok_product_id)
         .subquery()
     )
 
     stmt = (
-        select(KokProductInfo, max_discount_subquery.c.max_discount_rate)
+        select(KokProductInfo, KokPriceInfo.kok_discount_rate)
         .join(
-            max_discount_subquery,
-            KokProductInfo.kok_product_id == max_discount_subquery.c.kok_product_id
+            latest_price_subquery,
+            KokProductInfo.kok_product_id == latest_price_subquery.c.kok_product_id
         )
-        .order_by(max_discount_subquery.c.max_discount_rate.desc())
+        .join(
+            KokPriceInfo,
+            KokPriceInfo.kok_price_id == latest_price_subquery.c.latest_price_id
+        )
+        .where(KokPriceInfo.kok_discount_rate > 0)
+        .order_by(KokPriceInfo.kok_discount_rate.desc())
         .offset(offset)
         .limit(size)
     )
@@ -161,7 +165,7 @@ async def get_kok_discounted_products_baseline(
         raise
 
     discounted_products: List[dict] = []
-    for product, _max_discount_rate in results:
+    for product, _current_discount_rate in results:
         latest_price_id = await get_latest_kok_price_id(db, product.kok_product_id)
         if not latest_price_id:
             continue
@@ -178,6 +182,8 @@ async def get_kok_discounted_products_baseline(
             price_info = None
 
         if not price_info:
+            continue
+        if price_info.kok_discount_rate <= 0:
             continue
 
         discounted_products.append({
@@ -239,8 +245,6 @@ async def get_kok_discounted_products(
             KokPriceInfo,
             KokProductInfo.kok_product_id == KokPriceInfo.kok_product_id
         )
-        .where(KokPriceInfo.kok_discount_rate > 0)
-        .order_by(KokPriceInfo.kok_discount_rate.desc())
     )
     
     # 2. rn = 1인 row만 선택 후 페이징 적용
@@ -258,7 +262,7 @@ async def get_kok_discounted_products(
             subquery.c.kok_discounted_price
         )
         .select_from(subquery)
-        .where(subquery.c.rn == 1)
+        .where(subquery.c.rn == 1, subquery.c.kok_discount_rate > 0)
         .order_by(subquery.c.kok_discount_rate.desc())
         .offset(offset)
         .limit(size)
@@ -324,7 +328,6 @@ async def get_kok_discounted_products_max_join(
             KokPriceInfo.kok_product_id,
             func.max(KokPriceInfo.kok_price_id).label("latest_price_id"),
         )
-        .where(KokPriceInfo.kok_discount_rate > 0)
         .group_by(KokPriceInfo.kok_product_id)
         .subquery()
     )
@@ -349,6 +352,7 @@ async def get_kok_discounted_products_max_join(
             KokPriceInfo,
             KokPriceInfo.kok_price_id == latest_price_subquery.c.latest_price_id
         )
+        .where(KokPriceInfo.kok_discount_rate > 0)
         .order_by(KokPriceInfo.kok_discount_rate.desc())
         .offset(offset)
         .limit(size)

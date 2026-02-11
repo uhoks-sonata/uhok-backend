@@ -29,7 +29,7 @@ class KokCacheManager:
     
     # 캐시 키 패턴
     CACHE_KEYS = {
-        'discounted_products': 'kok:discounted:page:{page}:size:{size}',
+        'discounted_products': 'kok:discounted:v2:page:{page}:size:{size}',
         'top_selling_products': 'kok:top_selling:page:{page}:size:{size}:sort:{sort_by}',
         'store_best_items': 'kok:store_best:user:{user_id}:sort:{sort_by}',
         'product_info': 'kok:product:{product_id}',
