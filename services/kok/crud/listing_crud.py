@@ -837,5 +837,3 @@ async def get_kok_store_best_items(
         logger.warning(f"빈 결과 반환 - 가능한 원인: 구매 이력 없음, 판매자 정보 누락, 해당 판매자 상품 없음, 리뷰 조건 불충족")
     
     return store_best_products
-
-
