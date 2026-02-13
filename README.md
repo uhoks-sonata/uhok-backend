@@ -45,14 +45,14 @@ FastAPI 기반으로 구성되어 있으며, 사용자, 홈쇼핑, 콕, 주문, 
 - **주문 조회**: 주문 및및 배송 정보 조회
 
 ### 🍳 레시피 추천 (Recipe Service)
-**❗ 연동되는 ML-inference 버전: v2.0.1**
 - **재료 기반 추천**: 사용자가 보유한 재료를 가장 효율적으로 소진하는 레시피 조합을 추천합니다.
 - **레시피 검색 (ML 기반)**:
   - **마이크로서비스 아키텍처**: ML 추론(임베딩, 벡터 검색) 로직을 별도의 `uhok-ml-inference` 서비스로 분리하여 백엔드의 부담을 줄이고 확장성을 확보했습니다.
-  - **원격 벡터 검색**: 백엔드는 검색어를 `uhok-ml-inference` 서비스에 전달하고, 유사도가 높은 레시피 ID 목록을 반환받습니다. (백엔드는 더 이상 `pgvector` 직접 검색을 수행하지 않음)
+  - **원격 벡터 검색**: 레시피 검색 API는 검색어를 `uhok-ml-inference` 서비스에 전달하고, 유사도가 높은 레시피 ID 목록을 반환받습니다.
   - **상세 정보 결합**: 반환된 ID를 기반으로 MariaDB에서 레시피 상세 정보를 조회하여 최종 결과를 구성합니다.
 - **성능 최적화**: 주요 API에 대해 캐싱, 비동기 처리, Raw SQL 적용 등을 통해 응답 속도를 개선했습니다.
 - **상품 추천**: 특정 식재료와 연관된 콕/홈쇼핑 상품을 추천하는 기능을 제공합니다.
+- **현재 구현 참고**: 레시피 검색은 원격 ML 서비스 호출을 사용하며, 홈쇼핑↔KOK 추천은 MariaDB 기반 키워드 후보/정렬 경로를 사용합니다.
 
 ### 📊 로깅 (Log Service)
 - **사용자 이벤트 로그**: 시스템 주요 이벤트 기록 (회원가입, 로그인, 주문, 결제 등)
@@ -67,9 +67,10 @@ FastAPI 기반으로 구성되어 있으며, 사용자, 홈쇼핑, 콕, 주문, 
 - **웹 프레임워크**: FastAPI 0.116.1 (비동기 처리, 자동 API 문서 생성)
 - **데이터베이스**: 
   - MariaDB (사용자자/서비스 데이터) - asyncmy 드라이버(비동기)
-  - PostgreSQL (로그/추천 데이터) - asyncpg 드라이버(비동기), pgvector 확장
+  - PostgreSQL Log DB - psycopg/SQLAlchemy 비동기 드라이버
+  - PostgreSQL Recommend DB - 레거시/선택 구성(기본 추천 경로에서는 필수 아님)
 - **캐시**: Redis 5.2.1 (상품 데이터, 세션 관리)
-- **ML 서비스**: 별도 컨테이너 (uhok-ml-inference v2.0.0) - SentenceTransformer 모델
+- **ML 서비스**: 별도 컨테이너 `uhok-ml-inference` - 원격 검색/헬스체크 API 제공
 - **컨테이너**: Docker (마이크로서비스 아키텍처)
 - **인증**: JWT (HS256), OAuth2PasswordBearer
 - **로깅**: BackgroundTasks, 구조화된 JSON 로깅
@@ -78,9 +79,9 @@ FastAPI 기반으로 구성되어 있으며, 사용자, 홈쇼핑, 콕, 주문, 
 1. **API Gateway** → 요청 라우팅, 인증, 로깅
 2. **서비스별 라우터** → HTTP 처리, 파라미터 검증
 3. **CRUD 계층** → 비즈니스 로직, 데이터베이스 처리
-4. **데이터베이스** → MariaDB (서비스), PostgreSQL (로그/임베딩)
+4. **데이터베이스** → MariaDB (서비스), PostgreSQL Log DB, PostgreSQL Recommend DB(레거시/선택)
 5. **캐시** → Redis (성능 최적화)
-6. **ML 서비스** → 별도 컨테이너 (벡터 임베딩)
+6. **ML 서비스** → `uhok-ml-inference`로 원격 검색 요청
 
 ## 🚀 빠른 시작
 
@@ -114,8 +115,8 @@ MARIADB_AUTH_URL="mysql+asyncmy://user:password@localhost:3306/AUTH_DB"
 MARIADB_AUTH_MIGRATE_URL="mysql+pymysql://user:password@localhost:3306/AUTH_DB"
 # 서비스용 DB (service_db)
 MARIADB_SERVICE_URL="mysql+asyncmy://user:password@localhost:3306/SERVICE_DB"
-# ----------- PostgreSQL (비동기 드라이버: asyncpg) -----------
-# 추천 DB (rec_db)
+# ----------- PostgreSQL -----------
+# 추천 DB (레거시/선택 구성)
 POSTGRES_RECOMMEND_URL="postgresql+psycopg_async://user:password@localhost:5432/REC_DB"
 # PostgreSQL 로그 DB (운영 코드용, 비동기)
 POSTGRES_LOG_URL="postgresql+psycopg_async://user:password@localhost/LOG_DB"
@@ -127,7 +128,9 @@ REDIS_URL=redis://localhost:6379/0
 
 # ML 서비스 설정
 ML_MODE=remote_embed
-ML_SERVICE_URL=http://ml-inference:8001
+ML_INFERENCE_URL=http://ml-inference:8001
+ML_TIMEOUT=10.0
+ML_RETRIES=2
 
 # 결제 서비스 설정
 PAYMENT_SERVER_URL2=http://payment-server:9002
@@ -179,7 +182,7 @@ docker run -d \
 - **config.py**: 환경 변수 및 설정 관리 (Pydantic Settings)
 - **database/**: 
   - 비동기 데이터베이스 연결 관리
-  - MariaDB, PostgreSQL 연결 풀 설정
+  - MariaDB, PostgreSQL(Log/Recommend) 연결 풀 설정
   - 트랜잭션 관리 및 세션 관리
 - **auth/**: 
   - JWT 토큰 생성/검증
