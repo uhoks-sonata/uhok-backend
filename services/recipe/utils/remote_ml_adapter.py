@@ -10,12 +10,26 @@ from typing import List, Tuple, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from .ports import VectorSearcherPort
 from common.logger import get_logger
+from common.config import get_settings
 import time
 
 logger = get_logger("remote_ml_adapter")
 
-# 환경 변수에서 ML 서비스 설정 가져오기
-ML_INFERENCE_URL = os.getenv("ML_INFERENCE_URL")
+# 환경 변수/설정에서 ML 서비스 URL 가져오기
+def _resolve_ml_inference_url() -> str:
+    env_url = os.getenv("ML_INFERENCE_URL")
+    if env_url:
+        return env_url.rstrip("/")
+
+    try:
+        settings = get_settings()
+        config_url = getattr(settings, "ml_inference_url", None)
+        return (config_url or "").rstrip("/")
+    except Exception:
+        return ""
+
+
+ML_INFERENCE_URL = _resolve_ml_inference_url()
 ML_TIMEOUT = float(os.getenv("ML_TIMEOUT", "10.0"))
 ML_RETRIES = int(os.getenv("ML_RETRIES", "2"))
 
@@ -43,6 +57,9 @@ class RemoteMLAdapter(VectorSearcherPort):
         Returns:
             (recipe_id, distance) 튜플 리스트
         """
+        if not ML_INFERENCE_URL:
+            raise RuntimeError("ML 서비스 URL이 설정되지 않았습니다. ML_INFERENCE_URL을 설정하세요.")
+
         start_time = time.time()
         url = f"{ML_INFERENCE_URL}/api/v1/search"
         payload = {
@@ -107,6 +124,12 @@ class MLServiceHealthChecker:
         Returns:
             상태 정보 딕셔너리
         """
+        if not ML_INFERENCE_URL:
+            return {
+                "status": "error",
+                "error": "ML 서비스 URL이 설정되지 않았습니다. ML_INFERENCE_URL을 설정하세요.",
+            }
+
         try:
             url = f"{ML_INFERENCE_URL}/health"
             async with httpx.AsyncClient(timeout=5.0) as client:
