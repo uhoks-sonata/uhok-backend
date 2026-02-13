@@ -51,7 +51,11 @@ class Settings(BaseSettings):
     mariadb_service_url: str = Field(..., env="MARIADB_SERVICE_URL", description="서비스 데이터용 MariaDB 연결 URL")
     
     # PostgreSQL 데이터베이스 연결 설정
-    postgres_recommend_url: str = Field(..., env="POSTGRES_RECOMMEND_URL", description="추천 시스템용 PostgreSQL 연결 URL")
+    postgres_recommend_url: str = Field(
+        "",
+        env="POSTGRES_RECOMMEND_URL",
+        description="추천 시스템용 PostgreSQL 연결 URL (선택, 레거시 추천 경로에서만 사용)",
+    )
     postgres_log_url: str = Field(..., env="POSTGRES_LOG_URL", description="로그 저장용 PostgreSQL 연결 URL")
     postgres_log_migrate_url: str = Field(..., env="POSTGRES_LOG_MIGRATE_URL", description="로그 DB 마이그레이션용 연결 URL")
     
@@ -60,7 +64,7 @@ class Settings(BaseSettings):
 
     # ML 서비스 설정
     ml_mode: str = Field("remote_embed", env="ML_MODE", description="ML 서비스 모드")
-    ml_service_url: str = Field("http://ml-inference:8001", env="ML_SERVICE_URL", description="ML 서비스 URL")
+    ml_inference_url: str = Field("http://ml-inference:8001", env="ML_INFERENCE_URL", description="ML Inference 서비스 URL")
     
     # 외부 API 설정 (로그 전송 불필요하므로 제거)
     
