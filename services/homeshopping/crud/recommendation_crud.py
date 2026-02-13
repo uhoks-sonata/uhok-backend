@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -113,73 +113,6 @@ async def get_kok_product_infos(
     except Exception as e:
         logger.error(f"콕 상품 정보 조회 실패: error={str(e)}")
         logger.error("콕 상품 정보 조회에 실패했습니다")
-        return []
-
-async def get_pgvector_topk_within(
-    db: AsyncSession,
-    product_id: int,
-    candidate_ids: List[int],
-    k: int
-) -> List[Tuple[int, float]]:
-    """
-    pgvector를 사용한 유사도 기반 정렬 (실제 DB 연동)
-    """
-    # logger.info(f"pgvector 유사도 정렬 시작: product_id={product_id}, candidates={len(candidate_ids)}, k={k}")
-    
-    if not candidate_ids:
-        logger.warning("pgvector 유사도 정렬: 후보 상품 ID가 없음")
-        return []
-    
-    try:
-        # 1) 쿼리 텍스트 준비: 홈쇼핑 상품명 사용
-        prod_name = await get_homeshopping_product_name(db, product_id) or ""
-        if not prod_name:
-            logger.warning(f"pgvector 정렬 실패: 홈쇼핑 상품명을 찾을 수 없음, product_id={product_id}")
-            return []
-
-        # 2) 임베딩 생성 (ML 서비스 사용)
-        from services.recipe.utils.remote_ml_adapter import RemoteMLAdapter
-        ml_adapter = RemoteMLAdapter()
-        query_vec = await ml_adapter._get_embedding_from_ml_service(prod_name)
-
-        # 3) PostgreSQL(pgvector)로 후보 내 유사도 정렬
-        from sqlalchemy import text, bindparam
-        from pgvector.sqlalchemy import Vector
-        from common.database.postgres_recommend import get_postgres_recommend_db
-
-        sql = text(
-            """
-            SELECT "KOK_PRODUCT_ID" AS pid,
-                   "VECTOR_NAME" <-> :qv AS distance
-            FROM "KOK_VECTOR_TABLE"
-            WHERE "KOK_PRODUCT_ID" IN :ids
-            ORDER BY distance ASC
-            LIMIT :k
-            """
-        ).bindparams(
-            bindparam("qv", type_=Vector(384)),   # vector(384)로 바인딩
-            bindparam("ids", expanding=True),      # 후보 ID 리스트 확장
-            bindparam("k")
-        )
-
-        params = {
-            "qv": query_vec,
-            "ids": [int(i) for i in candidate_ids],
-            "k": int(max(1, k)),
-        }
-
-        async for pg in get_postgres_recommend_db():
-            rows = (await pg.execute(sql, params)).all()
-            sims: List[Tuple[int, float]] = [
-                (int(r.pid), float(r.distance)) for r in rows
-            ]
-            # logger.info(f"pgvector 정렬 완료: 결과 수={len(sims)}")
-            return sims
-        
-        return []
-        
-    except Exception as e:
-        logger.error(f"pgvector 유사도 정렬 실패: error={str(e)}")
         return []
 
 async def get_kok_candidates_by_keywords_improved(
@@ -400,25 +333,16 @@ async def recommend_homeshopping_to_kok(
 
         # logger.info(f"후보 수집 완료: {len(cand_ids)}개")
 
-        # 4. 후보 내 pgvector 정렬 (최적화된 버전)
-        # 후보가 적으면 pgvector 정렬 생략하고 바로 상세 조회
+        # 4. 후보 정렬
+        # ML 분리 이후 backend에서 pgvector 재정렬은 수행하지 않음.
+        # 키워드 기반 후보를 적당량만 사용하고, 상세 조회 단계의 리뷰 수 정렬을 활용.
+        pool_size = max(k * 4, min(candidate_n, 50))
+        pid_order = cand_ids[:pool_size]
         if len(cand_ids) <= k * 2:
-            logger.warning(f"후보 수가 적어 pgvector 정렬 생략: product_id={homeshopping_product_id}, 후보 수={len(cand_ids)}개")
-            pid_order = cand_ids[:k]
-            dist_map = {}
-        else:
-            sims = await get_pgvector_topk_within(
-                db,
-                homeshopping_product_id,
-                cand_ids,
-                max(k, candidate_n),
+            logger.warning(
+                f"후보 수가 적어 축소 풀 사용: product_id={homeshopping_product_id}, 후보 수={len(cand_ids)}개"
             )
-            if not sims:
-                logger.warning(f"pgvector 정렬 결과가 비어있음: product_id={homeshopping_product_id}")
-                return []
-
-            pid_order = [pid for pid, _ in sims]
-            dist_map = {pid: dist for pid, dist in sims}
+            pid_order = cand_ids[:k]
 
         # 5. 상세 조인
         details = await get_kok_product_infos(db, pid_order)
@@ -426,16 +350,9 @@ async def recommend_homeshopping_to_kok(
             logger.warning(f"콕 상품 상세 정보 조회 결과가 비어있음: product_id={homeshopping_product_id}, pid_order={pid_order[:5]}")
             return []
         
-        # 거리 정보 추가 (있는 경우만)
-        for d in details:
-            if d["kok_product_id"] in dist_map:
-                d["distance"] = dist_map[d["kok_product_id"]]
-
-        # 6. 거리 정렬 (거리 정보가 있는 경우만)
-        if dist_map:
-            ranked = sorted(details, key=lambda x: x.get("distance", 1e9))
-        else:
-            ranked = details
+        # 6. 정렬 결과
+        # 상세 조회 단계에서 리뷰 수 기준 정렬되어 반환됨
+        ranked = details
 
         # 7. 최종 AND 필터 적용 (tail ≥1 AND n-gram ≥1) - 간소화
         # 필터링을 위해 키 변환
