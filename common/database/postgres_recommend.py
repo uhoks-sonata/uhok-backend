@@ -10,14 +10,23 @@ from common.logger import get_logger
 logger = get_logger("postgres_recommend")
 
 settings = get_settings()
-engine = create_async_engine(settings.postgres_recommend_url, echo=False)
-SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+engine = None
+SessionLocal = None
 
-logger.info(f"PostgreSQL Recommend 엔진 생성됨, URL: {settings.postgres_recommend_url}")
+if settings.postgres_recommend_url:
+    engine = create_async_engine(settings.postgres_recommend_url, echo=False)
+    SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    logger.info(f"PostgreSQL Recommend 엔진 생성됨, URL: {settings.postgres_recommend_url}")
+else:
+    logger.warning("POSTGRES_RECOMMEND_URL 미설정: PostgreSQL Recommend 세션 비활성화")
+
 logger.info(f"디버그 모드: {settings.debug}")
 
 async def get_postgres_recommend_db() -> AsyncGenerator[AsyncSession, None]:
     """PostgreSQL 추천용 세션 반환"""
+    if SessionLocal is None:
+        raise RuntimeError("POSTGRES_RECOMMEND_URL이 설정되지 않아 recommend DB 세션을 생성할 수 없습니다.")
+
     logger.debug("PostgreSQL 추천 데이터베이스 세션 생성 중")
     async with SessionLocal() as session:
         logger.debug("PostgreSQL 추천 데이터베이스 세션 생성 완료")
