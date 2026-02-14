@@ -14,7 +14,7 @@ async def invalidate_discounted_cache():
     logger.debug("할인 상품 캐시 무효화 시작")
     
     try:
-        deleted_count = cache_manager.invalidate_discounted_products()
+        deleted_count = await cache_manager.invalidate_discounted_products()
         logger.debug(f"할인 상품 캐시 무효화 성공: 삭제된 키 수={deleted_count}")
         logger.info(f"할인 상품 캐시 무효화 완료: 삭제된 키 수={deleted_count}")
         return {"message": f"할인 상품 캐시가 무효화되었습니다. 삭제된 키 수: {deleted_count}"}
@@ -30,7 +30,7 @@ async def invalidate_top_selling_cache():
     logger.debug("인기 상품 캐시 무효화 시작")
     
     try:
-        deleted_count = cache_manager.invalidate_top_selling_products()
+        deleted_count = await cache_manager.invalidate_top_selling_products()
         logger.debug(f"인기 상품 캐시 무효화 성공: 삭제된 키 수={deleted_count}")
         logger.info(f"인기 상품 캐시 무효화 완료: 삭제된 키 수={deleted_count}")
         return {"message": f"인기 상품 캐시가 무효화되었습니다. 삭제된 키 수: {deleted_count}"}
@@ -46,7 +46,7 @@ async def invalidate_store_best_cache():
     logger.debug("스토어 베스트 상품 캐시 무효화 시작")
     
     try:
-        deleted_count = cache_manager.invalidate_store_best_items()
+        deleted_count = await cache_manager.invalidate_store_best_items()
         logger.debug(f"스토어 베스트 상품 캐시 무효화 성공: 삭제된 키 수={deleted_count}")
         logger.info(f"스토어 베스트 상품 캐시 무효화 완료: 삭제된 키 수={deleted_count}")
         return {"message": f"스토어 베스트 상품 캐시가 무효화되었습니다. 삭제된 키 수: {deleted_count}"}
@@ -62,9 +62,9 @@ async def invalidate_all_cache():
     logger.debug("모든 KOK 관련 캐시 무효화 시작")
     
     try:
-        discounted_count = cache_manager.invalidate_discounted_products()
-        top_selling_count = cache_manager.invalidate_top_selling_products()
-        store_best_count = cache_manager.invalidate_store_best_items()
+        discounted_count = await cache_manager.invalidate_discounted_products()
+        top_selling_count = await cache_manager.invalidate_top_selling_products()
+        store_best_count = await cache_manager.invalidate_store_best_items()
         
         total_count = discounted_count + top_selling_count + store_best_count
         logger.debug(f"모든 KOK 캐시 무효화 성공: 총 삭제된 키 수={total_count}")
