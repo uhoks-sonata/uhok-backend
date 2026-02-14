@@ -219,7 +219,7 @@ async def get_kok_discounted_products(
     # 페이지 단위 캐시 조회.
     # 주의: TTL 또는 명시적 무효화 전까지 이전 결과가 반환될 수 있음.
     if use_cache:
-        cached_data = cache_manager.get('discounted_products', page=page, size=size)
+        cached_data = await cache_manager.get('discounted_products', page=page, size=size)
         if cached_data:
             # logger.info(f"캐시에서 할인 상품 조회 완료: page={page}, size={size}, 결과 수={len(cached_data)}")
             return cached_data
@@ -294,7 +294,7 @@ async def get_kok_discounted_products(
     # 페이지 단위 캐싱
     if use_cache:
         try:
-            cache_manager.set('discounted_products', discounted_products, page=page, size=size)
+            await cache_manager.set('discounted_products', discounted_products, page=page, size=size)
         except Exception as e:
             logger.warning(f"페이지 캐싱 실패: {str(e)}")
     
@@ -321,7 +321,7 @@ async def get_kok_discounted_products_max_join(
     from services.kok.utils.cache_utils import cache_manager
 
     if use_cache:
-        cached_data = cache_manager.get('discounted_products', page=page, size=size)
+        cached_data = await cache_manager.get('discounted_products', page=page, size=size)
         if cached_data:
             return cached_data
 
@@ -384,7 +384,7 @@ async def get_kok_discounted_products_max_join(
 
     if use_cache:
         try:
-            cache_manager.set('discounted_products', discounted_products, page=page, size=size)
+            await cache_manager.set('discounted_products', discounted_products, page=page, size=size)
         except Exception as e:
             logger.warning(f"[max_join] 캐시 저장 실패: {str(e)}")
 
@@ -415,7 +415,7 @@ async def get_kok_top_selling_products(
     
     # 개선된 캐싱 전략: 전체 데이터를 캐시에서 조회
     if use_cache:
-        cached_data = cache_manager.get('top_selling_products', page=page, size=size, sort_by=sort_by)
+        cached_data = await cache_manager.get('top_selling_products', page=page, size=size, sort_by=sort_by)
         if cached_data:
             # logger.info(f"캐시에서 인기 상품 조회 완료: page={page}, size={size}, 결과 수={len(cached_data)}")
             return cached_data
@@ -538,9 +538,9 @@ async def get_kok_top_selling_products(
                     "kok_review_cnt": row.kok_review_cnt,
                     "kok_review_score": row.kok_review_score,
                 })
-            
+
             # 전체 데이터를 캐시에 저장 (TTL 5분)
-            cache_manager.set('top_selling_products', all_products, page=page, size=size, sort_by=sort_by)
+            await cache_manager.set('top_selling_products', all_products, page=page, size=size, sort_by=sort_by)
         except Exception as e:
             logger.warning(f"전체 데이터 캐싱 실패: {str(e)}")
     
@@ -645,7 +645,7 @@ async def get_kok_store_best_items(
     
     # 캐시에서 데이터 조회 시도
     if use_cache and user_id:
-        cached_data = cache_manager.get(
+        cached_data = await cache_manager.get(
             'store_best_items',
             user_id=user_id,
             sort_by=sort_by
@@ -819,7 +819,7 @@ async def get_kok_store_best_items(
     
     # 캐시에 데이터 저장 (user_id가 있는 경우만)
     if use_cache and user_id:
-        cache_manager.set(
+        await cache_manager.set(
             'store_best_items',
             store_best_products,
             user_id=user_id,
