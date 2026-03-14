@@ -8,8 +8,6 @@ API Gateway 서비스 진입점.
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from pathlib import Path
 from common.config import get_settings
 from common.logger import get_logger
 # from common.http_log_middleware import HttpLogMiddleware  # 미들웨어 비활성화
@@ -94,12 +92,6 @@ logger.debug("주문 라우터 포함 중...")
 app.include_router(order_router)
 logger.info("주문 라우터 포함 완료")
 
-# """홈쇼핑 정적파일 서빙
-# - /homeshopping/static 경로로 JS/CSS/이미지 제공
-# - 운영 시 Nginx로 오프로드하더라도 경로는 동일하게 유지 가능
-# """
-HS_STATIC_DIR = Path(__file__).resolve().parents[1] / "services" / "homeshopping" / "static"
-app.mount("/homeshopping/static", StaticFiles(directory=str(HS_STATIC_DIR)), name="homeshopping-static")
 logger.debug("홈쇼핑 라우터 포함 중...")
 app.include_router(homeshopping_router)
 logger.info("홈쇼핑 라우터 포함 완료")
