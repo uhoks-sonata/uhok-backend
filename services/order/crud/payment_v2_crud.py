@@ -243,7 +243,10 @@ async def confirm_payment_and_update_status_v2(
 
     # (6) 웹훅 결과 대기
     # logger.info(f"[v2] 웹훅 결과 대기 시작: order_id={order_id}, tx_id={tx_id}, timeout={timeout_sec}초")
-    
+    payment_id = init_ack.get("payment_id", f"pending_{tx_id}")
+    final_status = "PENDING"
+    webhook_result: Dict[str, Any] = {"event": "payment.pending"}
+
     try:
         # 웹훅 결과를 기다림
         webhook_future = await webhook_waiters.subscribe(tx_id, check_resolved_first=True)
@@ -258,7 +261,7 @@ async def confirm_payment_and_update_status_v2(
             payment_id = webhook_result.get("payment_id", f"completed_{tx_id}")
         elif webhook_result.get("event") in ("payment.failed", "payment.cancelled"):
             # 결제 실패/취소
-            final_status = "PAYMENT_FAILED"
+            final_status = "PAYMENT_CANCELLED"
             payment_id = webhook_result.get("payment_id", f"failed_{tx_id}")
             failure_reason = webhook_result.get("reason", "결제 실패")
             logger.error(f"[v2] 결제 실패: order_id={order_id}, reason={failure_reason}")
@@ -269,22 +272,19 @@ async def confirm_payment_and_update_status_v2(
             raise HTTPException(status_code=500, detail="알 수 없는 결제 결과입니다.")
             
     except asyncio.TimeoutError:
-        logger.error(f"[v2] 웹훅 대기 시간 초과: order_id={order_id}, tx_id={tx_id}, timeout={timeout_sec}초")
-        await webhook_waiters.discard_callback_token(tx_id)
-        
-        # 웹훅 대기자 정리
+        logger.warning(
+            f"[v2] 웹훅 대기 시간 초과: order_id={order_id}, tx_id={tx_id}, timeout={timeout_sec}초"
+        )
+        # timeout 시 즉시 주문을 취소하지 않는다.
+        # 이후 도착하는 webhook가 최종 상태를 확정할 수 있도록 callback token은 유지한다.
+        webhook_result = {"event": "payment.pending_timeout", "tx_id": tx_id}
+        final_status = "PENDING"
+
+        # 오래된 엔트리만 정리해 메모리 누수를 완화한다.
         try:
-            await webhook_waiters.cleanup(max_age_sec=timeout_sec)
+            await webhook_waiters.cleanup(max_age_sec=max(300.0, float(timeout_sec) * 5))
         except Exception as e:
             logger.warning(f"[v2] 웹훅 대기자 정리 실패: {e}")
-        
-        # 타임아웃 시 주문 취소
-        try:
-            await cancel_order(db, order_id, "결제 시간 초과")
-            logger.info(f"[v2] 결제 시간 초과로 인한 주문 취소 완료: order_id={order_id}")
-        except Exception as e:
-            logger.error(f"[v2] 주문 취소 실패: order_id={order_id}, error={str(e)}")
-        raise HTTPException(status_code=408, detail="결제 처리 시간 초과")
     except HTTPException:
         # 이미 HTTPException이 발생한 경우 (결제 실패 등) 그대로 재발생
         raise
