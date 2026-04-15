@@ -60,6 +60,12 @@ async def confirm_payment_v2(
             )
         
         return result
+    except HTTPException as e:
+        logger.error(
+            f"결제 확인 v2 HTTP 예외: user_id={current_user.user_id}, "
+            f"order_id={order_id}, status={e.status_code}, detail={e.detail}"
+        )
+        raise
     except Exception as e:
         logger.error(f"결제 확인 v2 실패: user_id={current_user.user_id}, order_id={order_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail=f"payment v2 long polling failed: {e}")
