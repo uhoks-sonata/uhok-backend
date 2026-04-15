@@ -87,6 +87,7 @@ async def payment_webhook_v2(
     # 헤더 직접 추출 (FastAPI Header 파라미터 파싱 문제 해결)
     x_payment_event = request.headers.get("x-payment-event")
     x_payment_signature = request.headers.get("x-payment-signature")
+    callback_token = request.query_params.get("t")
     
     logger.info(f"[v2] 직접 추출한 헤더: event={x_payment_event}, signature={x_payment_signature[:20] if x_payment_signature else 'None'}...")
     
@@ -110,6 +111,7 @@ async def payment_webhook_v2(
             raw_body=body,
             signature_b64=x_payment_signature,
             event=x_payment_event,
+            callback_token=callback_token,
             authorization=authorization,
         )
         logger.debug(f"웹훅 처리 성공: tx_id={tx_id}, result={result}")
@@ -136,6 +138,8 @@ async def payment_webhook_v2(
             )
         
         return {"received": True, **result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[v2] 웹훅 처리 중 예외 발생: tx_id={tx_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail=f"webhook processing error: {str(e)}")

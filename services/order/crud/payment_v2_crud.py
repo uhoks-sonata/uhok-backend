@@ -49,14 +49,23 @@ class WaiterRegistry:
     """
 
     def __init__(self) -> None:
+        """대기자, 완료 결과, 콜백 토큰 저장소를 초기화한다."""
         # waiters[key] = [(future, created_at_ts), ...]
         self.waiters: Dict[str, List[Tuple[asyncio.Future, float]]] = {}
         # resolved[key] = payload (이미 해결된 최종 결과; 이후 구독 시 바로 리턴)
         self.resolved: Dict[str, Any] = {}
+        # callback_tokens[key] = (token, created_at_ts)
+        self.callback_tokens: Dict[str, Tuple[str, float]] = {}
         # 락: 동시 접근 안전
         self._lock = asyncio.Lock()
 
     async def subscribe(self, key: str, check_resolved_first: bool = True) -> asyncio.Future:
+        """
+        주어진 key에 대한 대기용 Future를 등록한다.
+
+        ``check_resolved_first``가 활성화되어 있고 최종 결과가 이미 저장되어 있으면,
+        해당 payload로 즉시 완료된 Future를 반환한다.
+        """
         async with self._lock:
             if check_resolved_first and key in self.resolved:
                 # 이미 최종 결과가 있다면 즉시 완료된 Future를 반환
@@ -80,6 +89,25 @@ class WaiterRegistry:
                 fut.set_result(payload)
         return len(entries)
 
+    async def register_callback_token(self, key: str, token: str) -> None:
+        """주어진 트랜잭션 key에 대해 기대하는 콜백 토큰을 저장한다."""
+        async with self._lock:
+            self.callback_tokens[key] = (token, time.time())
+
+    async def verify_callback_token(self, key: str, token: str) -> bool:
+        """전달된 콜백 토큰이 저장된 토큰과 일치하는지 확인한다."""
+        async with self._lock:
+            entry = self.callback_tokens.get(key)
+            if not entry:
+                return False
+            expected_token, _ = entry
+            return hmac.compare_digest(expected_token, token)
+
+    async def discard_callback_token(self, key: str) -> None:
+        """주어진 트랜잭션 key에 등록된 콜백 토큰을 제거한다."""
+        async with self._lock:
+            self.callback_tokens.pop(key, None)
+
     async def resolve(self, key: str, payload: Any) -> int:
         """
         최종 상태를 저장(resolved)하고 현재 대기자도 모두 깨움.
@@ -87,6 +115,7 @@ class WaiterRegistry:
         """
         async with self._lock:
             self.resolved[key] = payload
+            self.callback_tokens.pop(key, None)
             entries = self.waiters.pop(key, [])
         for fut, _ in entries:
             if not fut.done():
@@ -111,12 +140,16 @@ class WaiterRegistry:
                     self.waiters[key] = alive
                 else:
                     self.waiters.pop(key, None)
+            for key, (_, ts) in list(self.callback_tokens.items()):
+                if (now - ts) > max_age_sec:
+                    self.callback_tokens.pop(key, None)
 
 # 전역 웹훅 대기자 레지스트리
 webhook_waiters = WaiterRegistry()
 
 # 운영서버로 콜백 받을 때 서명을 검증
 def _verify_webhook_signature(body_bytes: bytes, signature_b64: str, secret: str) -> bool:
+    """웹훅 payload에 대한 base64 인코딩 HMAC-SHA256 서명을 검증한다."""
     mac = hmac.new(secret.encode("utf-8"), body_bytes, hashlib.sha256).digest()
     expected = base64.b64encode(mac).decode("ascii")
     # 타이밍 공격 방지 비교
@@ -193,15 +226,18 @@ async def confirm_payment_and_update_status_v2(
 
     # (5) 결제서버에 시작 요청
     try:
+        await webhook_waiters.register_callback_token(tx_id, cb_token)
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.post(f"{PAYMENT_SERVER_URL2}/api/v2/payments", json=payload, headers=headers)
         r.raise_for_status()
         init_ack = r.json()
     # logger.info(f"[v2] 결제서버 시작 요청 성공: order_id={order_id}, tx_id={tx_id}")
     except httpx.RequestError as e:
+        await webhook_waiters.discard_callback_token(tx_id)
         logger.error(f"[v2] 결제서버 연결 실패: {e}")
         raise HTTPException(status_code=503, detail="외부 결제 서비스에 연결할 수 없습니다.")
     except Exception as e:
+        await webhook_waiters.discard_callback_token(tx_id)
         logger.error(f"[v2] 결제서버 오류: {e}")
         raise HTTPException(status_code=400, detail="결제 시작 요청 실패")
 
@@ -234,6 +270,7 @@ async def confirm_payment_and_update_status_v2(
             
     except asyncio.TimeoutError:
         logger.error(f"[v2] 웹훅 대기 시간 초과: order_id={order_id}, tx_id={tx_id}, timeout={timeout_sec}초")
+        await webhook_waiters.discard_callback_token(tx_id)
         
         # 웹훅 대기자 정리
         try:
@@ -252,6 +289,7 @@ async def confirm_payment_and_update_status_v2(
         # 이미 HTTPException이 발생한 경우 (결제 실패 등) 그대로 재발생
         raise
     except Exception as e:
+        await webhook_waiters.discard_callback_token(tx_id)
         logger.error(f"[v2] 웹훅 대기 중 예외 발생: order_id={order_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail="결제 처리 중 오류가 발생했습니다.")
 
@@ -302,6 +340,7 @@ async def apply_payment_webhook_v2(
     raw_body: bytes,
     signature_b64: str,
     event: str,  # "payment.completed" | "payment.failed" | "payment.cancelled"
+    callback_token: Optional[str] = None,
     authorization: Optional[str] = None,  # (옵션) 서비스 토큰 검증용
 ) -> dict:
     """
@@ -310,6 +349,14 @@ async def apply_payment_webhook_v2(
     - (옵션) Authorization: Bearer <SERVICE_AUTH_TOKEN> 검증
     - event별로 상태 업데이트 트리거
     """
+    # (0) callback query token 검증
+    if not callback_token:
+        logger.warning(f"[v2] callback token 누락: tx_id={tx_id}")
+        return {"ok": False, "reason": "missing_callback_token"}
+    if not await webhook_waiters.verify_callback_token(tx_id, callback_token):
+        logger.warning(f"[v2] callback token 불일치: tx_id={tx_id}")
+        return {"ok": False, "reason": "invalid_callback_token"}
+
     # (0) (옵션) 서비스 토큰 검증
     if SERVICE_AUTH_TOKEN and authorization:
         expected = f"Bearer {SERVICE_AUTH_TOKEN}"
