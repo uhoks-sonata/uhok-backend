@@ -142,6 +142,13 @@ PAYMENT_WEBHOOK_SECRET=your_webhook_secret_key
 SERVICE_AUTH_TOKEN=your_auth_token
 ```
 
+#### 결제 v2 웹훅 설정 참고
+- `WEBHOOK_BASE_URL` 은 payment-server 가 실제로 접근할 수 있는 백엔드 주소여야 합니다.
+- v2 결제 콜백 URL에는 일회성 callback token 쿼리 파라미터(`t`)가 포함되며, 백엔드는 이 값을 검증한 뒤에만 웹훅을 처리합니다.
+- `PAYMENT_WEBHOOK_SECRET` 는 payment-server 가 생성한 HMAC-SHA256 서명을 검증할 때 사용합니다.
+- `SERVICE_AUTH_TOKEN` 을 설정한 경우 payment-server 의 `Authorization: Bearer <token>` 헤더도 함께 검증합니다.
+- 로컬 실행과 Docker 실행에서 백엔드 주소가 다를 수 있으므로 `WEBHOOK_BASE_URL` 을 실행 환경에 맞게 분리해 설정해야 합니다.
+
 2. **의존성 설치**
 ```bash
 pip install -r requirements.txt
