@@ -62,11 +62,12 @@ async def create_order(
     try:
         # CRUD 계층에 주문 생성 위임
         order_result = await create_homeshopping_order(
-            db, 
-            current_user.user_id, 
+            db,
+            current_user.user_id,
             order_data.product_id,
             order_data.quantity
         )
+        await db.commit()
         logger.debug(f"홈쇼핑 주문 생성 성공: user_id={current_user.user_id}, order_id={order_result['order_id']}")
         
         # 주문 생성 로그 기록

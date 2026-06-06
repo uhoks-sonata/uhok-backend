@@ -164,16 +164,14 @@ async def initialize_status_master(db: AsyncSession):
         
         # 배치로 INSERT 실행
         await db.execute(text(insert_sql), [
-            {"status_code": code, "status_name": name} 
+            {"status_code": code, "status_name": name}
             for code, name in new_status_codes
         ])
-        
-        await db.commit()
+
         logger.info(f"상태 마스터 초기화 완료: {len(new_status_codes)}개 상태 코드 추가")
-        
+
     except Exception as e:
         logger.error(f"상태 마스터 초기화 실패: error={str(e)}")
-        await db.rollback()
         raise
 
 async def validate_user_exists(user_id: int, db: AsyncSession) -> bool:

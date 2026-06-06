@@ -43,10 +43,11 @@ async def signup(
         if exist_user:
             logger.warning(f"중복 이메일로 회원가입 시도: {user.email}")
             raise ConflictException("이미 가입된 이메일입니다.")
-        
+
         new_user = await create_user(db, str(user.email), user.password, user.username)
+        await db.commit()
         logger.info(f"새 사용자 등록 성공: user_id={new_user.user_id}, email={user.email}")
-        
+
         # 회원가입 로그 기록
         if background_tasks:
             http_info = extract_http_info(request, response_code=201)
@@ -60,9 +61,10 @@ async def signup(
                 },
                 **http_info  # HTTP 정보를 키워드 인자로 전달
             )
-        
+
         return new_user
     except Exception as e:
+        await db.rollback()
         logger.error(f"회원가입 실패, email={user.email}: {str(e)}")
         raise
 
@@ -210,8 +212,9 @@ async def logout(
             user_id=user_id,
             metadata="user_logout"
         )
+        await db.commit()
         logger.info(f"토큰 블랙리스트 추가 성공: user_id={user_id}")
-        
+
         # 로그아웃 로그 기록
         if background_tasks:
             http_info = extract_http_info(request, response_code=200)
@@ -225,12 +228,14 @@ async def logout(
                 },
                 **http_info  # HTTP 정보를 키워드 인자로 전달
             )
-        
+
         return {"message": "로그아웃이 완료되었습니다."}
-        
+
     except InvalidTokenException as e:
+        await db.rollback()
         logger.error(f"로그아웃 실패 (토큰 오류): user_id={current_user.user_id}, error={str(e)}")
         raise
     except Exception as e:
+        await db.rollback()
         logger.error(f"로그아웃 중 예상치 못한 오류: user_id={current_user.user_id}, error={str(e)}")
         raise

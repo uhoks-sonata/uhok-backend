@@ -422,7 +422,6 @@ async def apply_payment_webhook_v2(
             hs_orders=hs_orders,
             user_id=None,  # 시스템 처리면 None/0 등 정책에 맞게
         )
-        await db.commit()
 
         # (선택) 상태이력/알림 로깅
         # background task가 라우터에 없다면 여기서 바로 적재하거나 생략
@@ -457,8 +456,6 @@ async def apply_payment_webhook_v2(
             # logger.info(f"[v2] 결제실패/취소로 인한 주문 취소 완료: order_id={order_id}, reason={reason}")
         except Exception as e:
             logger.error(f"[v2] 주문 취소 실패: order_id={order_id}, error={str(e)}")
-        
-        await db.commit()
         # logger.info(f"[v2] 결제실패/취소 반영: order_id={order_id}, reason={failure_reason}")
         
         # 웹훅 결과를 대기자들에게 알림 (최종 상태이므로 resolve 사용)

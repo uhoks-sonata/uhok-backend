@@ -57,6 +57,7 @@ async def order_from_selected_carts(
         result = await create_orders_from_selected_carts(
             db, current_user.user_id, [i.model_dump() for i in request.selected_items]
         )
+        await db.commit()
         logger.debug(f"장바구니 주문 생성 성공: user_id={current_user.user_id}, order_id={result['order_id']}")
 
         logger.info(f"장바구니 주문 생성 완료: user_id={current_user.user_id}, order_id={result['order_id']}, order_count={result['order_count']}")

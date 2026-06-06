@@ -60,6 +60,7 @@ async def confirm_payment(
 
     try:
         await update_kok_order_status(db, kok_order_id, "PAYMENT_COMPLETED", user.user_id)
+        await db.commit()
         logger.debug(f"콕 결제 확인 성공: kok_order_id={kok_order_id}")
 
         if background_tasks:
@@ -119,6 +120,7 @@ async def confirm_payment_by_order(
     try:
         for ko in kok_orders:
             await update_kok_order_status(db, ko.kok_order_id, "PAYMENT_COMPLETED", user.user_id)
+        await db.commit()
         logger.debug(f"콕 주문 단위 결제 확인 성공: order_id={order_id}, kok_order_count={len(kok_orders)}")
 
         if background_tasks:

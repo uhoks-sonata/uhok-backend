@@ -145,7 +145,6 @@ async def create_orders_from_selected_carts(
 
     # 선택된 장바구니 삭제
     await db.execute(delete(KokCart).where(KokCart.kok_cart_id.in_(kok_cart_ids)))
-    await db.commit()
 
     return {
         "order_id": main_order.order_id,

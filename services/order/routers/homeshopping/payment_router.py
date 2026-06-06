@@ -54,6 +54,7 @@ async def confirm_payment(
         
         # 2. 결제 확인 처리
         payment_result = await confirm_hs_payment(db, homeshopping_order_id, current_user.user_id)
+        await db.commit()
         logger.debug(f"홈쇼핑 결제 확인 성공: homeshopping_order_id={homeshopping_order_id}, previous_status={payment_result['previous_status']}, current_status={payment_result['current_status']}")
         
         # 결제 확인 로그 기록

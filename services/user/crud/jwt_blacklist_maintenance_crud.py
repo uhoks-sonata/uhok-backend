@@ -17,7 +17,6 @@ async def cleanup_expired_tokens(db: AsyncSession) -> int:
         now = datetime.utcnow()
         result = await db.execute(delete(JWTBlacklist).where(JWTBlacklist.expires_at < now))
 
-        await db.commit()
         cleaned_count = result.rowcount
 
         if cleaned_count > 0:
@@ -26,5 +25,4 @@ async def cleanup_expired_tokens(db: AsyncSession) -> int:
         return cleaned_count
     except Exception as e:
         logger.error(f"Failed to cleanup expired tokens: {str(e)}")
-        await db.rollback()
         raise

@@ -99,9 +99,7 @@ async def cancel_order(db: AsyncSession, order_id: int, reason: str):
                 changed_by=1  # 시스템 자동 취소
             )
             db.add(new_status_history)
-        
-        await db.commit()
-        
+
     # logger.info(f"주문 취소 완료: order_id={order_id}, cancel_time={current_time}, reason={reason}")
         
         return {

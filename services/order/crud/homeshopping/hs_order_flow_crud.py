@@ -113,10 +113,9 @@ async def create_homeshopping_order(
         )
         
         db.add(new_notification)
-        await db.commit()
-        
+
     # logger.info(f"홈쇼핑 주문 생성 완료: user_id={user_id}, order_id={new_order.order_id}, homeshopping_order_id={new_homeshopping_order.homeshopping_order_id}")
-        
+
         return {
             "order_id": new_order.order_id,
             "homeshopping_order_id": new_homeshopping_order.homeshopping_order_id,
@@ -128,9 +127,8 @@ async def create_homeshopping_order(
             "order_time": order_time,
             "message": "주문이 성공적으로 생성되었습니다."
         }
-        
+
     except Exception as e:
-        await db.rollback()
         logger.error(f"홈쇼핑 주문 생성 실패: user_id={user_id}, product_id={product_id}, error={str(e)}")
         raise
 
@@ -212,14 +210,12 @@ async def confirm_hs_payment(
     )
     
     db.add(new_status_history)
-    
+
     # 5. 알림 생성
     await create_hs_notification_for_status_change(
         db, homeshopping_order_id, new_status.status_id, user_id
     )
-    
-    await db.commit()
-    
+
     return {
         "homeshopping_order_id": homeshopping_order_id,
         "previous_status": current_status.status.status_name,
@@ -330,8 +326,6 @@ async def start_hs_auto_update(
                 changed_by=user_id
             )
             
-            # 상태 업데이트 후 commit하여 DB에 반영
-            await db.commit()
             # logger.info(f"상태 업데이트 완료 및 DB 반영: homeshopping_order_id={homeshopping_order_id}, {current_status_code} -> {next_status_code}")
             
             # 5. 백그라운드에서 나머지 상태 업데이트 시작

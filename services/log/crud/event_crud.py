@@ -55,7 +55,7 @@ async def create_user_log(db: AsyncSession, log_data: dict) -> UserLog:
     try:
         log = UserLog(**data)
         db.add(log)
-        await db.commit()
+        await db.flush()
         await db.refresh(log)
         return log
     except Exception as e:

@@ -46,12 +46,11 @@ async def create_user_activity_log(
             event_data=event_data,
         )
         db.add(user_log)
-        await db.commit()
+        await db.flush()
         await db.refresh(user_log)
         return user_log
 
     except Exception as e:
-        await db.rollback()
         logger.error(
             f"사용자 활동 로그 생성 실패: user_id={user_id}, action={activity.action}, error={str(e)}"
         )

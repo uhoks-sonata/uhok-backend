@@ -67,6 +67,7 @@ async def write_log(
     try:
         log_data = log.model_dump()
         log_obj = await create_user_log(db, log_data)
+        await db.commit()
 
         if background_tasks and log.event_type != "log_write_success":
             background_tasks.add_task(
@@ -81,15 +82,19 @@ async def write_log(
             )
         return log_obj
     except BadRequestException as e:
+        await db.rollback()
         logger.warning(f"사용자 이벤트 로그 기록 실패 (잘못된 요청): user_id={log.user_id}, error={str(e)}")
         raise e
     except InternalServerErrorException as e:
+        await db.rollback()
         logger.error(f"사용자 이벤트 로그 기록 실패 (내부 서버 오류): user_id={log.user_id}, error={str(e)}")
         raise e
     except SQLAlchemyError:
+        await db.rollback()
         logger.error(f"사용자 이벤트 로그 기록 실패 (DB 오류): user_id={log.user_id}")
         raise InternalServerErrorException("DB 오류로 로그 저장에 실패했습니다.")
     except Exception:
+        await db.rollback()
         logger.error(f"사용자 이벤트 로그 기록 실패 (예상치 못한 오류): user_id={log.user_id}")
         raise InternalServerErrorException()
 

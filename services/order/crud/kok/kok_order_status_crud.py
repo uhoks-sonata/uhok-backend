@@ -132,7 +132,6 @@ async def create_kok_notification_for_status_change(
     )
     
     db.add(notification)
-    await db.commit()
 
 
 async def update_kok_order_status(
@@ -208,7 +207,6 @@ async def update_kok_order_status(
         user_id=order.user_id
     )
 
-    await db.commit()
     await db.refresh(kok_order)
     return kok_order
 

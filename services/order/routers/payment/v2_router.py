@@ -120,9 +120,10 @@ async def payment_webhook_v2(
             callback_token=callback_token,
             authorization=authorization,
         )
+        await db.commit()
         logger.debug(f"웹훅 처리 성공: tx_id={tx_id}, result={result}")
         logger.info(f"[v2] 웹훅 처리 결과: {result}")
-        
+
         if not result.get("ok"):
             logger.error(f"[v2] 웹훅 처리 실패: {result}")
             raise HTTPException(status_code=400, detail="webhook handling failed")

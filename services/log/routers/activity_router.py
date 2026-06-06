@@ -48,6 +48,7 @@ async def log_user_activity(
             user_id=current_user.user_id,
             activity=activity,
         )
+        await db.commit()
 
         return UserActivityLogResponse(
             message="활동 로그가 성공적으로 기록되었습니다.",
@@ -61,6 +62,7 @@ async def log_user_activity(
         )
 
     except Exception as e:
+        await db.rollback()
         logger.error(
             f"사용자 활동 로그 기록 실패: user_id={current_user.user_id}, action={activity.action}, error={str(e)}"
         )

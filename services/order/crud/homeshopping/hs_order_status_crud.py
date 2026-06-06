@@ -171,7 +171,6 @@ async def create_hs_notification_for_status_change(
     )
     
     db.add(notification)
-    await db.commit()
     # logger.info(f"홈쇼핑 주문 알림 생성 완료: homeshopping_order_id={homeshopping_order_id}, status_id={status_id}")
 
 
@@ -249,8 +248,6 @@ async def update_hs_order_status(
         status_id=new_status.status_id,
         user_id=order.user_id
     )
-    
-    await db.commit()
     # logger.info(f"홈쇼핑 주문 상태 변경 완료: homeshopping_order_id={homeshopping_order_id}, status={new_status_code}")
     
     return hs_order
@@ -507,9 +504,6 @@ async def auto_update_hs_order_status(homeshopping_order_id: int, db: AsyncSessi
                 new_status_code=status_code,
                 changed_by=1  # 시스템 자동 업데이트
             )
-            
-            # 상태 업데이트 후 commit하여 DB에 반영
-            await db.commit()
             
             # logger.info(f"홈쇼핑 주문 {homeshopping_order_id} 상태가 '{status_code}'로 업데이트되었습니다.")
             

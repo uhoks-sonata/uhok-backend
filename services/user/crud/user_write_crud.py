@@ -12,11 +12,11 @@ async def create_user(db: AsyncSession, email: str, password: str, username: str
     hashed_pw = hash_password(password)
     user = User(email=email, password_hash=hashed_pw, username=username)
     db.add(user)
-    await db.commit()
+    await db.flush()
     await db.refresh(user)
 
     setting = UserSetting(user_id=user.user_id)
     db.add(setting)
-    await db.commit()
+    await db.flush()
     await db.refresh(user)
     return user

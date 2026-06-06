@@ -79,11 +79,12 @@ async def update_kok_order_status_api(
         
         # 상태 업데이트 (INSERT만 사용)
         updated_order = await update_kok_order_status(
-            db, 
-            kok_order_id, 
-            status_update.new_status_code, 
+            db,
+            kok_order_id,
+            status_update.new_status_code,
             status_update.changed_by or user.user_id
         )
+        await db.commit()
         logger.debug(f"콕 주문 상태 업데이트 성공: kok_order_id={kok_order_id}, new_status={status_update.new_status_code}")
         
         # 업데이트된 주문과 상태 정보 조회

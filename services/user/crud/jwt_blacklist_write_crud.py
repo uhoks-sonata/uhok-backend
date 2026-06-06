@@ -29,10 +29,9 @@ async def add_token_to_blacklist(
         )
 
         db.add(blacklisted_token)
-        await db.commit()
+        await db.flush()
         await db.refresh(blacklisted_token)
         return blacklisted_token
     except Exception as e:
         logger.error(f"토큰을 블랙리스트에 추가하는데 실패했습니다: {str(e)}")
-        await db.rollback()
         raise
