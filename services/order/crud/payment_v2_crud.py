@@ -212,17 +212,13 @@ async def confirm_payment_and_update_status_v2(
 
     # (4) 결제 요청 상태로 변경
     # logger.info(f"[v2] 주문 상태를 PAYMENT_REQUESTED로 변경 시작: order_id={order_id}")
-    try:
-        await _mark_all_children_payment_requested(
-            db,
-            kok_orders=order_data.get("kok_orders", []),
-            hs_orders=order_data.get("homeshopping_orders", []),
-            user_id=user_id,
-        )
+    await _mark_all_children_payment_requested(
+        db,
+        kok_orders=order_data.get("kok_orders", []),
+        hs_orders=order_data.get("homeshopping_orders", []),
+        user_id=user_id,
+    )
     # logger.info(f"[v2] 주문 상태를 PAYMENT_REQUESTED로 변경 완료: order_id={order_id}")
-    except Exception as e:
-        logger.error(f"[v2] 주문 상태 변경 실패: order_id={order_id}, error={str(e)}")
-        # 상태 변경 실패 시에도 결제 진행은 계속 (로깅만 기록)
 
     # (5) 결제서버에 시작 요청
     try:

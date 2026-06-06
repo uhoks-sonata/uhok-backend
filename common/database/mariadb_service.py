@@ -20,7 +20,6 @@ engine = create_async_engine(
     connect_args={
         "connect_timeout": 10,  # 연결 타임아웃
         "read_timeout": 30,  # 읽기 타임아웃
-        "autocommit": True,  # 자동 커밋
     }
 )
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -33,5 +32,9 @@ async def get_maria_service_db() -> AsyncGenerator[AsyncSession, None]:
     logger.debug("MariaDB 서비스 데이터베이스 세션 생성 중")
     async with SessionLocal() as session:
         logger.debug("MariaDB 서비스 데이터베이스 세션 생성 완료")
-        yield session
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
     logger.debug("MariaDB 서비스 데이터베이스 세션 종료됨")
