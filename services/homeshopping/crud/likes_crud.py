@@ -23,46 +23,44 @@ async def toggle_homeshopping_likes(
     - live_id를 찜 목록에서 조회했을 때 있는 경우에는 삭제
     """
     # logger.info(f"홈쇼핑 찜 토글 시작: user_id={user_id}, homeshopping_live_id={homeshopping_live_id}")
-    
+
     try:
-        # 데이터베이스 연결 상태 확인
-        # logger.info(f"데이터베이스 세션 상태 확인: {db.is_active}")
-        
-        # 기존 찜 여부 확인
-        # logger.info(f"기존 찜 조회 시작: user_id={user_id}, homeshopping_live_id={homeshopping_live_id}")
+        # FOR UPDATE로 동시 요청 시 race condition 방지
         existing_like_result = await db.execute(
-            select(HomeshoppingLikes).where(
+            select(HomeshoppingLikes)
+            .where(
                 and_(
                     HomeshoppingLikes.user_id == user_id,
                     HomeshoppingLikes.live_id == homeshopping_live_id
                 )
             )
+            .with_for_update()
         )
         existing_like = existing_like_result.scalar_one_or_none()
         # logger.info(f"기존 찜 조회 결과: {existing_like is not None}")
-        
+
         if existing_like:
             # 기존 찜이 있으면 찜 해제
         # logger.info(f"기존 찜 발견, 찜 해제 처리: like_id={existing_like.homeshopping_like_id}")
-            
+
             try:
                 # 방송 알림도 함께 삭제
                 await delete_broadcast_notification(db, user_id, existing_like.homeshopping_like_id)
                 # logger.info("방송 알림 삭제 완료")
             except Exception as e:
                 logger.warning(f"방송 알림 삭제 실패 (무시하고 진행): {str(e)}")
-            
+
             # 찜 레코드 삭제
             await db.delete(existing_like)
             # logger.info("찜 레코드 삭제 완료")
-            
+
             # logger.info(f"홈쇼핑 찜 해제 완료: user_id={user_id}, homeshopping_live_id={homeshopping_live_id}")
             return False
-            
+
         else:
             # 기존 찜이 없으면 찜 등록
             # logger.info(f"새로운 찜 등록 처리: user_id={user_id}, homeshopping_live_id={homeshopping_live_id}")
-            
+
             # 찜 레코드 생성
             new_like = HomeshoppingLikes(
                 user_id=user_id,
@@ -71,7 +69,7 @@ async def toggle_homeshopping_likes(
             )
             db.add(new_like)
             # logger.info("찜 레코드 생성 완료")
-            
+
             try:
                 # 방송 정보 조회하여 알림 생성
                 # logger.info(f"방송 정보 조회 시작: homeshopping_live_id={homeshopping_live_id}")
@@ -82,7 +80,7 @@ async def toggle_homeshopping_likes(
                 )
                 live_info = live_info_result.scalar_one_or_none()
                 # logger.info(f"방송 정보 조회 결과: {live_info is not None}")
-                
+
                 if live_info and live_info.live_date and live_info.live_start_time:
                     # 방송 시작 알림 생성
                     await create_broadcast_notification(
@@ -99,10 +97,10 @@ async def toggle_homeshopping_likes(
                     logger.warning("방송 정보가 부족하여 알림을 생성하지 않음")
             except Exception as e:
                 logger.warning(f"방송 알림 생성 실패 (무시하고 진행): {str(e)}")
-            
+
             # logger.info(f"홈쇼핑 찜 등록 완료: user_id={user_id}, homeshopping_live_id={homeshopping_live_id}, like_id={new_like.homeshopping_like_id}")
             return True
-            
+
     except Exception as e:
         logger.error(f"홈쇼핑 찜 토글 실패: user_id={user_id}, homeshopping_live_id={homeshopping_live_id}, error={str(e)}")
         logger.error(f"에러 타입: {type(e).__name__}")

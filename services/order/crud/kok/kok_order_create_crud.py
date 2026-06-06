@@ -3,7 +3,7 @@
 from typing import List
 from datetime import datetime
 
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.logger import get_logger
@@ -24,15 +24,15 @@ async def create_orders_from_selected_carts(
 ) -> dict:
     """
     장바구니에서 선택된 항목들로 한 번에 주문 생성
-    
+
     Args:
         db: 데이터베이스 세션
         user_id: 주문하는 사용자 ID
         selected_items: 선택된 장바구니 항목 목록 [{"kok_cart_id": int, "quantity": int}]
-    
+
     Returns:
         dict: 주문 생성 결과 (order_id, total_amount, order_count, order_details, message, order_time, kok_order_ids)
-        
+
     Note:
         - CRUD 계층: DB 트랜잭션 처리 담당
         - 각 선택 항목에 대해 KokCart.kok_price_id를 직접 사용하여 KokOrder를 생성
@@ -43,11 +43,14 @@ async def create_orders_from_selected_carts(
     if not selected_items:
         raise ValueError("선택된 항목이 없습니다.")
 
+    # 주문 생성은 SERIALIZABLE로 격리 — 동시 주문 시 팬텀 리드 방지
+    await db.execute(text("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"))
+
     main_order = Order(user_id=user_id, order_time=datetime.now())
     db.add(main_order)
     await db.flush()
 
-    # 필요한 데이터 일괄 조회
+    # FOR UPDATE로 선택된 장바구니 항목을 잠근 후 조회 (동시 주문 방지)
     kok_cart_ids = [item["kok_cart_id"] for item in selected_items]
 
     stmt = (
@@ -55,20 +58,21 @@ async def create_orders_from_selected_carts(
         .join(KokProductInfo, KokCart.kok_product_id == KokProductInfo.kok_product_id)
         .where(KokCart.kok_cart_id.in_(kok_cart_ids))
         .where(KokCart.user_id == user_id)
+        .with_for_update()
     )
     try:
         rows = (await db.execute(stmt)).all()
     except Exception as e:
         logger.error(f"선택된 장바구니 항목 조회 SQL 실행 실패: user_id={user_id}, kok_cart_ids={kok_cart_ids}, error={str(e)}")
         raise
-    
+
     if not rows:
         logger.warning(f"선택된 장바구니 항목을 찾을 수 없음: user_id={user_id}, kok_cart_ids={kok_cart_ids}")
-        
+
         # 디버깅 정보 수집
         debug_info = await debug_cart_status(db, user_id, kok_cart_ids)
         logger.warning(f"장바구니 디버깅 정보: {debug_info}")
-        
+
         raise ValueError("선택된 장바구니 항목을 찾을 수 없습니다.")
 
     # 초기 상태: 주문접수
@@ -81,13 +85,13 @@ async def create_orders_from_selected_carts(
     total_amount = 0
     order_details: List[dict] = []
     created_kok_order_ids: List[int] = []
-    
+
     for cart, product in rows:
         # 선택 항목의 수량 찾기
         quantity = next((i["quantity"] for i in selected_items if i["kok_cart_id"] == cart.kok_cart_id), None)
         if quantity is None:
             continue
-        
+
         # KokCart의 kok_price_id를 직접 사용
         if not cart.kok_price_id:
             logger.warning(f"장바구니에 가격 정보가 없음: kok_cart_id={cart.kok_cart_id}, user_id={user_id}")

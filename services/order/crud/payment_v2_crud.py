@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, HTTPException, Request
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.config import get_settings
@@ -210,7 +211,8 @@ async def confirm_payment_and_update_status_v2(
     if SERVICE_AUTH_TOKEN:
         headers["Authorization"] = f"Bearer {SERVICE_AUTH_TOKEN}"
 
-    # (4) 결제 요청 상태로 변경
+    # (4) 결제 요청 상태로 변경 — SERIALIZABLE로 결제 상태 중복 처리 방지
+    await db.execute(text("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"))
     # logger.info(f"[v2] 주문 상태를 PAYMENT_REQUESTED로 변경 시작: order_id={order_id}")
     await _mark_all_children_payment_requested(
         db,
@@ -415,7 +417,8 @@ async def apply_payment_webhook_v2(
         kok_orders = order_data.get("kok_orders", [])
         hs_orders = order_data.get("homeshopping_orders", [])
 
-        # 하위 주문 상태 일괄 갱신 (v1과 동일한 헬퍼)
+        # 하위 주문 상태 일괄 갱신 — SERIALIZABLE로 중복 웹훅 처리 방지
+        await db.execute(text("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"))
         await _mark_all_children_payment_completed(
             db,
             kok_orders=kok_orders,
@@ -449,8 +452,9 @@ async def apply_payment_webhook_v2(
         return webhook_result
 
     elif event in ("payment.failed", "payment.cancelled"):
-        # 결제 실패/취소 시 주문 취소
+        # 결제 실패/취소 시 주문 취소 — SERIALIZABLE로 중복 취소 방지
         try:
+            await db.execute(text("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"))
             reason = failure_reason if failure_reason else "결제 실패"
             await cancel_order(db, order_id, reason)
             # logger.info(f"[v2] 결제실패/취소로 인한 주문 취소 완료: order_id={order_id}, reason={reason}")

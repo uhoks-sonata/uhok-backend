@@ -17,12 +17,14 @@ async def toggle_kok_likes(
     """
     찜 등록/해제 토글
     """
-    # logger.info(f"찜 토글 시작: user_id={user_id}, product_id={kok_product_id}")
-    
-    # 기존 찜 확인
-    stmt = select(KokLikes).where(
-        KokLikes.user_id == user_id,
-        KokLikes.kok_product_id == kok_product_id
+    # FOR UPDATE로 동시 요청 시 race condition 방지
+    stmt = (
+        select(KokLikes)
+        .where(
+            KokLikes.user_id == user_id,
+            KokLikes.kok_product_id == kok_product_id,
+        )
+        .with_for_update()
     )
     try:
         result = await db.execute(stmt)
@@ -30,7 +32,7 @@ async def toggle_kok_likes(
     except Exception as e:
         logger.error(f"찜 상태 확인 SQL 실행 실패: user_id={user_id}, kok_product_id={kok_product_id}, error={str(e)}")
         raise
-    
+
     if existing_like:
         # 찜 해제
         await db.delete(existing_like)
@@ -39,13 +41,13 @@ async def toggle_kok_likes(
     else:
         # 찜 등록
         created_at = datetime.now()
-        
+
         new_like = KokLikes(
             user_id=user_id,
             kok_product_id=kok_product_id,
             kok_created_at=created_at
         )
-        
+
         db.add(new_like)
     # logger.info(f"찜 등록 완료: user_id={user_id}, product_id={kok_product_id}")
         return True
