@@ -5,11 +5,6 @@
 """
 
 import asyncio
-import sys
-from pathlib import Path
-
-# 프로젝트 루트를 Python 경로에 추가
-sys.path.append(str(Path(__file__).parent.parent))
 
 from common.database.mariadb_service import SessionLocal as MariaSessionLocal
 from common.database.postgres_log import SessionLocal as PostgresLogSessionLocal

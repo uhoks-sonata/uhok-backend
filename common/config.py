@@ -63,7 +63,6 @@ class Settings(BaseSettings):
     redis_url: str = Field("redis://redis:6379/0", env="REDIS_URL", description="Redis 연결 URL")
 
     # ML 서비스 설정
-    ml_mode: str = Field("remote_embed", env="ML_MODE", description="ML 서비스 모드")
     ml_inference_url: str = Field("http://ml-inference:8001", env="ML_INFERENCE_URL", description="ML Inference 서비스 URL")
     
     # 외부 API 설정 (로그 전송 불필요하므로 제거)
@@ -101,7 +100,7 @@ def get_settings() -> Settings:
     try:
         settings = Settings()
         logger.info(f"설정 로드 완료: 앱명={settings.app_name}, 디버그={settings.debug}")
-        logger.debug(f"데이터베이스 URL 설정됨: MariaDB auth, MariaDB service, PostgreSQL recommend, PostgreSQL log")
+        logger.debug(f"데이터베이스 URL 설정됨: MariaDB auth, MariaDB service, PostgreSQL log")
         return settings
     except Exception as e:
         logger.error(f"설정 로드 실패: {str(e)}")

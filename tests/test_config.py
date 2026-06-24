@@ -4,12 +4,6 @@
 - 환경 변수 및 설정 값 검증
 """
 
-import sys
-from pathlib import Path
-
-# 프로젝트 루트를 Python 경로에 추가
-sys.path.append(str(Path(__file__).parent.parent))
-
 from common.config import get_settings
 from common.logger import get_logger
 
