@@ -10,18 +10,21 @@ import json
 import os
 import secrets
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, HTTPException, Request
-from sqlalchemy import text
+from sqlalchemy import desc, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.config import get_settings
 from common.log_utils import send_user_log
 from common.logger import get_logger
+from services.order.models.order_base_model import StatusMaster
+from services.order.models.homeshopping.hs_order_model import HomeShoppingOrderStatusHistory
+from services.order.models.kok.kok_order_model import KokOrderStatusHistory
 from services.order.schemas.payment_schema import PaymentConfirmV2Response
 from services.order.crud.common.order_access_management_crud import _ensure_order_access
 from services.order.crud.common.order_cancel_management_crud import cancel_order
@@ -39,6 +42,78 @@ load_dotenv()
 SERVICE_AUTH_TOKEN = os.getenv("SERVICE_AUTH_TOKEN")
 PAYMENT_SERVER_URL2 = os.getenv("PAYMENT_SERVER_URL2")
 PAYMENT_WEBHOOK_SECRET = os.getenv("PAYMENT_WEBHOOK_SECRET")
+
+# 결제서버 웹훅 재시도(최대 4회, 지수 백오프)가 끝날 시간을 넉넉히 넘긴 임계값.
+# 이 시간이 지나도 PAYMENT_REQUESTED에 머물러 있으면 웹훅이 영구히 유실된 것으로 간주한다.
+PAYMENT_REQUESTED_EXPIRY = timedelta(minutes=5)
+
+
+async def _expire_stale_payment_requested(
+    db: AsyncSession,
+    order_id: int,
+    order_data: Dict[str, Any],
+) -> bool:
+    """
+    PAYMENT_REQUESTED 상태로 임계 시간 이상 멈춰 있는 주문을 자동 취소한다.
+
+    결제서버의 웹훅(완료/취소 모두)이 끝내 도착하지 않으면 주문이
+    PAYMENT_REQUESTED에서 영구히 멈추고, 재결제 시도조차 ORDER_RECEIVED가
+    아니라는 이유로 거부된다. 다음 v2 결제 확인 시도 시점에 이 상태를 감지해
+    정리함으로써 사용자가 다시 주문을 진행할 수 있게 한다.
+
+    반환값: 만료를 감지해 취소 처리했으면 True.
+    """
+    status_result = await db.execute(
+        select(StatusMaster).where(StatusMaster.status_code == "PAYMENT_REQUESTED")
+    )
+    payment_requested_status = status_result.scalar_one_or_none()
+    if not payment_requested_status:
+        return False
+
+    cutoff = datetime.now() - PAYMENT_REQUESTED_EXPIRY
+    stale_found = False
+
+    for kok_order in order_data.get("kok_orders", []):
+        status_history_result = await db.execute(
+            select(KokOrderStatusHistory)
+            .where(KokOrderStatusHistory.kok_order_id == kok_order.kok_order_id)
+            .order_by(desc(KokOrderStatusHistory.changed_at))
+            .limit(1)
+        )
+        latest_status = status_history_result.scalar_one_or_none()
+        if (
+            latest_status
+            and latest_status.status_id == payment_requested_status.status_id
+            and latest_status.changed_at <= cutoff
+        ):
+            stale_found = True
+            break
+
+    if not stale_found:
+        for hs_order in order_data.get("homeshopping_orders", []):
+            status_history_result = await db.execute(
+                select(HomeShoppingOrderStatusHistory)
+                .where(HomeShoppingOrderStatusHistory.homeshopping_order_id == hs_order.homeshopping_order_id)
+                .order_by(desc(HomeShoppingOrderStatusHistory.changed_at))
+                .limit(1)
+            )
+            latest_status = status_history_result.scalar_one_or_none()
+            if (
+                latest_status
+                and latest_status.status_id == payment_requested_status.status_id
+                and latest_status.changed_at <= cutoff
+            ):
+                stale_found = True
+                break
+
+    if not stale_found:
+        return False
+
+    logger.warning(
+        f"[v2] PAYMENT_REQUESTED 상태로 {PAYMENT_REQUESTED_EXPIRY} 이상 멈춘 주문 감지, 자동 취소 처리: order_id={order_id}"
+    )
+    await cancel_order(db, order_id, "웹훅 미수신으로 결제 확인 시간 초과")
+    return True
 
 class WaiterRegistry:
     """
@@ -179,7 +254,14 @@ async def confirm_payment_and_update_status_v2(
     # (1) 접근 검증
     order_data = await _ensure_order_access(db, order_id, user_id)
 
-    # (1-1) 주문 상태 확인 (ORDER_RECEIVED 상태만 결제 가능)
+    # (1-1) PAYMENT_REQUESTED로 오래 멈춰 있는 경우(웹훅 미수신) 자동 취소 후 안내
+    if await _expire_stale_payment_requested(db, order_id, order_data):
+        raise HTTPException(
+            status_code=400,
+            detail="이전 결제 확인이 시간 초과로 취소되었습니다. 주문을 다시 진행해주세요.",
+        )
+
+    # (1-2) 주문 상태 확인 (ORDER_RECEIVED 상태만 결제 가능)
     # logger.info(f"[v2] 주문 상태 확인 시작: order_id={order_id}")
     await _verify_order_status_for_payment(db, order_data)
     # logger.info(f"[v2] 주문 상태 확인 완료: order_id={order_id}")

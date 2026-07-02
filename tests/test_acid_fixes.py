@@ -4,6 +4,7 @@
 2. toggle_homeshopping_likes — with_for_update() 적용
 3. create_orders_from_selected_carts — with_for_update() + SERIALIZABLE 적용
 4. apply_payment_webhook_v2  — SERIALIZABLE 적용
+5. _expire_stale_payment_requested  — 웹훅 미수신으로 멈춘 주문 자동 취소
 """
 
 from datetime import datetime
@@ -279,3 +280,75 @@ async def test_webhook_failed_sets_serializable():
     assert result.get("ok") is True
     assert any("SERIALIZABLE" in c for c in execute_calls), \
         f"SERIALIZABLE 미호출. calls={execute_calls}"
+
+
+# ─────────────────────────────────────────────────────────────
+# 5 · _expire_stale_payment_requested — 웹훅 미수신 주문 자동 취소
+# ─────────────────────────────────────────────────────────────
+
+def _status_history(status_id, changed_at):
+    history = MagicMock()
+    history.status_id = status_id
+    history.changed_at = changed_at
+    return history
+
+
+def _make_expire_db(payment_requested_status_id, kok_history, hs_history=None):
+    """StatusMaster 조회 1회 + kok/hs 상태이력 조회 순서로 결과를 반환하는 db mock."""
+    status_master = MagicMock()
+    status_master.status_id = payment_requested_status_id
+
+    results = [_scalar_result(status_master), _scalar_result(kok_history)]
+    if hs_history is not None:
+        results.append(_scalar_result(hs_history))
+
+    db = AsyncMock(spec=AsyncSession)
+    db.execute.side_effect = results
+    return db
+
+
+def _scalar_result(value):
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = value
+    return result
+
+
+@pytest.mark.asyncio
+async def test_expire_stale_payment_requested_cancels_when_expired():
+    """PAYMENT_REQUESTED로 임계 시간(5분)을 넘겨 멈춘 주문은 자동 취소된다."""
+    from datetime import timedelta
+
+    stale_changed_at = datetime.now() - payment_v2_mod.PAYMENT_REQUESTED_EXPIRY - timedelta(minutes=1)
+    kok_order = MagicMock(kok_order_id=1)
+    db = _make_expire_db(
+        payment_requested_status_id=99,
+        kok_history=_status_history(99, stale_changed_at),
+    )
+
+    with patch.object(payment_v2_mod, "cancel_order", new_callable=AsyncMock) as mock_cancel:
+        expired = await payment_v2_mod._expire_stale_payment_requested(
+            db, order_id=42, order_data={"kok_orders": [kok_order], "homeshopping_orders": []}
+        )
+
+    assert expired is True
+    mock_cancel.assert_awaited_once()
+    assert mock_cancel.await_args.args[1] == 42
+
+
+@pytest.mark.asyncio
+async def test_expire_stale_payment_requested_keeps_recent_request():
+    """PAYMENT_REQUESTED로 바뀐 지 얼마 안 된 주문은 취소하지 않는다."""
+    fresh_changed_at = datetime.now()
+    kok_order = MagicMock(kok_order_id=1)
+    db = _make_expire_db(
+        payment_requested_status_id=99,
+        kok_history=_status_history(99, fresh_changed_at),
+    )
+
+    with patch.object(payment_v2_mod, "cancel_order", new_callable=AsyncMock) as mock_cancel:
+        expired = await payment_v2_mod._expire_stale_payment_requested(
+            db, order_id=42, order_data={"kok_orders": [kok_order], "homeshopping_orders": []}
+        )
+
+    assert expired is False
+    mock_cancel.assert_not_awaited()
